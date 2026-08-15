@@ -1,0 +1,9 @@
+.cs-preparation-bulkbar > .cs-bulk-action-line {
+  display: none !important;
+  border-top: 0 !important;
+  padding-top: 0 !important;
+  margin: 0 !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  flex: 0 0 0 !important;
+}
