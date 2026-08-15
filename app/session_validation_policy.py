@@ -13,6 +13,13 @@ _BASE_UPDATE_PREREQUISITES: Callable[..., dict[str, Any]] | None = None
 _DEFAULT_PROBE_URL = "https://plugintheme.net/product/memberpress-downloads"
 
 
+def _safe_count(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _live_plugintheme_access_probe(app: Any) -> dict[str, Any]:
     """Valida a sessão pelo backend real de acesso, não apenas pela presença de cookies."""
     probe_url = os.getenv("SCRAPER_PLUGINTHEME_SESSION_PROBE_URL", _DEFAULT_PROBE_URL).strip() or _DEFAULT_PROBE_URL
@@ -111,7 +118,7 @@ def _patched_update_prerequisites(*, check_ssh_connection: bool = False, app: An
     result["plugintheme_cookies"] = {
         **previous,
         **live,
-        "count": max(0, int(previous.get("count", 0) or 0)),
+        "count": _safe_count(previous.get("count", 0)),
     }
     return result
 
