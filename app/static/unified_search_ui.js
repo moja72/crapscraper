@@ -3,13 +3,20 @@
 
   const STYLE_ID = "crapscraper-unified-search-style";
   const PAGE_SIZES = [5, 10, 25, 50, 100, 250];
+  const DEFAULT_PAGE_SIZE = 5;
   const byId = id => document.getElementById(id);
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
 
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .cs-search-system{--cs-border:#292931;--cs-panel:#111114;--cs-panel2:#151519;--cs-muted:#9ca3af;--cs-control:46px}
+    .cs-search-system{
+      --cs-border:#292931;
+      --cs-panel:#111114;
+      --cs-panel2:#151519;
+      --cs-muted:#9ca3af;
+      --cs-control:46px;
+    }
 
     .cs-search-system input[type=search],
     .cs-search-system input[type=text],
@@ -33,59 +40,51 @@
 
     .cs-search-system button{border-radius:10px!important}
 
+    /* Bloco de filtros: mesma linguagem visual em todas as listagens. */
     .cs-search-system .comparison-filter-grid,
     .cs-search-system .comparison-actions-grid,
     .cs-search-system .updates-filters,
-    .cs-search-system .plugintema-manage-filters{
+    .cs-search-system .plugintema-manage-filters,
+    .cs-search-system .updates-list-controls,
+    .cs-search-system .updates-history-toolbar{
       gap:12px!important;
       align-items:end!important;
-    }
-
-    .cs-search-system .updates-filters,
-    .cs-search-system .plugintema-manage-filters,
-    .cs-search-system .comparison-filter-grid,
-    .cs-search-system .comparison-actions-grid{
       padding:14px!important;
       background:var(--cs-panel)!important;
       border:1px solid var(--cs-border)!important;
       border-radius:14px!important;
     }
 
+    .cs-search-system .updates-filters{
+      display:grid!important;
+      grid-template-columns:repeat(6,minmax(0,1fr))!important;
+    }
+    .cs-search-system .updates-filters>label,
+    .cs-search-system .updates-filters>button{min-width:0!important;width:100%!important}
+    .cs-search-system .updates-filters>button{min-height:var(--cs-control)!important}
+
+    .cs-search-system .plugintema-manage-filters{
+      display:grid!important;
+      grid-template-columns:repeat(4,minmax(0,1fr))!important;
+    }
+
+    /* A fila usa somente busca + estado no bloco de filtros.
+       Contagem e itens/página ficam na linha de metadados, como nas demais. */
     .cs-search-system .updates-list-controls{
       display:grid!important;
-      grid-template-columns:minmax(260px,5fr) minmax(190px,3fr) minmax(150px,2fr) minmax(130px,2fr)!important;
-      gap:12px!important;
-      align-items:end!important;
-      padding:14px!important;
-      background:var(--cs-panel)!important;
-      border:1px solid var(--cs-border)!important;
-      border-radius:14px!important;
-      margin-bottom:12px!important;
+      grid-template-columns:minmax(280px,2fr) minmax(220px,1fr)!important;
+      margin-bottom:0!important;
     }
     .cs-search-system .updates-list-controls>label{min-width:0!important}
-    .cs-search-system .updates-list-controls>strong{
-      min-height:var(--cs-control)!important;
-      display:flex!important;
-      align-items:center!important;
-      justify-content:flex-end!important;
-      color:#d8d8e0!important;
-      white-space:nowrap!important;
-    }
 
     .cs-search-system .updates-history-toolbar{
       display:grid!important;
       grid-template-columns:minmax(0,1fr) auto!important;
-      gap:12px!important;
-      align-items:end!important;
-      padding:14px!important;
-      background:var(--cs-panel)!important;
-      border:1px solid var(--cs-border)!important;
-      border-radius:14px!important;
       margin-bottom:12px!important;
     }
     .cs-search-system .updates-history-filter-group{
       display:grid!important;
-      grid-template-columns:minmax(260px,3fr) minmax(190px,2fr)!important;
+      grid-template-columns:minmax(280px,3fr) minmax(220px,2fr)!important;
       gap:12px!important;
       min-width:0!important;
     }
@@ -96,7 +95,9 @@
     }
     .cs-search-system .updates-history-actions button{min-height:var(--cs-control)!important}
 
-    .cs-search-system .listing-meta-row{
+    /* Linha padrão: quantidade à esquerda e itens por página à direita. */
+    .cs-search-system .listing-meta-row,
+    .cs-search-system .cs-queue-meta-row{
       display:flex!important;
       align-items:center!important;
       justify-content:space-between!important;
@@ -105,14 +106,19 @@
       margin:8px 0 10px!important;
       color:var(--cs-muted)!important;
     }
-    .cs-search-system .listing-page-size{
+    .cs-search-system .listing-page-size,
+    .cs-search-system .cs-page-size-wrap{
       display:flex!important;
       align-items:center!important;
       gap:10px!important;
       margin-left:auto!important;
       white-space:nowrap!important;
+      color:var(--cs-muted)!important;
+      font-size:13px!important;
+      font-weight:400!important;
     }
-    .cs-search-system .listing-page-size select{
+    .cs-search-system .listing-page-size select,
+    .cs-search-system .cs-page-size-wrap select{
       width:92px!important;
       min-width:92px!important;
       height:42px!important;
@@ -120,6 +126,7 @@
       padding:0 30px 0 12px!important;
     }
 
+    /* Paginação única: anterior | página editável | próxima. */
     .cs-search-system .listing-pagination{
       display:grid!important;
       grid-template-columns:minmax(160px,1fr) auto minmax(160px,1fr)!important;
@@ -133,7 +140,6 @@
       min-height:48px!important;
       margin:0!important;
     }
-
     .cs-search-system .cs-page-jump{
       display:inline-flex!important;
       align-items:center!important;
@@ -164,17 +170,52 @@
       font-weight:800!important;
     }
 
+    /* Operações em lote: duas linhas previsíveis em Comparar e Preparação. */
     .cs-search-system .comparison-bulk-toolbar,
     .cs-search-system .updates-bulkbar{
       display:flex!important;
-      align-items:center!important;
+      flex-direction:column!important;
+      align-items:stretch!important;
       gap:10px!important;
-      flex-wrap:wrap!important;
       padding:12px!important;
       margin:10px 0 12px!important;
       border:1px solid var(--cs-border)!important;
       border-radius:12px!important;
       background:var(--cs-panel2)!important;
+    }
+    .cs-search-system .cs-bulk-selection-line,
+    .cs-search-system .cs-bulk-action-line,
+    .cs-search-system .comparison-bulk-actions-row{
+      display:flex!important;
+      align-items:center!important;
+      gap:10px!important;
+      flex-wrap:wrap!important;
+      width:100%!important;
+    }
+    .cs-search-system .cs-bulk-selection-line .badge,
+    .cs-search-system .cs-bulk-selection-line #updates_selected_count,
+    .cs-search-system .cs-bulk-selection-line #comparison_selected_count{
+      margin-left:auto!important;
+      white-space:nowrap!important;
+    }
+    .cs-search-system .cs-bulk-action-line button,
+    .cs-search-system .comparison-bulk-actions-row button{
+      min-height:46px!important;
+    }
+    .cs-search-system .cs-bulk-action-line{
+      padding-top:10px!important;
+      border-top:1px solid #25252c!important;
+      justify-content:flex-end!important;
+    }
+    .cs-search-system .cs-bulk-action-line button{
+      min-width:220px!important;
+    }
+    .cs-search-system .comparison-bulk-actions-row{
+      padding-top:10px!important;
+      border-top:1px solid #25252c!important;
+    }
+    .cs-search-system .comparison-bulk-actions-row select{
+      flex:1 1 420px!important;
     }
 
     .cs-search-system .table-wrap,
@@ -185,18 +226,30 @@
       border-color:#292931!important;
     }
 
+    @media(max-width:1200px){
+      .cs-search-system .updates-filters{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+      .cs-search-system .plugintema-manage-filters{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+    }
     @media(max-width:1050px){
       .cs-search-system .updates-list-controls{grid-template-columns:1fr 1fr!important}
       .cs-search-system .updates-history-toolbar{grid-template-columns:1fr!important}
       .cs-search-system .updates-history-actions{justify-content:flex-start!important}
     }
     @media(max-width:720px){
+      .cs-search-system .updates-filters,
       .cs-search-system .updates-list-controls,
-      .cs-search-system .updates-history-filter-group{grid-template-columns:1fr!important}
-      .cs-search-system .listing-meta-row{align-items:flex-start!important;flex-direction:column!important}
-      .cs-search-system .listing-page-size{margin-left:0!important}
+      .cs-search-system .updates-history-filter-group,
+      .cs-search-system .plugintema-manage-filters{grid-template-columns:1fr!important}
+      .cs-search-system .listing-meta-row,
+      .cs-search-system .cs-queue-meta-row{align-items:flex-start!important;flex-direction:column!important}
+      .cs-search-system .listing-page-size,
+      .cs-search-system .cs-page-size-wrap{margin-left:0!important}
       .cs-search-system .listing-pagination{grid-template-columns:1fr 1fr!important}
       .cs-search-system .cs-page-jump{grid-column:1/-1!important;grid-row:1!important}
+      .cs-search-system .cs-bulk-selection-line .badge,
+      .cs-search-system .cs-bulk-selection-line #updates_selected_count,
+      .cs-search-system .cs-bulk-selection-line #comparison_selected_count{margin-left:0!important}
+      .cs-search-system .cs-bulk-action-line button{width:100%!important;min-width:0!important}
     }
   `;
 
@@ -225,11 +278,11 @@
     return root;
   }
 
-  function addFiveOption(select) {
+  function normalizePageSizeSelect(select) {
     if (!select || select.tagName !== "SELECT") return;
     const numeric = [...select.options].every(option => /^\d+$/.test(normalize(option.value)));
     if (!numeric) return;
-    const selected = select.value;
+
     PAGE_SIZES.forEach(size => {
       if (![...select.options].some(option => Number(option.value) === size)) {
         const option = document.createElement("option");
@@ -238,14 +291,20 @@
         select.appendChild(option);
       }
     });
-    [...select.options].sort((a,b) => Number(a.value) - Number(b.value)).forEach(option => select.appendChild(option));
-    if ([...select.options].some(option => option.value === selected)) select.value = selected;
+    [...select.options]
+      .sort((a,b) => Number(a.value) - Number(b.value))
+      .forEach(option => select.appendChild(option));
+
+    if (!select.dataset.csDefaultApplied) {
+      select.value = String(DEFAULT_PAGE_SIZE);
+      select.dataset.csDefaultApplied = "1";
+    }
   }
 
   function normalizePageSize(root, id) {
     const select = byId(id);
     if (!root || !select) return;
-    addFiveOption(select);
+    normalizePageSizeSelect(select);
     const container = select.closest(".listing-page-size") || select.parentElement;
     if (!container) return;
     [...container.querySelectorAll("label,span")].forEach(label => {
@@ -272,7 +331,7 @@
       if (!button || button.disabled) return;
       button.click();
       remaining -= 1;
-      if (remaining > 0) setTimeout(step, 35);
+      if (remaining > 0) setTimeout(step,35);
     };
     step();
   }
@@ -293,7 +352,7 @@
 
     const input = label.querySelector("input[data-cs-page-input]");
     const go = () => {
-      const target = Math.max(1, Math.min(info.total, Number(input.value) || info.current));
+      const target = Math.max(1,Math.min(info.total,Number(input.value) || info.current));
       if (target === info.current) return;
       const api = window.__crapscraperPagination;
       if (api && typeof api[spec.setter] === "function") api[spec.setter](target);
@@ -317,13 +376,89 @@
     installPageJump(spec);
   }
 
+  function standardizeComparisonBulk(results) {
+    const bar = results?.querySelector(".comparison-bulk-toolbar");
+    if (!bar) return;
+    bar.classList.add("comparison-bulk-toolbar");
+
+    let selection = bar.querySelector(".cs-bulk-selection-line");
+    const actions = bar.querySelector(".comparison-bulk-actions-row");
+    if (!selection) {
+      selection = document.createElement("div");
+      selection.className = "cs-bulk-selection-line";
+      [...bar.children].filter(node => node !== actions).forEach(node => selection.appendChild(node));
+      bar.insertBefore(selection,actions || null);
+    }
+    actions?.classList.add("comparison-bulk-actions-row");
+  }
+
+  function standardizeWaitingBulk(root) {
+    const bar = root?.querySelector(".updates-bulkbar");
+    if (!bar) return;
+    bar.classList.add("updates-bulkbar");
+
+    let selection = bar.querySelector(".cs-bulk-selection-line");
+    let actions = bar.querySelector(".cs-bulk-action-line");
+    if (!selection) {
+      selection = document.createElement("div");
+      selection.className = "cs-bulk-selection-line";
+      const ids = ["updates_select_page","updates_select_filtered","updates_clear_selection","updates_selected_count"];
+      ids.map(byId).filter(Boolean).forEach(node => selection.appendChild(node));
+      bar.prepend(selection);
+    }
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.className = "cs-bulk-action-line";
+      [byId("updates_prepare_selected"),byId("updates_enqueue_selected")].filter(Boolean).forEach(node => actions.appendChild(node));
+      bar.appendChild(actions);
+    }
+  }
+
+  function standardizeQueueMeta(root) {
+    const controls = root?.querySelector(".updates-list-controls");
+    const pagination = byId("updates_queue_prev")?.closest(".listing-pagination");
+    const pageSize = byId("updates_queue_page_size");
+    const count = byId("updates_queue_found_count");
+    if (!controls || !pagination || !pageSize || !count) return;
+
+    const oldLabel = pageSize.closest("label");
+    let meta = root.querySelector(".cs-queue-meta-row");
+    if (!meta) {
+      meta = document.createElement("div");
+      meta.className = "listing-meta-row cs-queue-meta-row";
+      pagination.parentElement?.insertBefore(meta,pagination);
+    }
+
+    count.classList.add("cs-result-count");
+    if (count.parentElement !== meta) meta.appendChild(count);
+
+    let pageWrap = meta.querySelector(".cs-page-size-wrap");
+    if (!pageWrap) {
+      pageWrap = document.createElement("div");
+      pageWrap.className = "listing-page-size cs-page-size-wrap";
+      const label = document.createElement("span");
+      label.textContent = "Itens por página";
+      pageWrap.appendChild(label);
+      pageWrap.appendChild(pageSize);
+      meta.appendChild(pageWrap);
+    }
+    if (oldLabel && oldLabel !== pageWrap && oldLabel.childElementCount === 0) oldLabel.remove();
+  }
+
+  function setupCatalogs() {
+    const root = markSystem(findRoot(byId("catalogos_page_size")),"catalogs");
+    if (!root) return;
+    normalizePageSize(root,"catalogos_page_size");
+    prepareKnownPagination(root,{label:"catalogos_page_label",prev:"catalogos_prev_page",next:"catalogos_next_page",setter:"catalogs"});
+  }
+
   function setupComparison() {
     const panel = markSystem(byId("tab_panel_comparacao"),"comparison");
     const results = markSystem(byId("comparison_results_card"),"comparison-results");
     if (!panel || !results) return;
     panel.querySelector(".comparison-filter-grid")?.classList.add("comparison-filter-grid");
     panel.querySelector(".comparison-actions-grid")?.classList.add("comparison-actions-grid");
-    results.querySelector(".comparison-bulk-toolbar")?.classList.add("comparison-bulk-toolbar");
+    standardizeComparisonBulk(results);
     normalizePageSize(results,"comparison_page_size");
     prepareKnownPagination(results,{label:"comparison_page_label",prev:"comparison_prev_btn",next:"comparison_next_btn",setter:"comparison"});
   }
@@ -332,7 +467,7 @@
     const root = markSystem(findRoot(byId("updates_status_filter")),"updates-waiting");
     if (!root) return;
     root.querySelector(".updates-filters")?.classList.add("updates-filters");
-    root.querySelector(".updates-bulkbar")?.classList.add("updates-bulkbar");
+    standardizeWaitingBulk(root);
     normalizePageSize(root,"updates_page_size");
     prepareKnownPagination(root,{label:"updates_page_label",prev:"updates_prev_page",next:"updates_next_page",setter:"updatesWaiting"});
   }
@@ -341,7 +476,8 @@
     const root = markSystem(findRoot(byId("updates_queue_search")),"updates-queue");
     if (!root) return;
     root.querySelector(".updates-list-controls")?.classList.add("updates-list-controls");
-    normalizePageSize(root,"updates_queue_page_size");
+    normalizePageSizeSelect(byId("updates_queue_page_size"));
+    standardizeQueueMeta(root);
     prepareKnownPagination(root,{label:"updates_queue_page",prev:"updates_queue_prev",next:"updates_queue_next",setter:"updatesQueue"});
   }
 
@@ -361,6 +497,13 @@
     root.querySelector(".plugintema-manage-filters")?.classList.add("plugintema-manage-filters");
     normalizePageSize(root,"plugintema_manage_page_size");
     prepareKnownPagination(root,{label:"plugintema_manage_page_status",prev:"plugintema_manage_prev",next:"plugintema_manage_next",setter:"pluginTemaManager"});
+  }
+
+  function setupUpdateListPreview() {
+    const root = markSystem(findRoot(byId("update_list_preview_search")),"update-list-preview");
+    if (!root) return;
+    normalizePageSize(root,"update_list_preview_page_size");
+    prepareKnownPagination(root,{label:"update_list_preview_page",prev:"update_list_preview_prev",next:"update_list_preview_next",setter:"updateListPreview"});
   }
 
   function setupCatalogPreview() {
@@ -386,11 +529,13 @@
 
   function standardizeAll() {
     clearBrokenClasses();
+    setupCatalogs();
     setupComparison();
     setupWaiting();
     setupQueue();
     setupHistory();
     setupPluginTemaManager();
+    setupUpdateListPreview();
     setupCatalogPreview();
   }
 
