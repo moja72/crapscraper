@@ -208,6 +208,76 @@
     .standard-log-content{
       margin-top:14px!important;
     }
+
+    /* Atualizar: Ambiente, Preparação e Fila seguem o mesmo padrão de sanfona. */
+    .standard-update-accordion{
+      overflow:hidden!important;
+      padding:0!important;
+    }
+    .standard-update-accordion > summary{
+      list-style:none!important;
+      cursor:pointer!important;
+      display:flex!important;
+      align-items:center!important;
+      justify-content:space-between!important;
+      gap:16px!important;
+      min-height:64px!important;
+      padding:16px 18px!important;
+      user-select:none!important;
+      background:transparent!important;
+    }
+    .standard-update-accordion > summary::-webkit-details-marker{display:none!important;}
+    .standard-update-accordion > summary:hover{
+      background:rgba(255,255,255,.025)!important;
+    }
+    .standard-update-accordion-summary-copy{
+      display:flex!important;
+      align-items:center!important;
+      gap:10px!important;
+      min-width:0!important;
+    }
+    .standard-update-accordion-title{
+      margin:0!important;
+      font-size:18px!important;
+      font-weight:800!important;
+      line-height:1.2!important;
+      color:var(--text)!important;
+    }
+    .standard-update-accordion-meta{
+      margin-left:auto!important;
+      color:var(--text-muted)!important;
+      font-size:13px!important;
+      white-space:nowrap!important;
+      overflow:hidden!important;
+      text-overflow:ellipsis!important;
+    }
+    .standard-update-accordion-chevron{
+      display:inline-flex!important;
+      width:16px!important;
+      flex:0 0 16px!important;
+      align-items:center!important;
+      justify-content:center!important;
+      color:var(--text-muted)!important;
+      transition:transform .18s ease!important;
+    }
+    .standard-update-accordion[open] > summary .standard-update-accordion-chevron{
+      transform:rotate(90deg)!important;
+    }
+    .standard-update-accordion-content{
+      padding:0 18px 18px!important;
+      background:transparent!important;
+    }
+    .standard-update-accordion-content > :first-child{
+      margin-top:0!important;
+    }
+    @media(max-width:760px){
+      .standard-update-accordion > summary{
+        align-items:flex-start!important;
+      }
+      .standard-update-accordion-meta{
+        white-space:normal!important;
+      }
+    }
   `;
 
   document.getElementById(STYLE_ID)?.remove();
@@ -315,12 +385,110 @@
     }
   }
 
+  function findCardByTitle(titlePattern) {
+    const candidates = [...document.querySelectorAll("#tab_panel_atualizacoes .card")];
+    return candidates.find(card => {
+      if (card.matches("details.standard-update-accordion")) return false;
+      const title = [...card.querySelectorAll(":scope > .section-title, :scope > div > .section-title, :scope > header .section-title")]
+        .find(node => titlePattern.test(String(node.textContent || "").trim()));
+      return Boolean(title);
+    }) || null;
+  }
+
+  function extractAccordionMeta(card, kind) {
+    if (kind === "environment") {
+      const title = [...card.querySelectorAll(".section-title")].find(node => /^Ambiente$/i.test(String(node.textContent || "").trim()));
+      const sibling = title?.nextElementSibling;
+      return sibling?.classList?.contains("small") ? String(sibling.textContent || "").trim() : "";
+    }
+    if (kind === "queue") {
+      return String(document.getElementById("updates_queue_meta")?.textContent || "").trim();
+    }
+    return "";
+  }
+
+  function convertCardToAccordion(card, {kind, title, open = true}) {
+    if (!card || card.matches("details.standard-update-accordion")) return;
+
+    const details = document.createElement("details");
+    details.className = `${card.className} standard-update-accordion`;
+    details.dataset.updateAccordion = kind;
+    if (open) details.open = true;
+
+    const summary = document.createElement("summary");
+    const summaryCopy = document.createElement("span");
+    summaryCopy.className = "standard-update-accordion-summary-copy";
+    summaryCopy.innerHTML = `<span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">${title}</span>`;
+    summary.appendChild(summaryCopy);
+
+    const metaText = extractAccordionMeta(card, kind);
+    if (metaText) {
+      const meta = document.createElement("span");
+      meta.className = "standard-update-accordion-meta";
+      meta.textContent = metaText;
+      summary.appendChild(meta);
+    }
+
+    const content = document.createElement("div");
+    content.className = "standard-update-accordion-content";
+
+    const titleNodes = [...card.querySelectorAll(".section-title")].filter(node => {
+      const text = String(node.textContent || "").trim();
+      return text === title || (kind === "preparation" && /^Aguardando\s*\/\s*prepara/i.test(text));
+    });
+    titleNodes.forEach(node => node.remove());
+
+    if (kind === "environment") {
+      const diagnosticButton = card.querySelector("#updates_environment_toggle");
+      diagnosticButton?.remove();
+      const diagnosticDetails = card.querySelector("#updates_environment_details");
+      diagnosticDetails?.classList.remove("hidden");
+      const duplicateMeta = [...card.querySelectorAll(".small")].find(node => String(node.textContent || "").trim() === metaText);
+      duplicateMeta?.remove();
+    }
+
+    if (kind === "queue") {
+      const duplicateMeta = card.querySelector("#updates_queue_meta");
+      duplicateMeta?.classList.add("standard-update-accordion-live-meta");
+    }
+
+    while (card.firstChild) content.appendChild(card.firstChild);
+    details.appendChild(summary);
+    details.appendChild(content);
+    card.replaceWith(details);
+
+    if (kind === "queue") {
+      const liveMeta = details.querySelector("#updates_queue_meta");
+      const summaryMeta = details.querySelector(".standard-update-accordion-meta");
+      if (liveMeta && summaryMeta) {
+        const sync = () => { summaryMeta.textContent = String(liveMeta.textContent || "").trim(); };
+        sync();
+        new MutationObserver(sync).observe(liveMeta, {childList:true, subtree:true, characterData:true});
+      }
+    }
+  }
+
+  function standardizeUpdateSections() {
+    const environmentButton = document.getElementById("updates_environment_toggle");
+    const environmentCard = environmentButton?.closest(".card") || findCardByTitle(/^Ambiente$/i);
+    convertCardToAccordion(environmentCard, {kind:"environment", title:"Ambiente", open:true});
+
+    const preparationTitle = document.getElementById("updates_working_title");
+    const preparationCard = preparationTitle?.closest(".card") || findCardByTitle(/^(Preparação|Aguardando\s*\/\s*preparação)$/i);
+    convertCardToAccordion(preparationCard, {kind:"preparation", title:"Preparação", open:true});
+
+    const queueMeta = document.getElementById("updates_queue_meta");
+    const queueCard = queueMeta?.closest(".card") || findCardByTitle(/^Fila de atualização$/i);
+    convertCardToAccordion(queueCard, {kind:"queue", title:"Fila de atualização", open:true});
+  }
+
   function refine(root = document) {
     normalizeDefaultLabels(root);
     normalizeCatalogStatusRows(root);
     normalizeCatalogAvailability(root);
     standardizeCollectLog();
     standardizeUpdateLog();
+    standardizeUpdateSections();
   }
 
   refine(document);
