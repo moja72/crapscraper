@@ -9,10 +9,14 @@ def test_search_ui_policy_injects_unified_script():
     assert "data-unified-search-ui" in policy
     assert "_patch_panel_javascript" in policy
     assert "_patch_panel_html" in policy
+    assert "_patch_catalog_context_search" in policy
     assert "const LISTING_DEFAULT_PAGE_SIZE = 5;" in policy
     assert "[5, 10, 25, 50, 100, 250]" in policy
     assert "window.__crapscraperPagination" in policy
     assert 'id="updates_working_title">Preparação</div>' in policy
+    assert 'class="catalogos-context-search cs-search-system"' in policy
+    assert 'for="catalogos_search">Buscar nos contextos</label>' in policy
+    assert 'placeholder="Catálogo, site, tipo ou conta"' in policy
 
     assert "PAGE_SIZES = [5, 10, 25, 50, 100, 250]" in script
     assert "DEFAULT_PAGE_SIZE = 5" in script
