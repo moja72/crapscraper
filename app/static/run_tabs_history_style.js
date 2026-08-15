@@ -59,6 +59,11 @@
     #runs_manager_card .run-card-wrap > button[title*="Fechar"]{
       z-index:5!important;
     }
+
+    /* O gerenciador integrado mantém a troca explícita entre listas. */
+    html body #update_lists_modal .update-list-row [data-update-list-action="preview"]{
+      display:inline-flex!important;
+    }
   `;
 
   document.head.appendChild(style);
