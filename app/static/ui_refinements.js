@@ -209,6 +209,49 @@
       margin-top:14px!important;
     }
 
+    /* Comparar: Resumo da comparação usa a mesma linguagem visual das demais sanfonas. */
+    #comparison_summary_card > .comparison-summary-header{
+      display:flex!important;
+      align-items:center!important;
+      justify-content:flex-start!important;
+      gap:8px!important;
+      cursor:pointer!important;
+      user-select:none!important;
+    }
+    #comparison_summary_card > .comparison-summary-header::-webkit-details-marker{
+      display:none!important;
+    }
+    #comparison_summary_card > .comparison-summary-header::marker{
+      content:""!important;
+    }
+    #comparison_summary_card .comparison-summary-toggle{
+      order:-1!important;
+      display:inline-flex!important;
+      align-items:center!important;
+      justify-content:center!important;
+      width:14px!important;
+      min-width:14px!important;
+      height:18px!important;
+      padding:0!important;
+      margin:0!important;
+      border:0!important;
+      border-radius:0!important;
+      background:transparent!important;
+      box-shadow:none!important;
+      font-size:0!important;
+      color:var(--text-muted)!important;
+      transition:transform .18s ease!important;
+    }
+    #comparison_summary_card .comparison-summary-toggle::before{
+      content:"▸"!important;
+      display:block!important;
+      font-size:13px!important;
+      line-height:1!important;
+    }
+    #comparison_summary_card[open] .comparison-summary-toggle{
+      transform:rotate(90deg)!important;
+    }
+
     /* Atualizar: sanfonas sem reparentar ou reconstruir o conteúdo original. */
     .standard-update-accordion-card{
       overflow:hidden!important;
