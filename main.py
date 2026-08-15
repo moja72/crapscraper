@@ -46,6 +46,7 @@ repair_update_runtime()
 from app.app import ScraperApp
 from app.resume_policy import install_resume_policy
 from app.update_recovery_policy import install_update_recovery_policy
+from app.search_ui_policy import install_search_ui_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -61,6 +62,8 @@ from app.web import serve
 install_resume_policy()
 # Adiciona classificação e reprocessamento seguro dos erros da aba Atualizar.
 install_update_recovery_policy()
+# Uniformiza filtros, busca, seleção, quantidade por página e navegação das listagens.
+install_search_ui_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
