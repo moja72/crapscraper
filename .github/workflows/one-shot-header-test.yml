@@ -1,0 +1,41 @@
+name: One-shot header test
+
+on:
+  push:
+    branches:
+      - test/alterar-texto-cabecalho
+
+permissions:
+  contents: write
+
+jobs:
+  replace-header-text:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/alterar-texto-cabecalho
+
+      - name: Replace subtitle text
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('app/web.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'Painel operacional do scraper. O backend conversa apenas com <code>ScraperApp</code>; toda persistência, engine e browser já ficam fora daqui.'
+          new = 'Coletar • Comparar • Atualizar • Adicionar'
+
+          if old not in text:
+              raise SystemExit('Texto original não encontrado em app/web.py')
+
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+      - name: Commit change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/web.py
+          git commit -m "test: alterar texto do cabeçalho"
+          git push origin HEAD:test/alterar-texto-cabecalho
