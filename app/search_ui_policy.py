@@ -38,6 +38,14 @@ _JS_REPLACEMENTS = (
         'toInt(byId("comparison_page_size")?.value, 100)',
         'toInt(byId("comparison_page_size")?.value, 5)',
     ),
+    (
+        '<button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>',
+        '<button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="download">⬇️ Baixar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>',
+    ),
+    (
+        '} else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
+        '} else if (button.dataset.catalogAction === "download") {\n      await loadPluginTemaManagedCatalog(catalogId);\n      downloadPluginTemaManagedCatalog();\n    } else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
+    ),
 )
 
 _CATALOG_SEARCH_FIELD_PATTERN = re.compile(
@@ -60,6 +68,11 @@ _CATALOG_CONTEXT_SEARCH_BLOCK = '''
             <input id="catalogos_search" type="search" placeholder="Catálogo, site, tipo ou conta">
           </div>
         </div>'''
+
+_PLUGIN_TEMA_TOOLBAR_ACTION_PATTERN = re.compile(
+    r'\s*<button\b[^>]*\bid=["\']plugintema_manage_(?:download|delete)["\'][^>]*>.*?</button>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 _PAGINATION_BRIDGE = r"""
 
@@ -143,12 +156,18 @@ def _patch_catalog_context_search(html: str) -> str:
     )
 
 
+def _patch_plugin_tema_toolbar_actions(html: str) -> str:
+    """Remove ações de catálogo da linha de paginação; ações ficam nos cards."""
+    return _PLUGIN_TEMA_TOOLBAR_ACTION_PATTERN.sub("", html)
+
+
 def _patch_panel_html(html: str) -> str:
     patched = html.replace(
         'id="updates_working_title">Aguardando / preparação</div>',
         'id="updates_working_title">Preparação</div>',
     )
     patched = _patch_catalog_context_search(patched)
+    patched = _patch_plugin_tema_toolbar_actions(patched)
     for select_id in _PAGE_SIZE_SELECT_IDS:
         patched = _patch_page_size_select(patched, select_id)
     return patched
