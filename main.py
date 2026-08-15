@@ -35,6 +35,13 @@ def load_windows_user_environment() -> dict[str, bool]:
 # Precisa ocorrer antes de importar modulos que calculam constantes via getenv.
 load_windows_user_environment()
 
+# Corrige estados persistidos antigos antes que app.web/app.operations.runtime sejam
+# importados e restaurem jobs. Um job só continua como completed quando há prova
+# persistida de plano, SHA do ZIP e confirmação de pt_versao.
+from app.operations.runtime_repair import repair_update_runtime
+
+repair_update_runtime()
+
 
 from app.app import ScraperApp
 from app.models import ScraperContext, build_context
