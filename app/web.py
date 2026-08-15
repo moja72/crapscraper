@@ -944,10 +944,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </table>
         </div>
 
+        <div class="listing-meta-row catalogos-listing-meta">
+          <div class="small" id="catalogos_result_meta">Mostrando 0 de 0 itens</div>
+          <div class="listing-page-size"><label for="catalogos_page_size" class="small">Itens por página</label><select id="catalogos_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+        </div>
+
         <div class="listing-pagination catalogos-pagination">
-          <button class="btn-secondary" id="catalogos_prev_page" type="button">Anterior</button>
+          <button class="btn-secondary" id="catalogos_prev_page" type="button">← Anterior</button>
           <span class="badge" id="catalogos_page_label">Página 1 de 1</span>
-          <button class="btn-secondary" id="catalogos_next_page" type="button">Próxima</button>
+          <button class="btn-secondary" id="catalogos_next_page" type="button">Próxima →</button>
         </div>
 
         <div class="card" style="margin-top:14px;">
@@ -1787,13 +1792,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="small" id="comparison_result_meta">-</div>
           <div class="listing-page-size">
             <label for="comparison_page_size" class="small">Itens por página</label>
-            <select id="comparison_page_size">
-              <option value="50">50</option>
-              <option value="100" selected>100</option>
-              <option value="250">250</option>
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-            </select>
+            <select id="comparison_page_size"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option></select>
           </div>
         </div>
 
@@ -1877,7 +1876,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="small">Selecione, renomeie ou apague um catálogo. As contagens usam as categorias dos produtos WooCommerce.</div>
     <div class="plugintema-catalog-cards" id="plugintema_manage_catalog_cards" aria-live="polite"></div>
     <div class="form-grid plugintema-manage-filters"><div class="field"><label for="plugintema_manage_catalog">Cat&aacute;logo</label><select id="plugintema_manage_catalog"></select></div><div class="field"><label for="plugintema_manage_search">Pesquisar no cat&aacute;logo</label><input id="plugintema_manage_search" type="search" placeholder="Nome, ID, categoria ou versão"></div><div class="field"><label for="plugintema_manage_type">Tipo</label><select id="plugintema_manage_type"><option value="">Todos</option><option value="plugin">Plugins</option><option value="theme">Temas</option><option value="template">Templates</option></select></div><div class="field"><label for="plugintema_manage_status">Status</label><select id="plugintema_manage_status"><option value="">Todos</option><option value="publish">Publicado</option><option value="draft">Rascunho</option><option value="private">Privado</option></select></div></div>
-    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Linhas por página</label><select id="plugintema_manage_page_size"><option value="25">25</option><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option><option value="1000">1000</option><option value="5000">5000</option><option value="10000">10000</option></select><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
+    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Itens por página</label><select id="plugintema_manage_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
     <div class="listing-pagination plugintema-manage-pagination"><button class="btn-secondary btn-sm" id="plugintema_manage_prev" type="button">← Anterior</button><span class="badge" id="plugintema_manage_page_status">Página 1 de 1</span><button class="btn-secondary btn-sm" id="plugintema_manage_next" type="button">Próxima →</button></div>
     <div class="table-wrap"><table class="catalogos-table plugintema-manage-table"><thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Vers&atilde;o</th><th>Categorias</th><th>Status</th></tr></thead><tbody id="plugintema_manage_rows"><tr><td colspan="6">Selecione um cat&aacute;logo.</td></tr></tbody></table></div>
   </div>
@@ -1921,8 +1920,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <label>Versão<select id="updates_version_filter"><option value="">Todas</option><option value="update">Somente com atualização</option><option value="advanced">Fonte avançou</option><option value="equal">Igual à comparação</option></select></label>
       <label>Relacionamento<select id="updates_relationship_filter"><option value="">Todos</option><option value="safe_auto">Vinculação automática</option><option value="manual_confirmed">Vinculação manual confirmada</option><option value="candidate">Candidato</option><option value="manual_rejected">Vinculação manual rejeitada</option><option value="confirmed_not_in_source">Confirmado como ausente no Ultrapack</option><option value="pending_review">Revisão pendente</option><option value="other">Outros</option></select></label>
       <button class="btn-secondary" type="button" id="updates_clear_filters">Limpar filtros</button>
-    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><select id="updates_page_size"><option selected>5</option><option>10</option><option>25</option><option>50</option><option>100</option></select></div></div>
-    <div class="listing-pagination"><button class="btn-secondary" type="button" id="updates_prev_page">Anterior</button><span class="badge" id="updates_page_label">Página 1 de 1</span><button class="btn-secondary" type="button" id="updates_next_page">Próxima</button></div>
+    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><select id="updates_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div></div>
+    <div class="listing-pagination"><button class="btn-secondary" type="button" id="updates_prev_page">← Anterior</button><span class="badge" id="updates_page_label">Página 1 de 1</span><button class="btn-secondary" type="button" id="updates_next_page">Próxima →</button></div>
     <div class="updates-subtitle" id="updates_bulk_title">Operações em lote</div><div class="updates-bulkbar">
       <strong id="updates_selected_count">0 selecionados</strong>
       <button class="btn-secondary" type="button" id="updates_select_page">Selecionar página</button>
@@ -1944,10 +1943,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="updates-list-controls">
           <label>Buscar na fila<input id="updates_queue_search" type="search" placeholder="Nome ou WooCommerce ID"></label>
           <label>Estado<select id="updates_queue_status_filter"><option value="">Todos</option><option value="executing">Executando</option><option value="queued">Aguardando execução</option></select></label>
-          <label>Itens por página<select id="updates_queue_page_size"><option value="10" selected>10</option><option value="25">25</option><option value="50">50</option></select></label>
+          <label>Itens por página<select id="updates_queue_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label>
           <strong id="updates_queue_found_count">0 itens</strong>
         </div>
-        <div class="listing-pagination"><button class="btn-secondary" id="updates_queue_prev" type="button">Anterior</button><span class="badge" id="updates_queue_page">Página 1 de 1</span><button class="btn-secondary" id="updates_queue_next" type="button">Próxima</button></div>
+        <div class="listing-pagination"><button class="btn-secondary" id="updates_queue_prev" type="button">← Anterior</button><span class="badge" id="updates_queue_page">Página 1 de 1</span><button class="btn-secondary" id="updates_queue_next" type="button">Próxima →</button></div>
       </div>
       <div id="updates_queue_jobs"></div>
   </div>
@@ -1957,7 +1956,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="hidden updates-conditional-controls" id="updates_history_controls">
       <div class="updates-history-toolbar"><div class="updates-history-filter-group"><label>Buscar no histórico<input id="updates_history_search" type="search" placeholder="Nome ou WooCommerce ID"></label><label>Estado<select id="updates_history_status_filter"><option value="">Todos</option><option value="completed">Concluído</option><option value="rolled_back">Rollback concluído</option><option value="error">Erro</option><option value="failed">Falhou</option><option value="blocked">Bloqueado</option><option value="canceled">Cancelado</option><option value="interrupted">Interrompido</option></select></label></div><div class="updates-history-actions"><button class="btn-secondary btn-sm" id="updates_history_download" type="button">Baixar histórico</button><button class="btn-danger btn-sm" id="updates_history_delete" type="button">Apagar histórico</button></div></div>
       <div class="updates-history-tabs" role="tablist" aria-label="Tipo de histórico"><button class="updates-history-tab is-active" id="updates_history_completed" role="tab" aria-selected="true" type="button">Concluídos</button><button class="updates-history-tab" id="updates_history_errors" role="tab" aria-selected="false" type="button">Erros</button></div>
-      <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">Anterior</button><span class="badge" id="updates_history_page">Página 1 de 1</span><button class="btn-secondary" id="updates_history_next" type="button">Próxima</button></div>
+      <div class="listing-meta-row updates-history-listing-meta">
+        <div class="small" id="updates_history_result_meta">Mostrando 0 de 0 itens</div>
+        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><select id="updates_history_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+      </div>
+      <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">← Anterior</button><span class="badge" id="updates_history_page">Página 1 de 1</span><button class="btn-secondary" id="updates_history_next" type="button">Próxima →</button></div>
       </div>
       <div class="updates-history-panel" id="updates_history" role="tabpanel" aria-live="polite"></div>
     </details>
@@ -1994,7 +1997,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="update-list-preview-summary" id="update_list_preview_summary"></div>
     <div class="update-list-preview-toolbar"><label>Pesquisar na lista<input id="update_list_preview_search" type="search" placeholder="Produto, WooCommerce ID ou estado"></label><span class="small" id="update_list_preview_count">0 itens</span></div>
     <div class="table-wrap"><table class="catalogos-table update-list-preview-table"><thead><tr><th>Posição</th><th>Woo ID</th><th>Produto</th><th>Estado</th><th>Versões</th><th>Atualização</th><th>Última etapa</th></tr></thead><tbody id="update_list_preview_rows"><tr><td colspan="7">Carregando...</td></tr></tbody></table></div>
-    <div class="listing-pagination"><button class="btn-secondary" id="update_list_preview_prev" type="button">Anterior</button><span class="badge" id="update_list_preview_page">Página 1 de 1</span><button class="btn-secondary" id="update_list_preview_next" type="button">Próxima</button></div>
+    <div class="listing-meta-row update-list-preview-listing-meta">
+      <div class="small" id="update_list_preview_result_meta">Mostrando 0 de 0 itens</div>
+      <div class="listing-page-size"><label for="update_list_preview_page_size" class="small">Itens por página</label><select id="update_list_preview_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+    </div>
+    <div class="listing-pagination"><button class="btn-secondary" id="update_list_preview_prev" type="button">← Anterior</button><span class="badge" id="update_list_preview_page">Página 1 de 1</span><button class="btn-secondary" id="update_list_preview_next" type="button">Próxima →</button></div>
   </div>
 </div>
 
