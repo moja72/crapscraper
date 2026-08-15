@@ -13,13 +13,13 @@
       align-items:stretch!important;
       gap:4px!important;
       padding:0!important;
-      margin:14px 0 10px!important;
+      margin:14px 0 0!important;
       border-bottom:0!important;
     }
 
     #updates_history_controls .updates-history-tab{
       position:relative!important;
-      bottom:auto!important;
+      bottom:-1px!important;
       min-height:44px!important;
       padding:10px 18px!important;
       border:1px solid rgba(255,255,255,.10)!important;
@@ -32,16 +32,21 @@
 
     #updates_history_controls .updates-history-tab.is-active{
       z-index:2!important;
-      background:rgba(255,255,255,.055)!important;
+      background:var(--bg-elev-1)!important;
       color:var(--text)!important;
       border-color:rgba(124,58,237,.72)!important;
-      border-bottom-color:transparent!important;
-      box-shadow:inset 0 -2px 0 var(--accent)!important;
+      border-bottom:none!important;
+      box-shadow:none!important;
     }
 
     #updates_history_controls .updates-history-tab:not(.is-active):hover{
       background:rgba(255,255,255,.05)!important;
       color:var(--text)!important;
+    }
+
+    #updates_history_controls + #updates_history,
+    #updates_history_controls ~ #updates_history{
+      background:var(--bg-elev-1)!important;
     }
 
     /* Histórico: mantém status + tentar novamente + detalhes na mesma linha. */
