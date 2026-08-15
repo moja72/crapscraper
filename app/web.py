@@ -623,7 +623,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         >
         <div class="page-brand-content">
           <div class="page-brand-title-row"><h1>__HEADER_TITLE__</h1><img class="page-brand-title-image" src="/emoji.webp" alt="" onerror="this.hidden=true"></div>
-          <div class="subtitle">Painel operacional do scraper. O backend conversa apenas com <code>ScraperApp</code>; toda persistência, engine e browser já ficam fora daqui.</div>
+          <div class="subtitle">Coletar • Comparar • Atualizar • Adicionar</div>
         </div>
       </div>
     </div>
