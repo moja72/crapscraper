@@ -45,6 +45,7 @@ repair_update_runtime()
 
 from app.app import ScraperApp
 from app.resume_policy import install_resume_policy
+from app.update_recovery_policy import install_update_recovery_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -58,6 +59,8 @@ from app.web import serve
 # Mantém o botão principal coerente com o estado persistido: quando há continuação
 # utilizável, "Retomar" reaproveita a fila salva em vez de iniciar nova descoberta.
 install_resume_policy()
+# Adiciona classificação e reprocessamento seguro dos erros da aba Atualizar.
+install_update_recovery_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
