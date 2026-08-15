@@ -69,6 +69,24 @@
 
   const POLL_INTERVAL_MS = Math.max(500, Number(BOOT.poll_interval_ms || 1200));
 
+  const LISTING_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];
+  const LISTING_DEFAULT_PAGE_SIZE = 25;
+
+  function normalizeListingPageSize(value, fallback = LISTING_DEFAULT_PAGE_SIZE) {
+    const parsed = toInt(value, fallback);
+    return LISTING_PAGE_SIZE_OPTIONS.includes(parsed) ? parsed : fallback;
+  }
+
+  function listingRangeText(total, page, pageSize, noun = "itens") {
+    const safeTotal = Math.max(0, toInt(total, 0));
+    const safeSize = Math.max(1, toInt(pageSize, LISTING_DEFAULT_PAGE_SIZE));
+    const safePage = Math.max(1, toInt(page, 1));
+    if (!safeTotal) return `Mostrando 0 de 0 ${noun}`;
+    const start = ((safePage - 1) * safeSize) + 1;
+    const end = Math.min(safePage * safeSize, safeTotal);
+    return `Mostrando ${start}–${end} de ${safeTotal} ${noun}`;
+  }
+
     const UI = {
     boot: BOOT,
     endpoints: ENDPOINTS,
@@ -94,7 +112,7 @@
     plugintemaSelectedProducts: new Map(),
     plugintemaManageRows: [],
     plugintemaManagePage: 1,
-    plugintemaManagePageSize: 100,
+    plugintemaManagePageSize: 25,
     comparison: {
       loaded: false,
       loading: false,
@@ -130,8 +148,8 @@
       downloadUrl: "",
       title: "Prévia",
       page: 1,
-      pageSize: 50,
-      pageSizeOptions: [25, 50, 100, 250, 500, 1000, 5000, 10000],
+      pageSize: 25,
+      pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
     },
   };
 
@@ -2540,10 +2558,10 @@ function setCatalogPreviewPage(page) {
 function setCatalogPreviewPageSize(pageSize) {
   const allowed = Array.isArray(UI.catalogPreview?.pageSizeOptions)
     ? UI.catalogPreview.pageSizeOptions
-    : [25, 50, 100, 250, 500, 1000, 5000, 10000];
+    : LISTING_PAGE_SIZE_OPTIONS;
 
-  const nextSize = toInt(pageSize, 50);
-  UI.catalogPreview.pageSize = allowed.includes(nextSize) ? nextSize : 50;
+  const nextSize = normalizeListingPageSize(pageSize, LISTING_DEFAULT_PAGE_SIZE);
+  UI.catalogPreview.pageSize = allowed.includes(nextSize) ? nextSize : LISTING_DEFAULT_PAGE_SIZE;
   UI.catalogPreview.page = 1;
   renderCatalogPreview();
 }
@@ -2622,8 +2640,8 @@ function resetCatalogPreview(message = "Selecione uma prévia na tabela.") {
     downloadUrl: "",
     title: "Prévia",
     page: 1,
-    pageSize: 50,
-    pageSizeOptions: [25, 50, 100, 250, 500, 1000, 5000, 10000],
+    pageSize: 25,
+    pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
   };
 
   const searchNode = byId("catalogos_preview_search");
@@ -2768,10 +2786,10 @@ function buildCsvPreviewHtml(text, searchTerm = "") {
 
   const pageSizeOptions = Array.isArray(UI.catalogPreview?.pageSizeOptions)
     ? UI.catalogPreview.pageSizeOptions
-    : [25, 50, 100, 250, 500, 1000, 5000, 10000];
+    : LISTING_PAGE_SIZE_OPTIONS;
 
-  const pageSize = pageSizeOptions.includes(toInt(UI.catalogPreview?.pageSize, 50))
-    ? toInt(UI.catalogPreview?.pageSize, 50)
+  const pageSize = pageSizeOptions.includes(toInt(UI.catalogPreview?.pageSize, LISTING_DEFAULT_PAGE_SIZE))
+    ? toInt(UI.catalogPreview?.pageSize, LISTING_DEFAULT_PAGE_SIZE)
     : 50;
 
   const totalRows = filteredRows.length;
@@ -2961,8 +2979,8 @@ async function showCatalogoCsvPreview(url) {
     downloadUrl: targetUrl,
     title: "catálogo",
     page: 1,
-    pageSize: 50,
-    pageSizeOptions: [25, 50, 100, 250, 500, 1000, 5000, 10000],
+    pageSize: 25,
+    pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
   };
 
   setCatalogPreviewHeader("Prévia de Catálogo", targetUrl);
@@ -3230,10 +3248,12 @@ async function refreshCatalogos({ showLoading = false } = {}) {
 
     cardsWrap.innerHTML = buildCatalogosCardsHtml(filteredRows, currentSlot, defaultSlot, selectedFilter);
 
-    const pageSize = 10;
+    const pageSize = normalizeListingPageSize(byId("catalogos_page_size")?.value, LISTING_DEFAULT_PAGE_SIZE);
+    UI.catalogPageSize = pageSize;
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     UI.catalogPage = Math.min(Math.max(1, toInt(UI.catalogPage, 1)), totalPages);
     const visibleRows = filteredRows.slice((UI.catalogPage - 1) * pageSize, UI.catalogPage * pageSize);
+    setText("catalogos_result_meta", listingRangeText(filteredRows.length, UI.catalogPage, pageSize));
     setText("catalogos_page_label", `Página ${UI.catalogPage} de ${totalPages}`);
     setDisabled("catalogos_prev_page", UI.catalogPage <= 1);
     setDisabled("catalogos_next_page", UI.catalogPage >= totalPages);
@@ -4103,8 +4123,8 @@ function renderPluginTemaManagedRows() {
     && (!type || catalogKind(row) === type)
     && (!status || normalizeText(row.Status).toLowerCase() === status)
   );
-  const requestedPageSize = Number.parseInt(byId("plugintema_manage_page_size")?.value || UI.plugintemaManagePageSize, 10);
-  const pageSize = [25, 50, 100, 250, 500, 1000, 5000, 10000].includes(requestedPageSize) ? requestedPageSize : 100;
+  const requestedPageSize = byId("plugintema_manage_page_size")?.value || UI.plugintemaManagePageSize;
+  const pageSize = normalizeListingPageSize(requestedPageSize, LISTING_DEFAULT_PAGE_SIZE);
   UI.plugintemaManagePageSize = pageSize;
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   UI.plugintemaManagePage = Math.min(Math.max(1, UI.plugintemaManagePage), totalPages);
@@ -4113,7 +4133,7 @@ function renderPluginTemaManagedRows() {
   if (byId("plugintema_manage_count")) byId("plugintema_manage_count").textContent = `${rows.length} item(ns)`;
   const rangeStart = rows.length ? ((UI.plugintemaManagePage - 1) * pageSize) + 1 : 0;
   const rangeEnd = Math.min(UI.plugintemaManagePage * pageSize, rows.length);
-  if (byId("plugintema_manage_range")) byId("plugintema_manage_range").textContent = `Mostrando ${pageRows.length} produto(s), de ${rangeStart} até ${rangeEnd}, de ${rows.length}.`;
+  if (byId("plugintema_manage_range")) byId("plugintema_manage_range").textContent = listingRangeText(rows.length, UI.plugintemaManagePage, pageSize);
   if (byId("plugintema_manage_page_status")) byId("plugintema_manage_page_status").textContent = `Página ${UI.plugintemaManagePage} de ${totalPages}`;
   if (byId("plugintema_manage_prev")) byId("plugintema_manage_prev").disabled = UI.plugintemaManagePage <= 1;
   if (byId("plugintema_manage_next")) byId("plugintema_manage_next").disabled = UI.plugintemaManagePage >= totalPages;
@@ -4587,7 +4607,7 @@ function renderComparison(payload) {
   if (notice) notice.innerHTML = `<strong>Arquivos carregados.</strong><br>Ultrapack: ${escapeHtml(normalizeText(summary.source_file, "arquivo não informado"))}<br>PluginTema: ${escapeHtml(normalizeText(summary.site_file, "arquivo não informado"))}<br>Versões do site com padrão suspeito de planilha: <strong>${escapeHtml(Math.max(0, toInt(summary.suspicious_site_versions, 0)))}</strong>`;
 
   const totalRows = Math.max(0, toInt(pagination.total_rows, 0));
-  setText("comparison_result_meta", `${totalRows} resultado${totalRows === 1 ? "" : "s"} com o filtro atual`, "0 resultados");
+  setText("comparison_result_meta", listingRangeText(totalRows, UI.comparison.page, UI.comparison.pageSize, "resultados"), "Mostrando 0 de 0 resultados");
   setText("comparison_page_label", `Página ${UI.comparison.page} de ${UI.comparison.totalPages}`, "Página 1 de 1");
   const prev = byId("comparison_prev_btn");
   const next = byId("comparison_next_btn");
@@ -5715,7 +5735,7 @@ function updateRelationshipLabel(value) {
   return UPDATE_RELATIONSHIP_LABELS[normalized] || (normalized ? "Outro relacionamento" : "Não informado");
 }
 
-const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: 5, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:10, historyMode:"completed", historyPage:1, historyPageSize:10, poll:null, renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:15};
+const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: LISTING_DEFAULT_PAGE_SIZE, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:LISTING_DEFAULT_PAGE_SIZE, historyMode:"completed", historyPage:1, historyPageSize:LISTING_DEFAULT_PAGE_SIZE, poll:null, renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:LISTING_DEFAULT_PAGE_SIZE};
 
 function updateFilteredJobs() {
   const status = byId("updates_status_filter")?.value || "", type = byId("updates_type_filter")?.value || "";
@@ -5775,7 +5795,7 @@ function renderUpdateJobs(jobs = UPDATE_QUEUE.jobs) {
   byId("updates_working_controls")?.classList.toggle("hidden",baseWorking.length===0);
   byId("updates_found_count").textContent=`${working.length} itens encontrados`;
   if (!working.length) { wrap.innerHTML = `<div class="notice">${baseWorking.length ? "Nenhum item corresponde aos filtros atuais." : "Nenhum job aguardando preparação."}</div>`; return; }
-  UPDATE_QUEUE.pageSize=Number(byId("updates_page_size")?.value||5);const pages=Math.max(1,Math.ceil(working.length/UPDATE_QUEUE.pageSize));UPDATE_QUEUE.page=Math.min(Math.max(1,UPDATE_QUEUE.page),pages);const start=(UPDATE_QUEUE.page-1)*UPDATE_QUEUE.pageSize;const visible=working.slice(start,start+UPDATE_QUEUE.pageSize);byId("updates_page_label").textContent=`Página ${UPDATE_QUEUE.page} de ${pages}`;byId("updates_prev_page").disabled=UPDATE_QUEUE.page<=1;byId("updates_next_page").disabled=UPDATE_QUEUE.page>=pages;
+  UPDATE_QUEUE.pageSize=normalizeListingPageSize(byId("updates_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);const pages=Math.max(1,Math.ceil(working.length/UPDATE_QUEUE.pageSize));UPDATE_QUEUE.page=Math.min(Math.max(1,UPDATE_QUEUE.page),pages);const start=(UPDATE_QUEUE.page-1)*UPDATE_QUEUE.pageSize;const visible=working.slice(start,start+UPDATE_QUEUE.pageSize);byId("updates_found_count").textContent=listingRangeText(working.length,UPDATE_QUEUE.page,UPDATE_QUEUE.pageSize);byId("updates_page_label").textContent=`Página ${UPDATE_QUEUE.page} de ${pages}`;byId("updates_prev_page").disabled=UPDATE_QUEUE.page<=1;byId("updates_next_page").disabled=UPDATE_QUEUE.page>=pages;
   wrap.innerHTML = visible.map(job => {
     const completed = job.state === "completed";
     const canExecute = job.execution_eligible === true;
@@ -5837,11 +5857,11 @@ function renderOperationalQueue(){
   const queueName=normalizeText(UPDATE_QUEUE.queue?.active_queue,"default"), queued=UPDATE_QUEUE.jobs.filter(j=>j.state==="queued"&&normalizeText(j.queue_name,"default")===queueName).sort((a,b)=>(a.queue_position||0)-(b.queue_position||0)),active=UPDATE_QUEUE.jobs.filter(j=>j.state==="executing"&&normalizeText(j.queue_name,"default")===queueName),status=UPDATE_QUEUE.queue?.status||"stopped",label={running:"Executando",paused:"Pausada",stopped:"Fila parada"}[status],wrap=byId("updates_queue_jobs");
   const allItems=[...active,...queued],query=normalizeText(byId("updates_queue_search")?.value).toLowerCase(),stateFilter=normalizeText(byId("updates_queue_status_filter")?.value);
   const filtered=allItems.filter(job=>(!stateFilter||job.state===stateFilter)&&(!query||`${job.name} ${job.woo_product_id}`.toLowerCase().includes(query)));
-  UPDATE_QUEUE.queuePageSize=Math.max(1,toInt(byId("updates_queue_page_size")?.value,10));
+  UPDATE_QUEUE.queuePageSize=normalizeListingPageSize(byId("updates_queue_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);
   const pages=Math.max(1,Math.ceil(filtered.length/UPDATE_QUEUE.queuePageSize));UPDATE_QUEUE.queuePage=Math.min(Math.max(1,UPDATE_QUEUE.queuePage),pages);
   const visible=filtered.slice((UPDATE_QUEUE.queuePage-1)*UPDATE_QUEUE.queuePageSize,UPDATE_QUEUE.queuePage*UPDATE_QUEUE.queuePageSize);
   byId("updates_queue_list_controls")?.classList.toggle("hidden",allItems.length===0);
-  setText("updates_queue_found_count",`${filtered.length} de ${allItems.length} itens`);setText("updates_queue_page",`Página ${UPDATE_QUEUE.queuePage} de ${pages}`);setDisabled("updates_queue_prev",UPDATE_QUEUE.queuePage<=1);setDisabled("updates_queue_next",UPDATE_QUEUE.queuePage>=pages);
+  setText("updates_queue_found_count",listingRangeText(filtered.length,UPDATE_QUEUE.queuePage,UPDATE_QUEUE.queuePageSize));setText("updates_queue_page",`Página ${UPDATE_QUEUE.queuePage} de ${pages}`);setDisabled("updates_queue_prev",UPDATE_QUEUE.queuePage<=1);setDisabled("updates_queue_next",UPDATE_QUEUE.queuePage>=pages);
   byId("updates_queue_meta").textContent=`${allItems.length} produtos · ${label} · ${updateQueueDisplayName(queueName)}`;
   wrap.innerHTML=visible.map(job=>compactUpdateRow(job,job.state==="executing"?"Agora":job.queue_position||queued.indexOf(job)+1)).join("")||`<div class="notice">${allItems.length?"Nenhum produto corresponde aos filtros da fila.":"Nenhum produto na fila ativa."}</div>`;bindOperationalDetails(wrap);
   const select=byId("updates_queue_select"), queues=Array.isArray(UPDATE_QUEUE.queue?.queues)?UPDATE_QUEUE.queue.queues:[];
@@ -5866,7 +5886,7 @@ function openUpdateListRenameModal(name){UPDATE_QUEUE.renameQueueName=name;const
 function closeUpdateListRenameModal(){byId("update_list_rename_modal")?.classList.add("hidden");UPDATE_QUEUE.renameQueueName="";}
 async function confirmUpdateListRename(){const name=UPDATE_QUEUE.renameQueueName,newName=normalizeText(byId("update_list_rename_name")?.value);if(!name||!newName){notify("Informe o novo nome.","error");return;}const button=byId("update_list_rename_confirm");if(button)button.disabled=true;try{const result=await postJson("/atualizacoes/filas/renomear",{name,new_name:newName});UPDATE_QUEUE.queue=result.queue;closeUpdateListRenameModal();await refreshUpdateJobs();renderUpdateListsManager();notify(`Lista renomeada para ${newName}.`,"ok");}finally{if(button)button.disabled=false;}}
 
-function renderUpdateListPreview(){const query=normalizeText(byId("update_list_preview_search")?.value).toLowerCase(),all=UPDATE_QUEUE.previewItems||[],items=all.filter(item=>!query||`${item.name} ${item.woo_product_id} ${item.state}`.toLowerCase().includes(query)),pages=Math.max(1,Math.ceil(items.length/UPDATE_QUEUE.previewPageSize));UPDATE_QUEUE.previewPage=Math.min(Math.max(1,UPDATE_QUEUE.previewPage),pages);const visible=items.slice((UPDATE_QUEUE.previewPage-1)*UPDATE_QUEUE.previewPageSize,UPDATE_QUEUE.previewPage*UPDATE_QUEUE.previewPageSize),body=byId("update_list_preview_rows");if(body)body.innerHTML=visible.map(item=>`<tr><td>${escapeHtml(item.position||"-")}</td><td>#${escapeHtml(item.woo_product_id)}</td><td><strong>${escapeHtml(item.name)}</strong>${item.execution_error?`<div class="updates-error">${escapeHtml(item.execution_error)}</div>`:""}</td><td>${escapeHtml(updateStatusLabel(item.state))}</td><td>${escapeHtml(item.plugintema_version||"-")} → ${escapeHtml(item.source_version||"-")}</td><td>${escapeHtml(item.completed_at||item.updated_at||item.queued_at||"-")}</td><td>${escapeHtml(item.last_completed_step||"-")}</td></tr>`).join("")||'<tr><td colspan="7">Nenhum item encontrado nesta lista.</td></tr>';setText("update_list_preview_count",`${items.length} de ${all.length} itens`);setText("update_list_preview_page",`Página ${UPDATE_QUEUE.previewPage} de ${pages}`);setDisabled("update_list_preview_prev",UPDATE_QUEUE.previewPage<=1);setDisabled("update_list_preview_next",UPDATE_QUEUE.previewPage>=pages);}
+function renderUpdateListPreview(){const query=normalizeText(byId("update_list_preview_search")?.value).toLowerCase(),all=UPDATE_QUEUE.previewItems||[],items=all.filter(item=>!query||`${item.name} ${item.woo_product_id} ${item.state}`.toLowerCase().includes(query));UPDATE_QUEUE.previewPageSize=normalizeListingPageSize(byId("update_list_preview_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);const pages=Math.max(1,Math.ceil(items.length/UPDATE_QUEUE.previewPageSize));UPDATE_QUEUE.previewPage=Math.min(Math.max(1,UPDATE_QUEUE.previewPage),pages);const visible=items.slice((UPDATE_QUEUE.previewPage-1)*UPDATE_QUEUE.previewPageSize,UPDATE_QUEUE.previewPage*UPDATE_QUEUE.previewPageSize),body=byId("update_list_preview_rows");if(body)body.innerHTML=visible.map(item=>`<tr><td>${escapeHtml(item.position||"-")}</td><td>#${escapeHtml(item.woo_product_id)}</td><td><strong>${escapeHtml(item.name)}</strong>${item.execution_error?`<div class="updates-error">${escapeHtml(item.execution_error)}</div>`:""}</td><td>${escapeHtml(updateStatusLabel(item.state))}</td><td>${escapeHtml(item.plugintema_version||"-")} → ${escapeHtml(item.source_version||"-")}</td><td>${escapeHtml(item.completed_at||item.updated_at||item.queued_at||"-")}</td><td>${escapeHtml(item.last_completed_step||"-")}</td></tr>`).join("")||'<tr><td colspan="7">Nenhum item encontrado nesta lista.</td></tr>';setText("update_list_preview_count",`${items.length} de ${all.length} itens`);setText("update_list_preview_result_meta",listingRangeText(items.length,UPDATE_QUEUE.previewPage,UPDATE_QUEUE.previewPageSize));setText("update_list_preview_page",`Página ${UPDATE_QUEUE.previewPage} de ${pages}`);setDisabled("update_list_preview_prev",UPDATE_QUEUE.previewPage<=1);setDisabled("update_list_preview_next",UPDATE_QUEUE.previewPage>=pages);}
 async function openUpdateListPreviewModal(name){UPDATE_QUEUE.previewQueueName=name;UPDATE_QUEUE.previewPage=1;UPDATE_QUEUE.previewItems=[];const modal=byId("update_list_preview_modal");modal?.classList.remove("hidden");modal?.setAttribute("aria-busy","true");setText("update_list_preview_title",`Lista: ${updateQueueDisplayName(name)}`);byId("update_list_preview_rows").innerHTML='<tr><td colspan="7"><span class="modal-inline-loading" role="status"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando dados da lista...</span></span></td></tr>';try{const result=await getJson(`/atualizacoes/filas/detalhes?name=${encodeURIComponent(name)}`);UPDATE_QUEUE.previewItems=Array.isArray(result.items)?result.items:[];UPDATE_QUEUE.previewMetadata=result.queue||null;const meta=result.queue||{};byId("update_list_preview_summary").innerHTML=`<span><strong>${escapeHtml(meta.total||0)}</strong> itens</span><span><strong>${escapeHtml(meta.completed||0)}</strong> concluídos</span><span><strong>${escapeHtml(meta.pending||0)}</strong> pendentes</span><span>Arquivo: <strong>${escapeHtml(meta.file||"-")}</strong></span><span>Última conclusão: <strong>${escapeHtml(meta.last_completed_at||"Não registrada")}</strong></span>`;renderUpdateListPreview();}finally{modal?.setAttribute("aria-busy","false");}}
 function closeUpdateListPreviewModal(){byId("update_list_preview_modal")?.classList.add("hidden");UPDATE_QUEUE.previewQueueName="";}
 
@@ -5877,10 +5897,12 @@ function renderUpdateHistory(){
   const query=normalizeText(byId("updates_history_search")?.value).toLowerCase();
   const statusFilter=normalizeText(byId("updates_history_status_filter")?.value);
   const items=UPDATE_QUEUE.jobs.filter(j=>states.includes(j.state)&&(!statusFilter||j.state===statusFilter)&&(!query||`${j.name} ${j.woo_product_id}`.toLowerCase().includes(query)));
+  UPDATE_QUEUE.historyPageSize=normalizeListingPageSize(byId("updates_history_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);
   const pages=Math.max(1,Math.ceil(items.length/UPDATE_QUEUE.historyPageSize));
   UPDATE_QUEUE.historyPage=Math.min(Math.max(1,UPDATE_QUEUE.historyPage),pages);
   const start=(UPDATE_QUEUE.historyPage-1)*UPDATE_QUEUE.historyPageSize, visible=items.slice(start,start+UPDATE_QUEUE.historyPageSize),wrap=byId("updates_history");
   wrap.innerHTML=visible.map(j=>compactUpdateRow(j)).join("")||'<div class="notice">Nenhum item neste histórico.</div>';
+  setText("updates_history_result_meta",listingRangeText(items.length,UPDATE_QUEUE.historyPage,UPDATE_QUEUE.historyPageSize));
   setText("updates_history_page",`Página ${UPDATE_QUEUE.historyPage} de ${pages}`);
   setText("updates_history_summary",`${items.length} item(ns)`);
   setDisabled("updates_history_prev",UPDATE_QUEUE.historyPage<=1);setDisabled("updates_history_next",UPDATE_QUEUE.historyPage>=pages);
@@ -6119,6 +6141,8 @@ function bindMainTabs() {
   byId("updates_queue_search")?.addEventListener("input",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_status_filter")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
+  byId("updates_history_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
+  byId("update_list_preview_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.previewPage=1;renderUpdateListPreview();});
   byId("updates_queue_prev")?.addEventListener("click",()=>{UPDATE_QUEUE.queuePage=Math.max(1,UPDATE_QUEUE.queuePage-1);renderOperationalQueue();});
   byId("updates_queue_next")?.addEventListener("click",()=>{UPDATE_QUEUE.queuePage+=1;renderOperationalQueue();});
   byId("updates_queue_create")?.addEventListener("click",async()=>{const input=byId("updates_queue_new_name"),name=normalizeText(input?.value);if(!name){notify("Informe o nome da nova fila.","error");return;}const result=await postJson("/atualizacoes/filas/criar",{name});if(input)input.value="";UPDATE_QUEUE.queue=result.queue;await refreshUpdateJobs();notify(`Fila ${name} criada e selecionada.`,"ok");});
@@ -6199,6 +6223,12 @@ if (window.__CRAPSCRAPER_COMPARISON_TEST__) {
   });
 }
 
+document.addEventListener("change", (event) => {
+  if (event.target?.id === "catalogos_page_size") {
+    UI.catalogPage = 1;
+    loadCatalogosData();
+  }
+});
 document.addEventListener("DOMContentLoaded", init);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !byId("catalog_rename_modal")?.classList.contains("hidden")) {
