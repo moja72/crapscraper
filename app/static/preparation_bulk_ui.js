@@ -9,8 +9,10 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
+      .cs-search-system .updates-bulkbar.cs-preparation-bulkbar,
       .cs-preparation-bulkbar{
         display:flex!important;
+        flex-direction:row!important;
         align-items:center!important;
         justify-content:space-between!important;
         gap:16px!important;
@@ -27,7 +29,7 @@
         gap:12px!important;
         flex:1 1 auto!important;
         min-width:0!important;
-        flex-wrap:wrap!important;
+        flex-wrap:nowrap!important;
       }
       .cs-preparation-bulkbar .cs-preparation-check{
         display:inline-flex!important;
@@ -57,9 +59,22 @@
         margin-left:auto!important;
         white-space:nowrap!important;
       }
+      .cs-search-system #comparison_selected_count,
+      .cs-search-system #updates_selected_count,
       .cs-preparation-bulkbar #updates_selected_count{
-        margin:0 4px 0 0!important;
+        margin:0!important;
+        padding:0!important;
+        border:0!important;
+        border-radius:0!important;
+        background:transparent!important;
+        box-shadow:none!important;
+        min-height:0!important;
+        height:auto!important;
         white-space:nowrap!important;
+        color:#f3f4f6!important;
+        font-size:13px!important;
+        font-weight:700!important;
+        line-height:1.2!important;
       }
       .cs-preparation-bulkbar .cs-preparation-actions button{
         min-height:46px!important;
@@ -85,12 +100,14 @@
       }
 
       @media(max-width:1050px){
+        .cs-search-system .updates-bulkbar.cs-preparation-bulkbar,
         .cs-preparation-bulkbar{
           flex-wrap:wrap!important;
           align-items:stretch!important;
         }
         .cs-preparation-bulkbar .cs-preparation-selection{
           flex-basis:100%!important;
+          flex-wrap:wrap!important;
         }
         .cs-preparation-bulkbar .cs-preparation-actions{
           width:100%!important;
