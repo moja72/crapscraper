@@ -10,6 +10,7 @@ _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _BASE_ASSET_READER: Callable[[str], str | None] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "unified_search_ui.js"
+_PREPARATION_BULK_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "preparation_bulk_ui.js"
 
 _PAGE_SIZE_SELECT_IDS = (
     "catalogos_page_size",
@@ -203,13 +204,23 @@ def _patched_asset_reader(kind: str) -> str | None:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = _patch_panel_html(base(*args, **kwargs))
-    try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8")
-    except OSError:
+
+    script_blocks: list[str] = []
+    for script_path, attribute in (
+        (_SCRIPT_PATH, "data-unified-search-ui"),
+        (_PREPARATION_BULK_SCRIPT_PATH, "data-preparation-bulk-ui"),
+    ):
+        try:
+            script = script_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        script = script.replace("</script>", "<\\/script>")
+        script_blocks.append(f"\n<script {attribute}>\n{script}\n</script>\n")
+
+    if not script_blocks:
         return html
 
-    script = script.replace("</script>", "<\\/script>")
-    block = f"\n<script data-unified-search-ui>\n{script}\n</script>\n"
+    block = "".join(script_blocks)
     marker = "</body>"
     return html.replace(marker, block + marker, 1) if marker in html else html + block
 
