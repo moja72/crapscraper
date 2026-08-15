@@ -15,6 +15,7 @@ _PAGINATION_AUTOJUMP_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / 
 _UI_REFINEMENTS_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "ui_refinements.js"
 _HISTORY_TABS_FIX_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "history_tabs_fix.js"
 _RUN_TABS_HISTORY_STYLE_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "run_tabs_history_style.js"
+_UPDATE_LISTS_MANAGER_UI_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_lists_manager_ui.js"
 
 _PAGE_SIZE_SELECT_IDS = (
     "catalogos_page_size",
@@ -233,6 +234,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
         (_UI_REFINEMENTS_SCRIPT_PATH, "data-ui-refinements"),
         (_HISTORY_TABS_FIX_SCRIPT_PATH, "data-history-tabs-fix"),
         (_RUN_TABS_HISTORY_STYLE_SCRIPT_PATH, "data-run-tabs-history-style"),
+        (_UPDATE_LISTS_MANAGER_UI_SCRIPT_PATH, "data-update-lists-manager-ui"),
     ):
         try:
             script = script_path.read_text(encoding="utf-8")
