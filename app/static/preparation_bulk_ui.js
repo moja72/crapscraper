@@ -59,6 +59,15 @@
         margin-left:auto!important;
         white-space:nowrap!important;
       }
+      .cs-preparation-bulkbar > .cs-bulk-action-line{
+        display:none!important;
+        border:0!important;
+        padding:0!important;
+        margin:0!important;
+        width:0!important;
+        min-width:0!important;
+        flex:0 0 0!important;
+      }
       .cs-search-system #comparison_selected_count,
       .cs-search-system #updates_selected_count,
       .cs-preparation-bulkbar #updates_selected_count{
