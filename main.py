@@ -45,7 +45,7 @@ from app.storage import (
     get_active_slot_name,
     load_slots_meta,
 )
-from app.web import serve
+from app import web
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
@@ -97,8 +97,13 @@ def build_app(
 
 def main() -> None:
     load_windows_user_environment()
+    web.HTML_TEMPLATE = web.HTML_TEMPLATE.replace(
+        "Painel operacional do scraper. O backend conversa apenas com <code>ScraperApp</code>; toda persistência, engine e browser já ficam fora daqui.",
+        "Coletar • Comparar • Atualizar • Adicionar",
+        1,
+    )
     app = build_app()
-    serve(app)
+    web.serve(app)
 
 
 if __name__ == "__main__":
