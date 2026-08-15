@@ -33,6 +33,12 @@
     .standard-update-environment-inline-meta{
       display:none!important;
     }
+
+    /* Fila: o resumo operacional permanece apenas dentro do conteúdo da sanfona. */
+    .standard-update-accordion-card[data-update-accordion-kind="queue"]
+      > .standard-update-accordion-toggle .standard-update-accordion-meta{
+      display:none!important;
+    }
   `;
   document.head.appendChild(style);
 
@@ -49,28 +55,49 @@
     toggle.setAttribute("aria-label", "Alternar resumo da comparação");
   }
 
-  function hideEnvironmentDuplicateMeta() {
-    const card =
+  function getEnvironmentCard() {
+    return (
       document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="environment"]') ||
-      document.getElementById("updates_environment_details")?.closest(".card");
+      document.getElementById("updates_environment_details")?.closest(".card") ||
+      null
+    );
+  }
 
+  function hideEnvironmentDuplicateMeta() {
+    const card = getEnvironmentCard();
     if (!card) return;
 
-    const originalTitle = [...card.querySelectorAll(".section-title")]
-      .find(node => /^Ambiente$/i.test(String(node.textContent || "").trim()));
-    const inlineMeta = originalTitle?.nextElementSibling;
+    const candidates = [...card.querySelectorAll(".small, div, span, p")];
+    for (const node of candidates) {
+      if (node.closest(".standard-update-accordion-toggle")) continue;
 
-    if (
-      inlineMeta?.classList?.contains("small") &&
-      /requisito\(s\).*atenção/i.test(String(inlineMeta.textContent || "").trim())
-    ) {
-      inlineMeta.classList.add("standard-update-environment-inline-meta");
+      const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
+      if (!/^\d+\s+requisito\(s\)\s+exigem\s+atenção$/i.test(text)) continue;
+
+      node.classList.add("standard-update-environment-inline-meta");
     }
+  }
+
+  function collapseQueueByDefault() {
+    const card =
+      document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="queue"]') ||
+      document.getElementById("updates_queue_meta")?.closest(".card") ||
+      null;
+
+    if (!card || card.dataset.queueDefaultCollapsedApplied === "1") return;
+
+    const toggle = card.querySelector(":scope > .standard-update-accordion-toggle");
+    if (!toggle) return;
+
+    card.dataset.queueDefaultCollapsedApplied = "1";
+    card.classList.add("is-collapsed");
+    toggle.setAttribute("aria-expanded", "false");
   }
 
   function refine() {
     normalizeComparisonSummary();
     hideEnvironmentDuplicateMeta();
+    collapseQueueByDefault();
   }
 
   refine();
