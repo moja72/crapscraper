@@ -6,10 +6,13 @@ def test_search_ui_policy_injects_unified_script():
     policy = (root / "app" / "search_ui_policy.py").read_text(encoding="utf-8")
     script = (root / "app" / "static" / "unified_search_ui.js").read_text(encoding="utf-8")
     preparation_bulk = (root / "app" / "static" / "preparation_bulk_ui.js").read_text(encoding="utf-8")
+    refinements = (root / "app" / "static" / "ui_refinements.js").read_text(encoding="utf-8")
 
     assert "data-unified-search-ui" in policy
     assert "data-preparation-bulk-ui" in policy
+    assert "data-ui-refinements" in policy
     assert "_PREPARATION_BULK_SCRIPT_PATH" in policy
+    assert "_UI_REFINEMENTS_SCRIPT_PATH" in policy
     assert "_patch_panel_javascript" in policy
     assert "_patch_panel_html" in policy
     assert "_patch_catalog_context_search" in policy
@@ -24,6 +27,9 @@ def test_search_ui_policy_injects_unified_script():
     assert 'data-catalog-action="download">⬇️ Baixar</button>' in policy
     assert 'button.dataset.catalogAction === "download"' in policy
     assert "plugintema_manage_(?:download|delete)" in policy
+    assert '"default" ? "Padrão"' in policy
+    assert "⭐ Padrão atual" in policy
+    assert "como catálogo padrão" in policy
 
     assert "PAGE_SIZES = [5, 10, 25, 50, 100, 250]" in script
     assert "DEFAULT_PAGE_SIZE = 5" in script
@@ -42,6 +48,15 @@ def test_search_ui_policy_injects_unified_script():
     assert 'enqueue.textContent = "Adicionar à fila"' in preparation_bulk
     assert "cs-preparation-actions" in preparation_bulk
     assert "meta.parentElement.insertBefore(bar, meta)" in preparation_bulk
+
+    assert "#runs_manager_card.collect-runs-accordion" in refinements
+    assert ".catalogo-status-row" in refinements
+    assert ".catalogo-availability-icon.is-unavailable" in refinements
+    assert '["📄", "Catálogo", hasCatalog]' in refinements
+    assert '["📝", "Estado", hasState]' in refinements
+    assert '["📋", "Log", hasLog]' in refinements
+    assert ".updates-history-tab.is-active" in refinements
+    assert "border-bottom-color:var(--bg-elev-1)" in refinements
 
     for token in (
         "catalogos_page_size",

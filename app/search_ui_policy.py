@@ -12,6 +12,7 @@ _BASE_ASSET_READER: Callable[[str], str | None] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "unified_search_ui.js"
 _PREPARATION_BULK_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "preparation_bulk_ui.js"
 _PAGINATION_AUTOJUMP_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "pagination_autojump.js"
+_UI_REFINEMENTS_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "ui_refinements.js"
 
 _PAGE_SIZE_SELECT_IDS = (
     "catalogos_page_size",
@@ -39,6 +40,22 @@ _JS_REPLACEMENTS = (
     (
         'toInt(byId("comparison_page_size")?.value, 100)',
         'toInt(byId("comparison_page_size")?.value, 5)',
+    ),
+    (
+        'return name.toLowerCase() === "default" ? "Principal" : name;',
+        'return name.toLowerCase() === "default" ? "Padrão" : name;',
+    ),
+    (
+        'defaultButton.textContent = selectedIsDefault ? "⭐ Default atual" : "⭐ Default";',
+        'defaultButton.textContent = selectedIsDefault ? "⭐ Padrão atual" : "⭐ Padrão";',
+    ),
+    (
+        "como catálogo default",
+        "como catálogo padrão",
+    ),
+    (
+        'notify(result?.message || "Slot default alterado.");',
+        'notify(result?.message || "Catálogo padrão alterado.");',
     ),
     (
         '<button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>',
@@ -211,6 +228,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
         (_SCRIPT_PATH, "data-unified-search-ui"),
         (_PREPARATION_BULK_SCRIPT_PATH, "data-preparation-bulk-ui"),
         (_PAGINATION_AUTOJUMP_SCRIPT_PATH, "data-pagination-autojump"),
+        (_UI_REFINEMENTS_SCRIPT_PATH, "data-ui-refinements"),
     ):
         try:
             script = script_path.read_text(encoding="utf-8")
