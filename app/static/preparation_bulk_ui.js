@@ -2,6 +2,7 @@
   "use strict";
 
   const byId = (id) => document.getElementById(id);
+  const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
   const STYLE_ID = "crapscraper-preparation-bulk-style";
   if (!document.getElementById(STYLE_ID)) {
@@ -11,8 +12,9 @@
       .cs-preparation-bulkbar{
         display:flex!important;
         align-items:center!important;
-        gap:12px!important;
-        flex-wrap:wrap!important;
+        justify-content:space-between!important;
+        gap:16px!important;
+        flex-wrap:nowrap!important;
         padding:12px!important;
         margin:12px 0!important;
         border:1px solid #292931!important;
@@ -46,20 +48,23 @@
       .cs-preparation-bulkbar #updates_clear_selection{
         min-height:46px!important;
       }
-      .cs-preparation-bulkbar #updates_selected_count{
-        margin-left:auto!important;
-        white-space:nowrap!important;
-      }
       .cs-preparation-bulkbar .cs-preparation-actions{
         display:flex!important;
         align-items:center!important;
+        justify-content:flex-end!important;
         gap:10px!important;
         flex:0 0 auto!important;
+        margin-left:auto!important;
+        white-space:nowrap!important;
+      }
+      .cs-preparation-bulkbar #updates_selected_count{
+        margin:0 4px 0 0!important;
+        white-space:nowrap!important;
       }
       .cs-preparation-bulkbar .cs-preparation-actions button{
-        min-height:48px!important;
+        min-height:46px!important;
         padding:0 22px!important;
-        border-color:#6d3bb5!important;
+        border:1px solid #6d3bb5!important;
         background:#6732a6!important;
         color:#fff!important;
         box-shadow:none!important;
@@ -70,19 +75,36 @@
       .cs-preparation-bulkbar .cs-preparation-actions button:disabled{
         opacity:.55!important;
       }
-      .cs-preparation-bulkbar .cs-original-bulk-trigger{
+      .cs-preparation-bulkbar .cs-original-bulk-trigger,
+      .cs-hide-bulk-heading{
         display:none!important;
       }
-      .cs-preparation-bulkbar .updates-bulk-title,
-      .cs-preparation-bulkbar .section-title{
-        display:none!important;
+
+      .cs-context-download{
+        white-space:nowrap!important;
       }
-      @media(max-width:900px){
-        .cs-preparation-bulkbar{align-items:stretch!important}
-        .cs-preparation-bulkbar .cs-preparation-selection{flex-basis:100%!important}
-        .cs-preparation-bulkbar .cs-preparation-actions{width:100%!important}
-        .cs-preparation-bulkbar .cs-preparation-actions button{flex:1 1 0!important}
-        .cs-preparation-bulkbar #updates_selected_count{margin-left:0!important}
+
+      @media(max-width:1050px){
+        .cs-preparation-bulkbar{
+          flex-wrap:wrap!important;
+          align-items:stretch!important;
+        }
+        .cs-preparation-bulkbar .cs-preparation-selection{
+          flex-basis:100%!important;
+        }
+        .cs-preparation-bulkbar .cs-preparation-actions{
+          width:100%!important;
+          margin-left:0!important;
+          justify-content:flex-start!important;
+        }
+      }
+      @media(max-width:720px){
+        .cs-preparation-bulkbar .cs-preparation-actions{
+          flex-wrap:wrap!important;
+        }
+        .cs-preparation-bulkbar .cs-preparation-actions button{
+          flex:1 1 180px!important;
+        }
       }
     `;
     document.head.appendChild(style);
@@ -94,12 +116,13 @@
   }
 
   function makeProxyCheckbox(originalButton, id, labelText) {
-    let label = byId(id)?.closest("label");
-    if (label) return {label, input: byId(id)};
+    let input = byId(id);
+    let label = input?.closest("label");
+    if (label && input) return {label, input};
 
     label = document.createElement("label");
     label.className = "cs-preparation-check";
-    const input = document.createElement("input");
+    input = document.createElement("input");
     input.type = "checkbox";
     input.id = id;
     const text = document.createElement("span");
@@ -107,12 +130,9 @@
     label.append(input, text);
 
     input.addEventListener("change", () => {
-      if (input.checked) {
-        originalButton?.click();
-      } else {
-        byId("updates_clear_selection")?.click();
-      }
-      setTimeout(syncProxyState, 60);
+      if (input.checked) originalButton?.click();
+      else byId("updates_clear_selection")?.click();
+      setTimeout(syncProxyState, 80);
     });
     return {label, input};
   }
@@ -128,6 +148,13 @@
     }
   }
 
+  function hideBulkHeading(root) {
+    if (!root) return;
+    [...root.querySelectorAll(".section-title,.updates-bulk-title,h3,h4,strong,div")]
+      .filter((node) => node.childElementCount === 0 && normalize(node.textContent).toUpperCase() === "OPERAÇÕES EM LOTE")
+      .forEach((node) => node.classList.add("cs-hide-bulk-heading"));
+  }
+
   function standardizePreparationBulk() {
     const root = findPreparationRoot();
     const bar = root?.querySelector(".updates-bulkbar");
@@ -141,8 +168,8 @@
     const enqueue = byId("updates_enqueue_selected");
     if (!selectPage || !selectAll || !clear || !count || !prepare || !enqueue) return;
 
+    hideBulkHeading(root);
     bar.classList.add("cs-preparation-bulkbar");
-
     selectPage.classList.add("cs-original-bulk-trigger");
     selectAll.classList.add("cs-original-bulk-trigger");
 
@@ -155,8 +182,7 @@
 
     const pageProxy = makeProxyCheckbox(selectPage, "cs_updates_select_page", "Selecionar página");
     const allProxy = makeProxyCheckbox(selectAll, "cs_updates_select_all", "Selecionar todo resultado");
-
-    [pageProxy.label, allProxy.label, clear, count].forEach((node) => {
+    [pageProxy.label, allProxy.label, clear].forEach((node) => {
       if (node && node.parentElement !== selection) selection.appendChild(node);
     });
 
@@ -169,7 +195,7 @@
 
     prepare.textContent = "Preparar planos";
     enqueue.textContent = "Adicionar à fila";
-    [prepare, enqueue].forEach((node) => {
+    [count, prepare, enqueue].forEach((node) => {
       if (node.parentElement !== actions) actions.appendChild(node);
     });
 
@@ -183,14 +209,80 @@
     syncProxyState();
   }
 
+  function moveContextListingControls() {
+    const body = byId("catalogos_table_body");
+    if (!body) return;
+    const tableWrap = body.closest(".table-wrap") || body.closest("table")?.parentElement;
+    if (!tableWrap || !tableWrap.parentElement) return;
+
+    const meta = byId("catalogos_result_meta")?.closest(".listing-meta-row")
+      || byId("catalogos_page_size")?.closest(".listing-meta-row")
+      || byId("catalogos_result_meta")?.parentElement;
+    const pagination = byId("catalogos_prev_page")?.closest(".listing-pagination")
+      || byId("catalogos_page_label")?.parentElement;
+
+    if (meta && meta.parentElement === tableWrap.parentElement) {
+      tableWrap.parentElement.insertBefore(meta, tableWrap);
+    }
+    if (pagination && pagination.parentElement === tableWrap.parentElement) {
+      tableWrap.parentElement.insertBefore(pagination, tableWrap);
+    }
+  }
+
+  function addContextDownloadButtons() {
+    const body = byId("catalogos_table_body");
+    if (!body) return;
+    [...body.querySelectorAll("tr")].forEach((row) => {
+      const actionWrap = row.querySelector(".table-actions") || row.lastElementChild;
+      if (!actionWrap || actionWrap.querySelector(".cs-context-download")) return;
+      const previewButton = [...actionWrap.querySelectorAll("button")]
+        .find((button) => normalize(button.textContent) === "Catálogo" && !button.disabled);
+      if (!previewButton) return;
+      const onclick = previewButton.getAttribute("onclick") || "";
+      if (!onclick.includes("showCatalogoCsvPreview(")) return;
+
+      const downloadButton = previewButton.cloneNode(true);
+      downloadButton.classList.add("cs-context-download");
+      downloadButton.textContent = "Baixar";
+      downloadButton.setAttribute("aria-label", "Baixar contexto");
+      downloadButton.setAttribute("title", "Baixar contexto");
+      downloadButton.setAttribute("onclick", onclick.replace("showCatalogoCsvPreview(", "downloadCatalogoArquivo("));
+      previewButton.insertAdjacentElement("afterend", downloadButton);
+    });
+  }
+
+  function hideStandaloneCatalogDownload() {
+    const preview = byId("catalogos_status_preview");
+    if (!preview) return;
+    const container = preview.closest(".card,section,.catalogos-preview,.catalog-preview") || preview.parentElement;
+    if (!container) return;
+    [...container.querySelectorAll("button")]
+      .filter((button) => normalize(button.textContent) === "Baixar" && !button.classList.contains("cs-context-download"))
+      .forEach((button) => {
+        button.style.display = "none";
+        button.setAttribute("aria-hidden", "true");
+      });
+  }
+
+  function standardizeCatalogContexts() {
+    moveContextListingControls();
+    addContextDownloadButtons();
+    hideStandaloneCatalogDownload();
+  }
+
+  function standardizeAll() {
+    standardizePreparationBulk();
+    standardizeCatalogContexts();
+  }
+
   let timer = null;
   const schedule = () => {
     clearTimeout(timer);
-    timer = setTimeout(standardizePreparationBulk, 60);
+    timer = setTimeout(standardizeAll, 70);
   };
 
   const start = () => {
-    standardizePreparationBulk();
+    standardizeAll();
     new MutationObserver(schedule).observe(document.body, {childList:true, subtree:true, characterData:true});
   };
 
