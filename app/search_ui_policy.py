@@ -11,6 +11,7 @@ _BASE_RENDER: Callable[..., str] | None = None
 _BASE_ASSET_READER: Callable[[str], str | None] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "unified_search_ui.js"
 _PREPARATION_BULK_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "preparation_bulk_ui.js"
+_PAGINATION_AUTOJUMP_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "pagination_autojump.js"
 
 _PAGE_SIZE_SELECT_IDS = (
     "catalogos_page_size",
@@ -209,6 +210,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     for script_path, attribute in (
         (_SCRIPT_PATH, "data-unified-search-ui"),
         (_PREPARATION_BULK_SCRIPT_PATH, "data-preparation-bulk-ui"),
+        (_PAGINATION_AUTOJUMP_SCRIPT_PATH, "data-pagination-autojump"),
     ):
         try:
             script = script_path.read_text(encoding="utf-8")
