@@ -40,6 +40,27 @@ _JS_REPLACEMENTS = (
     ),
 )
 
+_CATALOG_SEARCH_FIELD_PATTERN = re.compile(
+    r'\s*<div class="field">\s*'
+    r'<label for="catalogos_search">Buscar catálogos e contextos</label>\s*'
+    r'<input id="catalogos_search" type="search" placeholder="Nome, site, tipo ou conta">\s*'
+    r'</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+_CATALOG_CONTEXT_TOOLBAR = '''<div class="catalogos-table-toolbar">
+          <div><div class="section-title catalogos-context-title">Contextos dos catálogos</div><span class="badge" id="catalogos_context_count">0 contextos</span></div>
+          <button class="btn-danger" id="catalogos_remove_zero_btn" type="button" disabled>Remover contextos zerados</button>
+        </div>'''
+
+_CATALOG_CONTEXT_SEARCH_BLOCK = '''
+        <div class="catalogos-context-search cs-search-system" style="margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--bg-elev-1);">
+          <div class="field">
+            <label for="catalogos_search">Buscar nos contextos</label>
+            <input id="catalogos_search" type="search" placeholder="Catálogo, site, tipo ou conta">
+          </div>
+        </div>'''
+
 _PAGINATION_BRIDGE = r"""
 
   // API explícita de paginação para o campo editável "Página X de Y".
@@ -102,11 +123,32 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
     return pattern.sub(repl, html, count=1)
 
 
+def _patch_catalog_context_search(html: str) -> str:
+    """Move a busca textual para o bloco de Contextos dos catálogos."""
+    if 'id="catalogos_search"' not in html:
+        return html
+
+    patched = _CATALOG_SEARCH_FIELD_PATTERN.sub("", html, count=1)
+
+    if 'class="catalogos-context-search cs-search-system"' in patched:
+        return patched
+
+    if _CATALOG_CONTEXT_TOOLBAR not in patched:
+        return patched
+
+    return patched.replace(
+        _CATALOG_CONTEXT_TOOLBAR,
+        _CATALOG_CONTEXT_TOOLBAR + _CATALOG_CONTEXT_SEARCH_BLOCK,
+        1,
+    )
+
+
 def _patch_panel_html(html: str) -> str:
     patched = html.replace(
         'id="updates_working_title">Aguardando / preparação</div>',
         'id="updates_working_title">Preparação</div>',
     )
+    patched = _patch_catalog_context_search(patched)
     for select_id in _PAGE_SIZE_SELECT_IDS:
         patched = _patch_page_size_select(patched, select_id)
     return patched
