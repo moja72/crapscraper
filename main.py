@@ -48,6 +48,7 @@ from app.resume_policy import install_resume_policy
 from app.update_recovery_policy import install_update_recovery_policy
 from app.search_ui_policy import install_search_ui_policy
 from app.accordion_cleanup_policy import install_accordion_cleanup_policy
+from app.session_validation_policy import install_session_validation_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -67,6 +68,8 @@ install_update_recovery_policy()
 install_search_ui_policy()
 # Remove redundâncias visuais remanescentes nas sanfonas de Comparar e Atualizar.
 install_accordion_cleanup_policy()
+# Confirma a sessão PluginTheme contra a API real de acesso, não só pela presença de cookies.
+install_session_validation_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
