@@ -209,35 +209,47 @@
       margin-top:14px!important;
     }
 
-    /* Atualizar: Ambiente, Preparação e Fila seguem o mesmo padrão de sanfona. */
-    .standard-update-accordion{
+    /* Atualizar: sanfonas sem reparentar ou reconstruir o conteúdo original. */
+    .standard-update-accordion-card{
       overflow:hidden!important;
-      padding:0!important;
     }
-    .standard-update-accordion > summary{
-      list-style:none!important;
-      cursor:pointer!important;
+    .standard-update-accordion-toggle{
+      width:100%!important;
       display:flex!important;
       align-items:center!important;
       justify-content:space-between!important;
       gap:16px!important;
-      min-height:64px!important;
-      padding:16px 18px!important;
-      user-select:none!important;
+      padding:0 0 14px!important;
+      margin:0!important;
+      border:0!important;
+      background:transparent!important;
+      color:inherit!important;
+      text-align:left!important;
+      box-shadow:none!important;
+      cursor:pointer!important;
+    }
+    .standard-update-accordion-toggle:hover{
       background:transparent!important;
     }
-    .standard-update-accordion > summary::-webkit-details-marker{display:none!important;}
-    .standard-update-accordion > summary:hover{
-      background:rgba(255,255,255,.025)!important;
-    }
-    .standard-update-accordion-summary-copy{
+    .standard-update-accordion-toggle-copy{
       display:flex!important;
       align-items:center!important;
-      gap:10px!important;
+      gap:8px!important;
       min-width:0!important;
     }
+    .standard-update-accordion-chevron{
+      display:inline-flex!important;
+      width:14px!important;
+      flex:0 0 14px!important;
+      align-items:center!important;
+      justify-content:center!important;
+      color:var(--text-muted)!important;
+      transition:transform .18s ease!important;
+    }
+    .standard-update-accordion-toggle[aria-expanded="true"] .standard-update-accordion-chevron{
+      transform:rotate(90deg)!important;
+    }
     .standard-update-accordion-title{
-      margin:0!important;
       font-size:18px!important;
       font-weight:800!important;
       line-height:1.2!important;
@@ -247,31 +259,19 @@
       margin-left:auto!important;
       color:var(--text-muted)!important;
       font-size:13px!important;
+      font-weight:500!important;
       white-space:nowrap!important;
       overflow:hidden!important;
       text-overflow:ellipsis!important;
     }
-    .standard-update-accordion-chevron{
-      display:inline-flex!important;
-      width:16px!important;
-      flex:0 0 16px!important;
-      align-items:center!important;
-      justify-content:center!important;
-      color:var(--text-muted)!important;
-      transition:transform .18s ease!important;
+    .standard-update-original-title{
+      display:none!important;
     }
-    .standard-update-accordion[open] > summary .standard-update-accordion-chevron{
-      transform:rotate(90deg)!important;
-    }
-    .standard-update-accordion-content{
-      padding:0 18px 18px!important;
-      background:transparent!important;
-    }
-    .standard-update-accordion-content > :first-child{
-      margin-top:0!important;
+    .standard-update-accordion-card.is-collapsed > :not(.standard-update-accordion-toggle){
+      display:none!important;
     }
     @media(max-width:760px){
-      .standard-update-accordion > summary{
+      .standard-update-accordion-toggle{
         align-items:flex-start!important;
       }
       .standard-update-accordion-meta{
@@ -385,101 +385,73 @@
     }
   }
 
-  function findCardByTitle(titlePattern) {
-    const candidates = [...document.querySelectorAll("#tab_panel_atualizacoes .card")];
-    return candidates.find(card => {
-      if (card.matches("details.standard-update-accordion")) return false;
-      const title = [...card.querySelectorAll(":scope > .section-title, :scope > div > .section-title, :scope > header .section-title")]
-        .find(node => titlePattern.test(String(node.textContent || "").trim()));
-      return Boolean(title);
-    }) || null;
+  function directTitle(card, pattern) {
+    if (!card) return null;
+    return [...card.querySelectorAll(".section-title")].find(node => pattern.test(String(node.textContent || "").trim())) || null;
   }
 
-  function extractAccordionMeta(card, kind) {
+  function updateAccordionMeta(card, kind) {
+    const meta = card?.querySelector(":scope > .standard-update-accordion-toggle .standard-update-accordion-meta");
+    if (!meta) return;
     if (kind === "environment") {
-      const title = [...card.querySelectorAll(".section-title")].find(node => /^Ambiente$/i.test(String(node.textContent || "").trim()));
+      const title = directTitle(card, /^Ambiente$/i);
       const sibling = title?.nextElementSibling;
-      return sibling?.classList?.contains("small") ? String(sibling.textContent || "").trim() : "";
+      if (sibling?.classList?.contains("small")) meta.textContent = String(sibling.textContent || "").trim();
+      return;
     }
     if (kind === "queue") {
-      return String(document.getElementById("updates_queue_meta")?.textContent || "").trim();
+      meta.textContent = String(card.querySelector("#updates_queue_meta")?.textContent || "").trim();
     }
-    return "";
   }
 
-  function convertCardToAccordion(card, {kind, title, open = true}) {
-    if (!card || card.matches("details.standard-update-accordion")) return;
+  function setupUpdateAccordion(card, {kind, title, collapsedByDefault}) {
+    if (!card) return;
 
-    const details = document.createElement("details");
-    details.className = `${card.className} standard-update-accordion`;
-    details.dataset.updateAccordion = kind;
-    if (open) details.open = true;
+    if (card.dataset.updateAccordionReady !== "1") {
+      card.dataset.updateAccordionReady = "1";
+      card.dataset.updateAccordionKind = kind;
+      card.classList.add("standard-update-accordion-card");
 
-    const summary = document.createElement("summary");
-    const summaryCopy = document.createElement("span");
-    summaryCopy.className = "standard-update-accordion-summary-copy";
-    summaryCopy.innerHTML = `<span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">${title}</span>`;
-    summary.appendChild(summaryCopy);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "standard-update-accordion-toggle";
+      toggle.innerHTML = `<span class="standard-update-accordion-toggle-copy"><span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">${title}</span></span><span class="standard-update-accordion-meta"></span>`;
+      card.insertBefore(toggle, card.firstChild);
 
-    const metaText = extractAccordionMeta(card, kind);
-    if (metaText) {
-      const meta = document.createElement("span");
-      meta.className = "standard-update-accordion-meta";
-      meta.textContent = metaText;
-      summary.appendChild(meta);
+      const originalTitle = directTitle(card, kind === "preparation" ? /^(Preparação|Aguardando\s*\/\s*preparação)$/i : new RegExp(`^${title}$`, "i"));
+      originalTitle?.classList.add("standard-update-original-title");
+
+      const collapsed = Boolean(collapsedByDefault);
+      card.classList.toggle("is-collapsed", collapsed);
+      toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+
+      toggle.addEventListener("click", () => {
+        const nextCollapsed = !card.classList.contains("is-collapsed");
+        card.classList.toggle("is-collapsed", nextCollapsed);
+        toggle.setAttribute("aria-expanded", nextCollapsed ? "false" : "true");
+      });
     }
 
-    const content = document.createElement("div");
-    content.className = "standard-update-accordion-content";
-
-    const titleNodes = [...card.querySelectorAll(".section-title")].filter(node => {
-      const text = String(node.textContent || "").trim();
-      return text === title || (kind === "preparation" && /^Aguardando\s*\/\s*prepara/i.test(text));
-    });
-    titleNodes.forEach(node => node.remove());
-
-    if (kind === "environment") {
-      const diagnosticButton = card.querySelector("#updates_environment_toggle");
-      diagnosticButton?.remove();
-      const diagnosticDetails = card.querySelector("#updates_environment_details");
-      diagnosticDetails?.classList.remove("hidden");
-      const duplicateMeta = [...card.querySelectorAll(".small")].find(node => String(node.textContent || "").trim() === metaText);
-      duplicateMeta?.remove();
-    }
-
-    if (kind === "queue") {
-      const duplicateMeta = card.querySelector("#updates_queue_meta");
-      duplicateMeta?.classList.add("standard-update-accordion-live-meta");
-    }
-
-    while (card.firstChild) content.appendChild(card.firstChild);
-    details.appendChild(summary);
-    details.appendChild(content);
-    card.replaceWith(details);
-
-    if (kind === "queue") {
-      const liveMeta = details.querySelector("#updates_queue_meta");
-      const summaryMeta = details.querySelector(".standard-update-accordion-meta");
-      if (liveMeta && summaryMeta) {
-        const sync = () => { summaryMeta.textContent = String(liveMeta.textContent || "").trim(); };
-        sync();
-        new MutationObserver(sync).observe(liveMeta, {childList:true, subtree:true, characterData:true});
-      }
-    }
+    updateAccordionMeta(card, kind);
   }
 
   function standardizeUpdateSections() {
     const environmentButton = document.getElementById("updates_environment_toggle");
-    const environmentCard = environmentButton?.closest(".card") || findCardByTitle(/^Ambiente$/i);
-    convertCardToAccordion(environmentCard, {kind:"environment", title:"Ambiente", open:true});
+    const environmentCard = environmentButton?.closest(".card") || document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="environment"]');
+    if (environmentCard) {
+      environmentButton?.remove();
+      const diagnosticDetails = environmentCard.querySelector("#updates_environment_details");
+      diagnosticDetails?.classList.remove("hidden");
+      setupUpdateAccordion(environmentCard, {kind:"environment", title:"Ambiente", collapsedByDefault:true});
+    }
 
-    const preparationTitle = document.getElementById("updates_working_title");
-    const preparationCard = preparationTitle?.closest(".card") || findCardByTitle(/^(Preparação|Aguardando\s*\/\s*preparação)$/i);
-    convertCardToAccordion(preparationCard, {kind:"preparation", title:"Preparação", open:true});
+    const preparationTitle = document.getElementById("updates_working_title") || [...document.querySelectorAll("#tab_panel_atualizacoes .section-title")].find(node => /^(Preparação|Aguardando\s*\/\s*preparação)$/i.test(String(node.textContent || "").trim()));
+    const preparationCard = preparationTitle?.closest(".card") || document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="preparation"]');
+    setupUpdateAccordion(preparationCard, {kind:"preparation", title:"Preparação", collapsedByDefault:false});
 
     const queueMeta = document.getElementById("updates_queue_meta");
-    const queueCard = queueMeta?.closest(".card") || findCardByTitle(/^Fila de atualização$/i);
-    convertCardToAccordion(queueCard, {kind:"queue", title:"Fila de atualização", open:true});
+    const queueCard = queueMeta?.closest(".card") || document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="queue"]');
+    setupUpdateAccordion(queueCard, {kind:"queue", title:"Fila de atualização", collapsedByDefault:false});
   }
 
   function refine(root = document) {
