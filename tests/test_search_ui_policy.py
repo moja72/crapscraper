@@ -8,31 +8,42 @@ def test_search_ui_policy_injects_unified_script():
 
     assert "data-unified-search-ui" in policy
     assert "_patch_panel_javascript" in policy
+    assert "_patch_panel_html" in policy
+    assert "const LISTING_DEFAULT_PAGE_SIZE = 5;" in policy
     assert "[5, 10, 25, 50, 100, 250]" in policy
     assert "window.__crapscraperPagination" in policy
+    assert 'id="updates_working_title">Preparação</div>' in policy
 
     assert "PAGE_SIZES = [5, 10, 25, 50, 100, 250]" in script
+    assert "DEFAULT_PAGE_SIZE = 5" in script
     assert "cs-page-jump" in script
     assert "listing-pagination" in script
     assert "listing-meta-row" in script
-    assert "updates-list-controls" in script
-    assert "updates-history-toolbar" in script
+    assert "cs-queue-meta-row" in script
+    assert "cs-bulk-selection-line" in script
+    assert "cs-bulk-action-line" in script
+    assert "standardizeQueueMeta" in script
+    assert "standardizeWaitingBulk" in script
 
     for token in (
+        "catalogos_page_size",
         "comparison_page_size",
         "updates_page_size",
         "updates_queue_page_size",
         "updates_history_page_size",
+        "update_list_preview_page_size",
         "plugintema_manage_page_size",
         "catalog_preview_page_size",
     ):
-        assert token in script
+        assert token in policy or token in script
 
     for setter in (
+        "catalogs",
         "comparison",
         "updatesWaiting",
         "updatesQueue",
         "updatesHistory",
+        "updateListPreview",
         "pluginTemaManager",
         "catalogPreview",
     ):
