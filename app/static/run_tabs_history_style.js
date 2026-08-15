@@ -42,7 +42,7 @@
 
     #runs_manager_card .run-tab-btn[aria-selected="true"]{
       z-index:2!important;
-      background:#141415!important;
+      background:#1C1C1D!important;
       color:var(--text)!important;
       border-color:rgba(124,58,237,.72)!important;
       border-bottom:none!important;
