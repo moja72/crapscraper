@@ -7,12 +7,15 @@ def test_search_ui_policy_injects_unified_script():
     script = (root / "app" / "static" / "unified_search_ui.js").read_text(encoding="utf-8")
     preparation_bulk = (root / "app" / "static" / "preparation_bulk_ui.js").read_text(encoding="utf-8")
     refinements = (root / "app" / "static" / "ui_refinements.js").read_text(encoding="utf-8")
+    history_fix = (root / "app" / "static" / "history_tabs_fix.js").read_text(encoding="utf-8")
 
     assert "data-unified-search-ui" in policy
     assert "data-preparation-bulk-ui" in policy
     assert "data-ui-refinements" in policy
+    assert "data-history-tabs-fix" in policy
     assert "_PREPARATION_BULK_SCRIPT_PATH" in policy
     assert "_UI_REFINEMENTS_SCRIPT_PATH" in policy
+    assert "_HISTORY_TABS_FIX_SCRIPT_PATH" in policy
     assert "_patch_panel_javascript" in policy
     assert "_patch_panel_html" in policy
     assert "_patch_catalog_context_search" in policy
@@ -55,8 +58,14 @@ def test_search_ui_policy_injects_unified_script():
     assert '["📄", "Catálogo", hasCatalog]' in refinements
     assert '["📝", "Estado", hasState]' in refinements
     assert '["📋", "Log", hasLog]' in refinements
-    assert ".updates-history-tab.is-active" in refinements
-    assert "border-bottom-color:var(--bg-elev-1)" in refinements
+
+    assert "#updates_history_controls .updates-history-tabs" in history_fix
+    assert "#updates_history_controls .updates-history-tab.is-active" in history_fix
+    assert "box-shadow:inset 0 -2px 0 var(--accent)" in history_fix
+    assert "grid-template-columns:54px minmax(0,1fr) auto auto auto" in history_fix
+    assert "> .update-retry-btn" in history_fix
+    assert "> .update-history-details" in history_fix
+    assert "grid-column:5" in history_fix
 
     for token in (
         "catalogos_page_size",
