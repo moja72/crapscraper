@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import app.web as web
 
 _INSTALLED = False
-_ORIGINAL_RENDER_PANEL_PAGE = web.render_panel_page
+_BASE_RENDER: Callable[..., str] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "unified_search_ui.js"
 
 
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
-    html = _ORIGINAL_RENDER_PANEL_PAGE(*args, **kwargs)
+    base = _BASE_RENDER or web.render_panel_page
+    html = base(*args, **kwargs)
     try:
         script = _SCRIPT_PATH.read_text(encoding="utf-8")
     except OSError:
@@ -23,8 +24,10 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
 
 
 def install_search_ui_policy() -> None:
-    global _INSTALLED
+    """Encadeia a padronização depois das políticas visuais já instaladas."""
+    global _INSTALLED, _BASE_RENDER
     if _INSTALLED:
         return
+    _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
