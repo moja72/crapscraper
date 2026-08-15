@@ -2,6 +2,8 @@
   "use strict";
 
   const DEBOUNCE_MS = 700;
+  const SCAN_DELAY_MS = 50;
+  const FALLBACK_SCAN_MS = 500;
   const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const timers = new WeakMap();
 
@@ -13,6 +15,7 @@
     ["updates_history_page", "updatesHistory"],
     ["plugintema_manage_page_status", "pluginTemaManager"],
     ["update_list_preview_page", "updateListPreview"],
+    ["catalog_preview_page", "catalogPreview"],
   ]);
 
   function clampPage(value, total, fallback) {
@@ -23,13 +26,18 @@
 
   function parseLabel(label) {
     if (!label) return null;
+
+    // Quando o render nativo recria o texto "Página X de Y", ele pode manter
+    // datasets antigos. Por isso o texto visível tem prioridade sempre que existir.
+    const match = normalize(label.textContent).match(/P[aá]gina\s+(\d+)\s+de\s+(\d+)/i);
+    if (match) {
+      return { current: Number(match[1]), total: Number(match[2]) };
+    }
+
     const current = Number(label.dataset.csCurrent || 0);
     const total = Number(label.dataset.csTotal || 0);
     if (current > 0 && total > 0) return { current, total };
-
-    const match = normalize(label.textContent).match(/P[aá]gina\s+(\d+)\s+de\s+(\d+)/i);
-    if (!match) return null;
-    return { current: Number(match[1]), total: Number(match[2]) };
+    return null;
   }
 
   function paginationButtons(label) {
@@ -87,10 +95,18 @@
       const timer = window.setTimeout(() => goToPage(label, input), DEBOUNCE_MS);
       timers.set(input, timer);
     });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const oldTimer = timers.get(input);
+      if (oldTimer) window.clearTimeout(oldTimer);
+      goToPage(label, input);
+    });
   }
 
   function makeEditable(label) {
     if (!label) return;
+
     const existing = label.querySelector("input[data-cs-page-input]");
     if (existing) {
       bindInput(label, existing);
@@ -98,7 +114,8 @@
     }
 
     const info = parseLabel(label);
-    if (!info) return;
+    if (!info || !Number.isFinite(info.current) || !Number.isFinite(info.total) || info.total < 1) return;
+
     label.dataset.csCurrent = String(info.current);
     label.dataset.csTotal = String(info.total);
     label.classList.add("cs-page-jump");
@@ -106,12 +123,14 @@
     bindInput(label, label.querySelector("input[data-cs-page-input]"));
   }
 
-  function scan() {
-    document.querySelectorAll("input[data-cs-page-input]").forEach((input) => {
-      const label = input.closest(".cs-page-jump") || input.parentElement;
-      bindInput(label, input);
+  function scanKnownLabels() {
+    KNOWN_SETTERS.forEach((_setter, id) => {
+      const label = document.getElementById(id);
+      if (label) makeEditable(label);
     });
+  }
 
+  function scanGenericPagination() {
     document.querySelectorAll(".listing-pagination").forEach((row) => {
       const candidates = [...row.querySelectorAll("span,div,strong,b")];
       const label = candidates.find((node) =>
@@ -122,10 +141,25 @@
     });
   }
 
+  function scan() {
+    document.querySelectorAll("input[data-cs-page-input]").forEach((input) => {
+      const label = input.closest(".cs-page-jump") || input.parentElement;
+      bindInput(label, input);
+    });
+    scanKnownLabels();
+    scanGenericPagination();
+  }
+
+  // Throttle, não debounce: a interface atualiza status/logs frequentemente.
+  // O debounce antigo podia ser adiado indefinidamente e a paginação permanecia
+  // como texto simples. Uma vez agendado, o scan sempre executa.
   let scanTimer = null;
   function scheduleScan() {
-    window.clearTimeout(scanTimer);
-    scanTimer = window.setTimeout(scan, 60);
+    if (scanTimer !== null) return;
+    scanTimer = window.setTimeout(() => {
+      scanTimer = null;
+      scan();
+    }, SCAN_DELAY_MS);
   }
 
   function start() {
@@ -135,6 +169,9 @@
       subtree: true,
       characterData: true,
     });
+
+    // Fallback leve para componentes recriados por renders assíncronos/polling.
+    window.setInterval(scan, FALLBACK_SCAN_MS);
   }
 
   if (document.readyState === "loading") {
