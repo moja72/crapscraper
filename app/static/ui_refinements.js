@@ -19,12 +19,16 @@
     #runs_manager_card .runs-manager-create-actions{
       background:transparent!important;
     }
+    #runs_manager_card #runs_manager_content{
+      border:none!important;
+      box-shadow:none!important;
+    }
     #runs_manager_card .runs-manager-header:hover{
       background:rgba(255,255,255,.025)!important;
     }
     #runs_manager_card .runs-manager-header[aria-expanded="true"] + #runs_manager_content{
       background:transparent!important;
-      border-color:rgba(255,255,255,.10)!important;
+      border:none!important;
       box-shadow:none!important;
     }
     #runs_manager_card .run-tab-btn{
@@ -162,7 +166,7 @@
       background:var(--bg-elev-1)!important;
       color:var(--text)!important;
       border-color:var(--line-strong)!important;
-      border-bottom-color:var(--bg-elev-1)!important;
+      border-bottom:none!important;
       box-shadow:none!important;
     }
     .updates-history-tab:not(.is-active):hover{
@@ -176,6 +180,33 @@
       border-top:0!important;
       border-radius:0 0 12px 12px!important;
       background:var(--bg-elev-1)!important;
+    }
+
+    /* Logs: todos seguem o padrão Log d... em sanfona fechada. */
+    .standard-log-accordion{
+      overflow:hidden!important;
+    }
+    .standard-log-accordion > summary{
+      list-style:none!important;
+      cursor:pointer!important;
+      display:flex!important;
+      align-items:center!important;
+      gap:8px!important;
+      user-select:none!important;
+    }
+    .standard-log-accordion > summary::-webkit-details-marker{display:none!important;}
+    .standard-log-chevron{
+      display:inline-flex!important;
+      width:14px!important;
+      align-items:center!important;
+      justify-content:center!important;
+      transition:transform .18s ease!important;
+    }
+    .standard-log-accordion[open] .standard-log-chevron{
+      transform:rotate(90deg)!important;
+    }
+    .standard-log-content{
+      margin-top:14px!important;
     }
   `;
 
@@ -242,10 +273,54 @@
     });
   }
 
+  function standardizeCollectLog() {
+    const log = document.getElementById("logs");
+    if (!log) return;
+    const currentDetails = log.closest("details.standard-log-accordion");
+    if (currentDetails) return;
+    const card = log.closest(".card");
+    if (!card) return;
+
+    const copyRow = card.querySelector(".log-copy-row");
+    const details = document.createElement("details");
+    details.className = `${card.className} standard-log-accordion`;
+    details.dataset.standardLog = "collect";
+
+    const summary = document.createElement("summary");
+    summary.innerHTML = '<span class="standard-log-chevron" aria-hidden="true">▸</span><span class="section-title" style="margin:0;">Log da coleta</span>';
+
+    const content = document.createElement("div");
+    content.className = "standard-log-content";
+    content.appendChild(log);
+    if (copyRow) content.appendChild(copyRow);
+
+    details.appendChild(summary);
+    details.appendChild(content);
+    card.replaceWith(details);
+  }
+
+  function standardizeUpdateLog() {
+    const log = document.getElementById("updates_log");
+    if (!log) return;
+    const details = log.closest("details");
+    if (!details) return;
+    details.classList.add("standard-log-accordion");
+    details.removeAttribute("open");
+    const title = details.querySelector("summary .section-title");
+    if (title) title.textContent = "Logs da atualização";
+    const chevron = details.querySelector("summary .updates-disclosure-chevron");
+    if (chevron) {
+      chevron.classList.add("standard-log-chevron");
+      chevron.textContent = "▸";
+    }
+  }
+
   function refine(root = document) {
     normalizeDefaultLabels(root);
     normalizeCatalogStatusRows(root);
     normalizeCatalogAvailability(root);
+    standardizeCollectLog();
+    standardizeUpdateLog();
   }
 
   refine(document);
