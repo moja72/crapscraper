@@ -13,9 +13,10 @@ def test_search_ui_policy_injects_unified_script():
 
     assert "PAGE_SIZES = [5, 10, 25, 50, 100, 250]" in script
     assert "cs-page-jump" in script
-    assert "cs-pagination" in script
-    assert "cs-meta-row" in script
-    assert "cs-filter-row" in script
+    assert "listing-pagination" in script
+    assert "listing-meta-row" in script
+    assert "updates-list-controls" in script
+    assert "updates-history-toolbar" in script
 
     for token in (
         "comparison_page_size",
