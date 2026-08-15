@@ -1,0 +1,518 @@
+1:from __future__ import annotations
+2:
+3:import csv
+4:import re
+5:import threading
+6:import unicodedata
+7:from collections import defaultdict
+8:from pathlib import Path
+9:from typing import Any, Iterable, Mapping
+10:from urllib.parse import urlparse
+11:
+12:from app import settings
+13:
+14:
+15:_CACHE_LOCK = threading.RLock()
+16:_CACHE_KEY: tuple[Any, ...] | None = None
+17:_CACHE_PAYLOAD: dict[str, Any] | None = None
+18:
+19:_STATUS_ORDER = {
+20:    "update_available": 0,
+21:    "version_review": 1,
+22:    "site_version_missing": 2,
+23:    "source_version_missing": 3,
+24:    "site_ahead": 4,
+25:    "updated": 5,
+26:    "site_only": 6,
+27:    "new_source": 7,
+28:}
+29:
+30:_STATUS_LABELS = {
+31:    "update_available": "Atualização disponível",
+32:    "version_review": "Revisar versão",
+33:    "site_version_missing": "Versão ausente no site",
+34:    "source_version_missing": "Versão ausente no Ultrapack",
+35:    "site_ahead": "Site aparentemente mais novo",
+36:    "updated": "Atualizado",
+37:    "site_only": "Somente no PluginTema",
+38:    "new_source": "Novo no Ultrapack",
+39:}
+40:
+41:
+42:def _normalize_spaces(value: Any) -> str:
+43:    if value in (None, ""):
+44:        return ""
+45:    return " ".join(str(value).split()).strip()
+46:
+47:
+48:def _strip_accents(value: str) -> str:
+49:    normalized = unicodedata.normalize("NFKD", value)
+50:    return "".join(char for char in normalized if not unicodedata.combining(char))
+51:
+52:
+53:def normalize_name_key(value: Any) -> str:
+54:    text = _strip_accents(_normalize_spaces(value).lower())
+55:    text = text.replace("&", " and ")
+56:    text = re.sub(r"^\s*(themeforest|codecanyon)\s+", "", text)
+57:    text = re.sub(r"\bwordpress\b", " ", text)
+58:    text = re.sub(r"\bwoocommerce\b", " ", text)
+59:    text = re.sub(r"\bthemes?\b", " ", text)
+60:    text = re.sub(r"\bwp\b", " ", text)
+61:    text = re.sub(r"[^a-z0-9]+", " ", text)
+62:    return " ".join(text.split())
+63:
+64:
+65:def normalize_url_key(value: Any) -> str:
+66:    text = _normalize_spaces(value).lower()
+67:    if not text:
+68:        return ""
+69:
+70:    if not re.match(r"^[a-z][a-z0-9+.-]*://", text):
+71:        text = "https://" + text.lstrip("/")
+72:
+73:    try:
+74:        parsed = urlparse(text)
+75:    except Exception:
+76:        return ""
+77:
+78:    host = (parsed.netloc or "").lower()
+79:    if host.startswith("www."):
+80:        host = host[4:]
+81:
+82:    path = re.sub(r"/{2,}", "/", parsed.path or "/")
+83:    path = path.rstrip("/")
+84:    return f"{host}{path}"
+85:
+86:
+87:def clean_version(value: Any) -> str:
+88:    text = _normalize_spaces(value)
+89:    if not text:
+90:        return ""
+91:
+92:    formula = re.fullmatch(r'=\"(.*)\"', text)
+93:    if formula:
+94:        text = formula.group(1).replace('""', '"')
+95:
+96:    if text.startswith("'"):
+97:        text = text[1:]
+98:
+99:    text = re.sub(r"^\s*(vers[aã]o|version|ver\.?)[\s:#-]*", "", text, flags=re.IGNORECASE)
+100:    text = text.replace(",", ".")
+101:    return re.sub(r"\s+", "", text).strip(" .-_")
+102:
+103:
+104:def is_suspicious_spreadsheet_version(value: str) -> bool:
+105:    # Valores como 1.6.2006 e 2.2.2008 aparecem no catálogo atual e podem
+106:    # ser versões convertidas por planilha. Não devem ser usados para decisão automática.
+107:    return bool(re.fullmatch(r"\d+(?:\.\d+)+\.(?:19|20)\d{2}", value or ""))
+108:
+109:
+110:def _version_tokens(value: str) -> list[tuple[int, Any]]:
+111:    tokens: list[tuple[int, Any]] = []
+112:    for raw in re.findall(r"\d+|[a-zA-Z]+", value or ""):
+113:        if raw.isdigit():
+114:            tokens.append((1, int(raw)))
+115:        else:
+116:            tokens.append((0, raw.lower()))
+117:    return tokens
+118:
+119:
+120:def compare_versions(source_version: str, site_version: str) -> int | None:
+121:    source = clean_version(source_version)
+122:    site = clean_version(site_version)
+123:    if not source or not site:
+124:        return None
+125:
+126:    if is_suspicious_spreadsheet_version(source) or is_suspicious_spreadsheet_version(site):
+127:        return None
+128:
+129:    left = _version_tokens(source)
+130:    right = _version_tokens(site)
+131:    if not left or not right:
+132:        return None
+133:
+134:    max_len = max(len(left), len(right))
+135:    left += [(1, 0)] * (max_len - len(left))
+136:    right += [(1, 0)] * (max_len - len(right))
+137:
+138:    for l_token, r_token in zip(left, right):
+139:        if l_token == r_token:
+140:            continue
+141:
+142:        # Um número é tratado como versão estável e uma palavra como qualificador.
+143:        if l_token[0] != r_token[0]:
+144:            return 1 if l_token[0] > r_token[0] else -1
+145:
+146:        return 1 if l_token[1] > r_token[1] else -1
+147:
+148:    return 0
+149:
+150:
+151:def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+152:    if not path.exists() or not path.is_file():
+153:        raise FileNotFoundError(f"Arquivo não encontrado: {path}")
+154:
+155:    with path.open("r", encoding="utf-8-sig", newline="") as file:
+156:        reader = csv.DictReader(file)
+157:        rows: list[dict[str, str]] = []
+158:        for raw_row in reader:
+159:            row: dict[str, str] = {}
+160:            for raw_key, raw_value in dict(raw_row or {}).items():
+161:                key = str(raw_key or "").lstrip("\t\ufeff").strip()
+162:                row[key] = "" if raw_value is None else str(raw_value)
+163:            rows.append(row)
+164:        return rows
+165:
+166:
+167:def _normalize_source_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+168:    normalized: list[dict[str, Any]] = []
+169:    for index, row in enumerate(rows):
+170:        name = _normalize_spaces(row.get("nome_produto"))
+171:        if not name:
+172:            continue
+173:        normalized.append(
+174:            {
+175:                "source_index": index,
+176:                "source_name": name,
+177:                "source_version": clean_version(row.get("versao_produto")),
+178:                "source_product_url": _normalize_spaces(row.get("link_produto")),
+179:                "source_official_url": _normalize_spaces(row.get("pagina_oficial")),
+180:                "source_category": _normalize_spaces(row.get("categoria_nome")),
+181:                "name_key": normalize_name_key(name),
+182:                "url_key": normalize_url_key(row.get("pagina_oficial")),
+183:            }
+184:        )
+185:    return normalized
+186:
+187:
+188:def _normalize_site_rows(
+189:    rows: Iterable[Mapping[str, Any]],
+190:) -> list[dict[str, Any]]:
+191:    normalized: list[dict[str, Any]] = []
+192:
+193:    for index, row in enumerate(rows):
+194:        is_woocommerce_export = (
+195:            "Nome" in row
+196:            or "Metadado: pt_versao" in row
+197:        )
+198:
+199:        if is_woocommerce_export:
+200:            product_type = _normalize_spaces(
+201:                row.get("Tipo")
+202:            ).lower()
+203:
+204:            # O export do WooCommerce possui uma linha principal
+205:            # e linhas de variações. Compararemos apenas o produto principal.
+206:            if "variation" in product_type:
+207:                continue
+208:
+209:            name = _normalize_spaces(row.get("Nome"))
+210:            site_id = _normalize_spaces(row.get("ID"))
+211:            site_version = clean_version(
+212:                row.get("Metadado: pt_versao")
+213:            )
+214:            official_url = _normalize_spaces(
+215:                row.get("Metadado: site_oficial")
+216:            )
+217:            categories = _normalize_spaces(
+218:                row.get("Categorias")
+219:            )
+220:
+221:        else:
+222:            # Também aceita o formato padrão de catálogo do CrapScraper.
+223:            product_type = _normalize_spaces(
+224:                row.get("tipo")
+225:            ).lower()
+226:
+227:            name = _normalize_spaces(
+228:                row.get("nome_produto")
+229:            )
+230:            site_id = ""
+231:            site_version = clean_version(
+232:                row.get("versao_produto")
+233:            )
+234:            official_url = _normalize_spaces(
+235:                row.get("pagina_oficial")
+236:            )
+237:            categories = _normalize_spaces(
+238:                row.get("categoria_nome")
+239:            )
+240:
+241:        if not name:
+242:            continue
+243:
+244:        normalized.append(
+245:            {
+246:                "site_index": index,
+247:                "site_id": site_id,
+248:                "site_name": name,
+249:                "site_version": site_version,
+250:                "site_official_url": official_url,
+251:                "site_categories": categories,
+252:                "site_product_type": product_type,
+253:                "name_key": normalize_name_key(name),
+254:                "url_key": normalize_url_key(official_url),
+255:            }
+256:        )
+257:
+258:    return normalized
+259:
+260:
+261:def _build_unique_index(items: list[dict[str, Any]], field_name: str) -> dict[str, int]:
+262:    buckets: dict[str, list[int]] = defaultdict(list)
+263:    for index, item in enumerate(items):
+264:        key = _normalize_spaces(item.get(field_name))
+265:        if key:
+266:            buckets[key].append(index)
+267:    return {key: indexes[0] for key, indexes in buckets.items() if len(indexes) == 1}
+268:
+269:
+270:def _build_status(source_version: str, site_version: str) -> str:
+271:    if not source_version and not site_version:
+272:        return "version_review"
+273:    if not site_version:
+274:        return "site_version_missing"
+275:    if not source_version:
+276:        return "source_version_missing"
+277:    if source_version == site_version:
+278:        return "updated"
+279:    if is_suspicious_spreadsheet_version(source_version) or is_suspicious_spreadsheet_version(site_version):
+280:        return "version_review"
+281:
+282:    comparison = compare_versions(source_version, site_version)
+283:    if comparison is None:
+284:        return "version_review"
+285:    if comparison > 0:
+286:        return "update_available"
+287:    if comparison < 0:
+288:        return "site_ahead"
+289:    return "updated"
+290:
+291:
+292:def _matched_row(site: dict[str, Any], source: dict[str, Any], method: str) -> dict[str, Any]:
+293:    status = _build_status(source["source_version"], site["site_version"])
+294:    return {
+295:        "status": status,
+296:        "status_label": _STATUS_LABELS[status],
+297:        "match_method": method,
+298:        "site_id": site["site_id"],
+299:        "site_name": site["site_name"],
+300:        "site_version": site["site_version"],
+301:        "site_official_url": site["site_official_url"],
+302:        "site_categories": site["site_categories"],
+303:        "source_name": source["source_name"],
+304:        "source_version": source["source_version"],
+305:        "source_product_url": source["source_product_url"],
+306:        "source_official_url": source["source_official_url"],
+307:        "source_category": source["source_category"],
+308:    }
+309:
+310:
+311:def _build_full_comparison(source_path: Path, site_path: Path) -> dict[str, Any]:
+312:    source_rows = _normalize_source_rows(_read_csv_rows(source_path))
+313:    site_rows = _normalize_site_rows(_read_csv_rows(site_path))
+314:
+315:    source_by_url = _build_unique_index(source_rows, "url_key")
+316:    source_by_name = _build_unique_index(source_rows, "name_key")
+317:
+318:    matched_source_indexes: set[int] = set()
+319:    result_rows: list[dict[str, Any]] = []
+320:
+321:    for site in site_rows:
+322:        source_index: int | None = None
+323:        method = ""
+324:
+325:        url_key = site.get("url_key", "")
+326:        name_key = site.get("name_key", "")
+327:
+328:        if url_key and url_key in source_by_url:
+329:            candidate = source_by_url[url_key]
+330:            if candidate not in matched_source_indexes:
+331:                source_index = candidate
+332:                method = "official_url"
+333:
+334:        if source_index is None and name_key and name_key in source_by_name:
+335:            candidate = source_by_name[name_key]
+336:            if candidate not in matched_source_indexes:
+337:                source_index = candidate
+338:                method = "normalized_name"
+339:
+340:        if source_index is None:
+341:            result_rows.append(
+342:                {
+343:                    "status": "site_only",
+344:                    "status_label": _STATUS_LABELS["site_only"],
+345:                    "match_method": "unmatched",
+346:                    "site_id": site["site_id"],
+347:                    "site_name": site["site_name"],
+348:                    "site_version": site["site_version"],
+349:                    "site_official_url": site["site_official_url"],
+350:                    "site_categories": site["site_categories"],
+351:                    "source_name": "",
+352:                    "source_version": "",
+353:                    "source_product_url": "",
+354:                    "source_official_url": "",
+355:                    "source_category": "",
+356:                }
+357:            )
+358:            continue
+359:
+360:        matched_source_indexes.add(source_index)
+361:        result_rows.append(_matched_row(site, source_rows[source_index], method))
+362:
+363:    for source_index, source in enumerate(source_rows):
+364:        if source_index in matched_source_indexes:
+365:            continue
+366:        result_rows.append(
+367:            {
+368:                "status": "new_source",
+369:                "status_label": _STATUS_LABELS["new_source"],
+370:                "match_method": "unmatched",
+371:                "site_id": "",
+372:                "site_name": "",
+373:                "site_version": "",
+374:                "site_official_url": "",
+375:                "site_categories": "",
+376:                "source_name": source["source_name"],
+377:                "source_version": source["source_version"],
+378:                "source_product_url": source["source_product_url"],
+379:                "source_official_url": source["source_official_url"],
+380:                "source_category": source["source_category"],
+381:            }
+382:        )
+383:
+384:    result_rows.sort(
+385:        key=lambda row: (
+386:            _STATUS_ORDER.get(str(row.get("status", "")), 99),
+387:            _normalize_spaces(row.get("site_name") or row.get("source_name")).lower(),
+388:        )
+389:    )
+390:
+391:    counts: dict[str, int] = {status: 0 for status in _STATUS_LABELS}
+392:    for row in result_rows:
+393:        status = str(row.get("status", ""))
+394:        counts[status] = counts.get(status, 0) + 1
+395:
+396:    matched_count = len(matched_source_indexes)
+397:    suspicious_site_versions = sum(
+398:        1 for item in site_rows if is_suspicious_spreadsheet_version(item.get("site_version", ""))
+399:    )
+400:
+401:    return {
+402:        "source_file": str(source_path),
+403:        "site_file": str(site_path),
+404:        "source_total": len(source_rows),
+405:        "site_total": len(site_rows),
+406:        "matched_total": matched_count,
+407:        "unmatched_site_total": counts.get("site_only", 0),
+408:        "unmatched_source_total": counts.get("new_source", 0),
+409:        "suspicious_site_versions": suspicious_site_versions,
+410:        "counts": counts,
+411:        "status_labels": dict(_STATUS_LABELS),
+412:        "rows": result_rows,
+413:    }
+414:
+415:
+416:def _file_signature(path: Path) -> tuple[str, int, int]:
+417:    stat = path.stat()
+418:    return str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size)
+419:
+420:
+421:def _get_cached_comparison(source_path: Path, site_path: Path, *, force: bool = False) -> dict[str, Any]:
+422:    global _CACHE_KEY, _CACHE_PAYLOAD
+423:
+424:    cache_key = (_file_signature(source_path), _file_signature(site_path))
+425:    with _CACHE_LOCK:
+426:        if not force and _CACHE_KEY == cache_key and isinstance(_CACHE_PAYLOAD, dict):
+427:            return _CACHE_PAYLOAD
+428:
+429:        payload = _build_full_comparison(source_path, site_path)
+430:        _CACHE_KEY = cache_key
+431:        _CACHE_PAYLOAD = payload
+432:        return payload
+433:
+434:
+435:def build_comparison_payload(
+436:    *,
+437:    source_path: str | Path | None = None,
+438:    site_path: str | Path | None = None,
+439:    status: str = "",
+440:    query: str = "",
+441:    page: int = 1,
+442:    page_size: int | None = None,
+443:    force: bool = False,
+444:) -> dict[str, Any]:
+445:    source_path = Path(
+446:        source_path or settings.COMPARISON_ULTRAPACK_CSV_PATH
+447:    )
+448:
+449:    site_path = Path(
+450:        site_path or settings.COMPARISON_PLUGINTEMA_CSV_PATH
+451:    )
+452:
+453:    full = _get_cached_comparison(source_path, site_path, force=force)
+454:
+455:    normalized_status = _normalize_spaces(status).lower()
+456:    normalized_query = _strip_accents(_normalize_spaces(query).lower())
+457:
+458:    rows = list(full.get("rows", []))
+459:    if normalized_status and normalized_status != "all":
+460:        rows = [row for row in rows if str(row.get("status", "")).lower() == normalized_status]
+461:
+462:    if normalized_query:
+463:        rows = [
+464:            row
+465:            for row in rows
+466:            if normalized_query
+467:            in _strip_accents(
+468:                " ".join(
+469:                    [
+470:                        _normalize_spaces(row.get("site_id")),
+471:                        _normalize_spaces(row.get("site_name")),
+472:                        _normalize_spaces(row.get("source_name")),
+473:                        _normalize_spaces(row.get("site_version")),
+474:                        _normalize_spaces(row.get("source_version")),
+475:                        _normalize_spaces(row.get("source_category")),
+476:                    ]
+477:                ).lower()
+478:            )
+479:        ]
+480:
+481:    resolved_page_size = max(
+482:        1,
+483:        min(
+484:            int(page_size or settings.COMPARISON_DEFAULT_PAGE_SIZE),
+485:            int(settings.COMPARISON_MAX_PAGE_SIZE),
+486:        ),
+487:    )
+488:    total_filtered = len(rows)
+489:    total_pages = max(1, (total_filtered + resolved_page_size - 1) // resolved_page_size)
+490:    resolved_page = max(1, min(int(page or 1), total_pages))
+491:    start = (resolved_page - 1) * resolved_page_size
+492:    end = start + resolved_page_size
+493:
+494:    return {
+495:        "ok": True,
+496:        "summary": {key: value for key, value in full.items() if key != "rows"},
+497:        "filters": {
+498:            "status": normalized_status or "all",
+499:            "query": query,
+500:        },
+501:        "pagination": {
+502:            "page": resolved_page,
+503:            "page_size": resolved_page_size,
+504:            "total_rows": total_filtered,
+505:            "total_pages": total_pages,
+506:        },
+507:        "rows": rows[start:end],
+508:    }
+509:
+510:
+511:__all__ = [
+512:    "build_comparison_payload",
+513:    "clean_version",
+514:    "compare_versions",
+515:    "is_suspicious_spreadsheet_version",
+516:    "normalize_name_key",
+517:    "normalize_url_key",
+518:]

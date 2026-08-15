@@ -1,0 +1,47 @@
+autoscraper/
+├─ main.py                          -> ponto de entrada do projeto
+├─ app/
+│  ├─ core/
+│  │  ├─ app.py                     -> classe principal ScraperApp
+│  │  ├─ state.py                   -> SharedState
+│  │  └─ control.py                 -> ControlState + StopScraper
+│  │
+│  ├─ config/
+│  │  ├─ settings.py                -> constantes gerais do sistema
+│  │  ├─ accounts.py                -> contas cadastradas
+│  │  ├─ sites.py                   -> sites cadastrados
+│  │  └─ item_types.py              -> tipos de item: plugin, tema, template
+│  │
+│  ├─ storage/
+│  │  ├─ paths.py                   -> caminhos de arquivos e pastas
+│  │  ├─ files.py                   -> ler/escrever json/csv/txt
+│  │  ├─ slots.py                   -> criar, apagar, listar, ativar slot
+│  │  └─ catalog.py                 -> catálogo, progresso, cache, status
+│  │
+│  ├─ scraper/
+│  │  ├─ flow.py                    -> fluxo principal do scraping
+│  │  ├─ browser.py                 -> abrir contexto Playwright
+│  │  ├─ auth.py                    -> login
+│  │  └─ extractors.py              -> categorias, cards, detalhes, paginação
+│  │
+│  ├─ adapters/
+│  │  └─ ultrapackv2_plugin.py      -> regras específicas do ultrapackv2/plugins
+│  │
+│  ├─ web/
+│  │  ├─ server.py                  -> subir servidor HTTP
+│  │  └─ handlers.py                -> rotas GET/POST
+│  │
+│  ├─ ui/
+│  │  ├─ page_monitor.py            -> HTML da tela
+│  │  ├─ styles.css                 -> CSS separado
+│  │  └─ app.js                     -> JS separado
+│  │
+│  └─ shared/
+│     ├─ utils.py                   -> helpers genéricos
+│     └─ urls.py                    -> helpers de URL
+│
+├─ data/
+│  ├─ slots/                        -> cada slot vai virar uma subpasta aqui
+│  └─ slots_meta.json               -> slots globais
+│
+└─ logs/                            -> logs gerais do app

@@ -1,0 +1,78 @@
+  400: HTML_TEMPLATE = """<!DOCTYPE html>
+  401: <html lang="pt-BR">
+  402: <head>
+  403:   <meta charset="utf-8">
+  404:   <meta name="viewport" content="width=device-width, initial-scale=1">
+  405:   <title>__TITLE__</title>
+  406:   __STYLES_BLOCK__
+  407: </head>
+  408: <body>
+  409:   <div class="wrap">
+  410:     <div class="page-head">
+  411:       <h1>__HEADER_TITLE__</h1>
+  412:       <div class="subtitle">Painel operacional do scraper. O backend conversa apenas com <code>ScraperApp</code>; toda persistência, engine e browser já ficam fora daqui.</div>
+  413:     </div>
+  414: 
+  415:     <div class="tabs-nav" style="margin-bottom: 16px;">
+  416:       <button type="button" class="tab-btn is-active" data-tab-target="principal" id="tab_btn_principal">Principal</button>
+  417:       <button type="button" class="tab-btn" data-tab-target="catalogos" id="tab_btn_catalogos">Catálogos</button>
+  418:       <button type="button" class="tab-btn" data-tab-target="fila" id="tab_btn_fila">Fila</button>
+  419:     </div>
+  420: 
+  421:     <div class="page-head-sticky">
+  422:       <div class="page-head-badges">
+  423:         <div class="row page-head-main">
+  424:           <span class="badge head-status-badge is-idle" id="head_status_badge">
+  425:             <span class="head-status-icon" aria-hidden="true">⚪</span>
+  426:             <span class="head-status-label">Parado</span>
+  427:           </span>
+  428: 
+  429:           <span class="badge" id="head_site_badge">Site: __SITE_LABEL__</span>
+  430:           <span class="badge" id="head_item_type_badge">Tipo: __ITEM_TYPE_LABEL__</span>
+
+  690:             <button class="btn-secondary" id="catalogos_preview_download_btn" type="button" disabled>Baixar</button>
+  691:           </div>
+  692: 
+  693:           <div class="field" style="margin-bottom:12px;">
+  694:             <label for="catalogos_preview_search">Buscar na prévia</label>
+  695:             <input id="catalogos_preview_search" type="text" placeholder="Digite para filtrar o conteúdo atual">
+  696:           </div>
+  697: 
+  698:           <div id="catalogos_status_preview">
+  699:             <div class="notice">Selecione uma prévia na tabela.</div>
+  700:           </div>
+  701:         </div>
+  702:       </div>
+  703:     </section>
+  704: 
+  705:     <section class="tab-panel hidden" id="tab_panel_fila">
+  706:       <div class="card">
+  707:         <div class="section-title">Fila</div>
+  708:         <div class="small" style="margin-bottom:12px;">
+  709:           Defina qual catálogo/contexto deve iniciar automaticamente quando outro terminar.
+  710:         </div>
+  711: 
+  712:         <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+  713:           <span class="badge" id="fila_rules_count_badge">0 regras</span>
+  714: 
+  715:           <div class="row">
+  716:             <button class="btn-secondary" type="button" onclick="refreshFila()">Atualizar fila</button>
+  717:             <button class="btn-secondary" type="button" onclick="addFilaRule()">Adicionar regra</button>
+  718:             <button class="btn-success" type="button" onclick="saveFila()">Salvar fila</button>
+  719:           </div>
+  720:         </div>
+  721: 
+  722:         <div id="fila_rules_wrap">
+  723:           <div class="notice">Abra a aba Fila para carregar as regras.</div>
+  724:         </div>
+  725:       </div>
+  726:     </section>
+  727:   </div>
+  728: 
+  729:   <script id="monitor-boot-data" type="application/json">__BOOT_JSON__</script>
+  730:   __SCRIPT_BLOCK__
+  731: </body>
+  732: </html>
+  733: """
+  734: 
+  735: 

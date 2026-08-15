@@ -1,0 +1,5 @@
+# Validate with visudo -cf before installing. Install as root:root mode 0440.
+# The helper itself must be /usr/local/sbin/crapscraper-zip-helper, root:root,
+# mode 0755, and must not be writable by adminpt or plugi2090.
+Cmnd_Alias CRAPSCRAPER_ZIP_HELPER = /usr/local/sbin/crapscraper-zip-helper
+adminpt ALL=(plugi2090) NOPASSWD: NOSETENV: CRAPSCRAPER_ZIP_HELPER

@@ -1,0 +1,108 @@
+ 2246:       updateRunCreateSelectors(initialState?.data || {});
+ 2247:       renderRunsTabs();
+ 2248:     }
+ 2249: 
+ 2250:     renderStatePayload(initialState, { forceConfigWrite: true });
+ 2251:     updateContextSelectorsFromState(initialState?.data || {});
+ 2252:     toggleScopeFields();
+ 2253:     refreshSelectedCategoriesCounter();
+ 2254:   }
+ 2255: 
+ 2256: function activateMainTab(tabKey) {
+ 2257:   const principalBtn = byId("tab_btn_principal");
+ 2258:   const catalogosBtn = byId("tab_btn_catalogos");
+ 2259:   const filaBtn = byId("tab_btn_fila");
+ 2260: 
+ 2261:   const principalPanel = byId("tab_panel_principal");
+ 2262:   const catalogosPanel = byId("tab_panel_catalogos");
+ 2263:   const filaPanel = byId("tab_panel_fila");
+ 2264: 
+ 2265:   if (
+ 2266:     !principalBtn ||
+ 2267:     !catalogosBtn ||
+ 2268:     !filaBtn ||
+ 2269:     !principalPanel ||
+ 2270:     !catalogosPanel ||
+ 2271:     !filaPanel
+ 2272:   ) {
+ 2273:     return;
+ 2274:   }
+ 2275: 
+ 2276:   const isCatalogos = tabKey === "catalogos";
+ 2277:   const isFila = tabKey === "fila";
+ 2278:   const isPrincipal = !isCatalogos && !isFila;
+ 2279: 
+ 2280:   principalBtn.classList.toggle("is-active", isPrincipal);
+ 2281:   catalogosBtn.classList.toggle("is-active", isCatalogos);
+ 2282:   filaBtn.classList.toggle("is-active", isFila);
+ 2283: 
+ 2284:   principalPanel.classList.toggle("hidden", !isPrincipal);
+ 2285:   catalogosPanel.classList.toggle("hidden", !isCatalogos);
+ 2286:   filaPanel.classList.toggle("hidden", !isFila);
+ 2287: }
+ 2288: 
+ 2289: function setCatalogPreviewPage(page) {
+ 2290:   const nextPage = Math.max(1, toInt(page, 1));
+ 2291:   UI.catalogPreview.page = nextPage;
+ 2292:   renderCatalogPreview();
+ 2293: }
+ 2294: 
+ 2295: function setCatalogPreviewPageSize(pageSize) {
+ 2296:   const allowed = Array.isArray(UI.catalogPreview?.pageSizeOptions)
+
+ 3221:     const rules = normalizeFilaRules(collectFilaRulesFromDom());
+ 3222:     const result = await postJson(UI.endpoints.queueSave, { rules });
+ 3223: 
+ 3224:     UI.filaRules = normalizeFilaRules(result?.queue_rules || result?.result || []);
+ 3225:     renderFilaRules();
+ 3226:     notify(result?.message || "Fila salva.");
+ 3227:     return result;
+ 3228:   });
+ 3229: }
+ 3230: 
+ 3231: function bindMainTabs() {
+ 3232:   const principalBtn = byId("tab_btn_principal");
+ 3233:   const catalogosBtn = byId("tab_btn_catalogos");
+ 3234:   const filaBtn = byId("tab_btn_fila");
+ 3235:   const filterNode = byId("catalogos_filter_slot");
+ 3236: 
+ 3237:   if (principalBtn) {
+ 3238:     principalBtn.addEventListener("click", () => {
+ 3239:       activateMainTab("principal");
+ 3240:     });
+ 3241:   }
+ 3242: 
+ 3243:   if (catalogosBtn) {
+ 3244:     catalogosBtn.addEventListener("click", async () => {
+ 3245:       activateMainTab("catalogos");
+ 3246:       await refreshCatalogos();
+ 3247:     });
+ 3248:   }
+ 3249: 
+ 3250:   if (filaBtn) {
+ 3251:     filaBtn.addEventListener("click", async () => {
+ 3252:       activateMainTab("fila");
+ 3253:       await refreshFila();
+ 3254:     });
+ 3255:   }
+ 3256: 
+ 3257:   if (filterNode) {
+ 3258:     filterNode.addEventListener("change", async () => {
+ 3259:       await refreshCatalogos();
+ 3260:     });
+ 3261:   }
+ 3262: 
+ 3263:   activateMainTab("principal");
+ 3264: }
+ 3265: 
+ 3266: function init() {
+ 3267:   exposeGlobals();
+ 3268:   bindFormDirtyTracking();
+ 3269:   bindContextChaining();
+ 3270:   bindVisibilityRefresh();
+ 3271:   bindMainTabs();
+ 3272:   bindCatalogPreviewSearch();
+ 3273:   hydrateFromBoot();
+ 3274:   loadState({ forceConfigWrite: false, forceRunsRefresh: true });
+ 3275: 
+ 3276:   if (isManagerMode()) {
