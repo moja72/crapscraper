@@ -5,8 +5,11 @@ def test_search_ui_policy_injects_unified_script():
     root = Path(__file__).resolve().parents[1]
     policy = (root / "app" / "search_ui_policy.py").read_text(encoding="utf-8")
     script = (root / "app" / "static" / "unified_search_ui.js").read_text(encoding="utf-8")
+    preparation_bulk = (root / "app" / "static" / "preparation_bulk_ui.js").read_text(encoding="utf-8")
 
     assert "data-unified-search-ui" in policy
+    assert "data-preparation-bulk-ui" in policy
+    assert "_PREPARATION_BULK_SCRIPT_PATH" in policy
     assert "_patch_panel_javascript" in policy
     assert "_patch_panel_html" in policy
     assert "_patch_catalog_context_search" in policy
@@ -32,6 +35,13 @@ def test_search_ui_policy_injects_unified_script():
     assert "cs-bulk-action-line" in script
     assert "standardizeQueueMeta" in script
     assert "standardizeWaitingBulk" in script
+
+    assert '"Selecionar página"' in preparation_bulk
+    assert '"Selecionar todo resultado"' in preparation_bulk
+    assert 'prepare.textContent = "Preparar planos"' in preparation_bulk
+    assert 'enqueue.textContent = "Adicionar à fila"' in preparation_bulk
+    assert "cs-preparation-actions" in preparation_bulk
+    assert "meta.parentElement.insertBefore(bar, meta)" in preparation_bulk
 
     for token in (
         "catalogos_page_size",
