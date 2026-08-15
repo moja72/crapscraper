@@ -44,6 +44,7 @@ repair_update_runtime()
 
 
 from app.app import ScraperApp
+from app.resume_policy import install_resume_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -53,6 +54,10 @@ from app.storage import (
     load_slots_meta,
 )
 from app.web import serve
+
+# Mantém o botão principal coerente com o estado persistido: quando há continuação
+# utilizável, "Retomar" reaproveita a fila salva em vez de iniciar nova descoberta.
+install_resume_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
