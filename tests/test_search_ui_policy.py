@@ -53,15 +53,23 @@ def test_search_ui_policy_injects_unified_script():
     assert "meta.parentElement.insertBefore(bar, meta)" in preparation_bulk
 
     assert "#runs_manager_card.collect-runs-accordion" in refinements
+    assert "#runs_manager_card #runs_manager_content" in refinements
+    assert "border:none!important" in refinements
     assert ".catalogo-status-row" in refinements
     assert ".catalogo-availability-icon.is-unavailable" in refinements
     assert '["📄", "Catálogo", hasCatalog]' in refinements
     assert '["📝", "Estado", hasState]' in refinements
     assert '["📋", "Log", hasLog]' in refinements
+    assert "standardizeCollectLog" in refinements
+    assert "standardizeUpdateLog" in refinements
+    assert "Log da coleta" in refinements
+    assert "Logs da atualização" in refinements
+    assert "standard-log-accordion" in refinements
 
     assert "#updates_history_controls .updates-history-tabs" in history_fix
     assert "#updates_history_controls .updates-history-tab.is-active" in history_fix
-    assert "box-shadow:inset 0 -2px 0 var(--accent)" in history_fix
+    assert "background:var(--bg-elev-1)" in history_fix
+    assert "border-bottom:none" in history_fix
     assert "grid-template-columns:54px minmax(0,1fr) auto auto auto" in history_fix
     assert "> .update-retry-btn" in history_fix
     assert "> .update-history-details" in history_fix
