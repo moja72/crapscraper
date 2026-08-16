@@ -88,15 +88,18 @@ class StorePricingTests(unittest.TestCase):
 
     def test_apply_updates_only_scoped_price_fields(self):
         woo = Woo()
+        progress = []
         result = apply_store_prices(woo, {
             "kinds": ["plugin", "theme"], "confirmation": "ALTERAR PRECOS",
             "annual_regular": "80", "annual_sale": "60",
             "lifetime_regular": "150", "lifetime_sale": "130",
-        })
+        }, progress=lambda phase, completed, total: progress.append((phase, completed, total)))
         self.assertTrue(result["ok"])
         self.assertEqual(result["updated_variation_count"], 3)
         self.assertEqual({item["id"] for _, rows in woo.updates for item in rows}, {101, 102, 201})
         self.assertTrue(all(set(item) == {"id", "regular_price", "sale_price"} for _, rows in woo.updates for item in rows))
+        self.assertIn(("reading", 2, 2), progress)
+        self.assertIn(("updating", 2, 2), progress)
 
     def test_panel_has_store_tab_on_opposite_edge(self):
         from pathlib import Path
@@ -131,6 +134,10 @@ class StorePricingTests(unittest.TestCase):
         self.assertIn("storeKindPriceCard", js)
         self.assertIn("Somente leitura", js)
         self.assertNotIn("consultar=1", js)
+        self.assertIn('if path == "/loja/precos/status":', web)
+        self.assertIn("_start_store_price_job", web)
+        self.assertIn("waitForStorePriceJob", js)
+        self.assertIn('status.status === "completed"', js)
 
 
 if __name__ == "__main__":

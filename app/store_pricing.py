@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.plugintema_catalog import categories_match_catalog_kind, product_matches_catalog_kind
 
@@ -125,9 +125,12 @@ def read_store_price_reference_products(
 def build_store_pricing_snapshot(
     woo: Any, kinds: Iterable[str] = ("plugin", "theme"), *,
     products: Iterable[Mapping[str, Any]] | None = None,
+    progress: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, Any]:
     requested_kinds = tuple(dict.fromkeys(str(kind).strip().lower() for kind in kinds))
     selected_products = list(products) if products is not None else _selected_products(woo, requested_kinds)
+    if progress:
+        progress("reading", 0, len(selected_products))
     variations: list[dict[str, Any]] = []
     unmatched = 0
     distribution: dict[str, Counter[tuple[str, str]]] = {
@@ -154,10 +157,12 @@ def build_store_pricing_snapshot(
     # paralelo para que a prévia não cresça linearmente com o catálogo.
     workers = min(12, max(1, len(selected_products)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="store-prices") as executor:
-        loaded = [
-            future.result()
-            for future in as_completed(executor.submit(load_variations, product) for product in selected_products)
-        ]
+        loaded = []
+        futures = [executor.submit(load_variations, product) for product in selected_products]
+        for completed, future in enumerate(as_completed(futures), start=1):
+            loaded.append(future.result())
+            if progress:
+                progress("reading", completed, len(selected_products))
 
     for product, product_variations in loaded:
         product_kind = next(
@@ -217,14 +222,17 @@ def build_store_pricing_snapshot(
     }
 
 
-def apply_store_prices(woo: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
+def apply_store_prices(
+    woo: Any, payload: Mapping[str, Any], *,
+    progress: Callable[[str, int, int], None] | None = None,
+) -> dict[str, Any]:
     if str(payload.get("confirmation", "") or "").strip() != "ALTERAR PRECOS":
         raise ValueError('Digite "ALTERAR PRECOS" para confirmar.')
     kinds = payload.get("kinds", [])
     if not isinstance(kinds, list):
         raise ValueError("Seleção de produtos inválida.")
     prices = normalize_prices(payload)
-    snapshot = build_store_pricing_snapshot(woo, kinds)
+    snapshot = build_store_pricing_snapshot(woo, kinds, progress=progress)
     grouped: dict[int, list[dict[str, Any]]] = {}
     for variation in snapshot["variations"]:
         period = variation["period"]
@@ -235,11 +243,26 @@ def apply_store_prices(woo: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
         })
     updated = 0
     errors: list[dict[str, Any]] = []
-    for product_id, updates in grouped.items():
+    def update_product(item: tuple[int, list[dict[str, Any]]]) -> tuple[int, int, str]:
+        product_id, updates = item
         try:
-            updated += len(woo.update_variations_prices(product_id, updates, authorized=True))
+            rows = woo.update_variations_prices(product_id, updates, authorized=True)
+            return product_id, len(rows), ""
         except Exception as error:
-            errors.append({"product_id": product_id, "message": str(error)})
+            return product_id, 0, str(error)
+
+    if progress:
+        progress("updating", 0, len(grouped))
+    workers = min(12, max(1, len(grouped)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="store-price-writes") as executor:
+        futures = [executor.submit(update_product, item) for item in grouped.items()]
+        for completed, future in enumerate(as_completed(futures), start=1):
+            product_id, count, message = future.result()
+            updated += count
+            if message:
+                errors.append({"product_id": product_id, "message": message})
+            if progress:
+                progress("updating", completed, len(grouped))
     return {
         "ok": not errors,
         "message": (

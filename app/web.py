@@ -54,6 +54,56 @@ _UPDATE_WORKERS: dict[str, threading.Thread] = {}
 _UPDATE_JOB_LOCKS: dict[str, threading.Lock] = {}
 _UPDATE_WORKERS_LOCK = threading.RLock()
 _UPDATE_QUEUE_WORKER: threading.Thread | None = None
+_STORE_PRICE_LOCK = threading.RLock()
+_STORE_PRICE_JOB: dict[str, Any] = {
+    "status": "idle", "phase": "", "completed": 0, "total": 0, "message": "",
+}
+
+
+def _store_price_job_snapshot() -> dict[str, Any]:
+    with _STORE_PRICE_LOCK:
+        return dict(_STORE_PRICE_JOB)
+
+
+def _start_store_price_job(payload: Mapping[str, Any]) -> dict[str, Any]:
+    from app.store_pricing import apply_store_prices, normalize_prices
+
+    if str(payload.get("confirmation", "") or "").strip() != "ALTERAR PRECOS":
+        raise ValueError('Digite "ALTERAR PRECOS" para confirmar.')
+    kinds = payload.get("kinds", [])
+    if not isinstance(kinds, list) or not ({str(item) for item in kinds} & {"plugin", "theme"}):
+        raise ValueError("Selecione Plugins e/ou Temas.")
+    normalize_prices(payload)
+    with _STORE_PRICE_LOCK:
+        if _STORE_PRICE_JOB.get("status") == "running":
+            raise ValueError("Já existe uma alteração de preços em andamento.")
+        _STORE_PRICE_JOB.update({
+            "status": "running", "phase": "reading", "completed": 0, "total": 0,
+            "message": "Localizando produtos e lendo variações…",
+        })
+
+    def progress(phase: str, completed: int, total: int) -> None:
+        label = "Lendo variações" if phase == "reading" else "Atualizando produtos"
+        with _STORE_PRICE_LOCK:
+            _STORE_PRICE_JOB.update({
+                "phase": phase, "completed": completed, "total": total,
+                "message": f"{label}: {completed} de {total}.",
+            })
+
+    def run() -> None:
+        try:
+            result = apply_store_prices(_build_store_woocommerce_client(), payload, progress=progress)
+            with _STORE_PRICE_LOCK:
+                _STORE_PRICE_JOB.update(result)
+                _STORE_PRICE_JOB["status"] = "completed" if result.get("ok") else "error"
+        except Exception as error:
+            with _STORE_PRICE_LOCK:
+                _STORE_PRICE_JOB.update({
+                    "status": "error", "message": str(error), "error": str(error),
+                })
+
+    threading.Thread(target=run, name="store-price-update", daemon=True).start()
+    return _store_price_job_snapshot()
 
 
 def _run_update_queue() -> None:
@@ -4019,6 +4069,10 @@ def make_handler(
                     self._send_json(build_error_payload(error), code=500)
                 return True
 
+            if path == "/loja/precos/status":
+                self._send_json({"ok": True, **_store_price_job_snapshot()})
+                return True
+
             if path == "/plugintema/catalogo/baixar":
                 query = parse_qs(urlsplit(self.path).query or "")
                 catalog_id = str((query.get("catalog_id") or [""])[0] or "").strip()
@@ -4162,9 +4216,8 @@ def make_handler(
         def _route_post(self, path: str, payload: dict[str, Any]) -> bool:
             if path == "/loja/precos":
                 try:
-                    from app.store_pricing import apply_store_prices
-                    result = apply_store_prices(_build_store_woocommerce_client(), payload)
-                    self._send_json(result, code=200 if result.get("ok") else 502)
+                    result = _start_store_price_job(payload)
+                    self._send_json({"ok": True, "started": True, **result}, code=202)
                 except ValueError as error:
                     self._send_json({"ok": False, "message": str(error)}, code=400)
                 except Exception as error:
