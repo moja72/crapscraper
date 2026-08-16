@@ -55,10 +55,7 @@ _JS_REPLACEMENTS = (
         'defaultButton.textContent = selectedIsDefault ? "⭐ Default atual" : "⭐ Default";',
         'defaultButton.textContent = selectedIsDefault ? "⭐ Padrão atual" : "⭐ Padrão";',
     ),
-    (
-        "como catálogo default",
-        "como catálogo padrão",
-    ),
+    ("como catálogo default", "como catálogo padrão"),
     (
         'notify(result?.message || "Slot default alterado.");',
         'notify(result?.message || "Catálogo padrão alterado.");',
@@ -71,6 +68,14 @@ _JS_REPLACEMENTS = (
         '} else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
         '} else if (button.dataset.catalogAction === "download") {\n      await loadPluginTemaManagedCatalog(catalogId);\n      downloadPluginTemaManagedCatalog();\n    } else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
     ),
+    (
+        '<div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version || "-")} → ${escapeHtml(job.effective_source_version || job.ultrapack_version || "-")}</div><div class="small">Relacionamento: ${escapeHtml(updateRelationshipLabel(job.relationship))}</div>',
+        '<div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version || "-")} → ${escapeHtml(job.effective_source_version || job.ultrapack_version || "-")}</div><div class="small">Origem: ${escapeHtml(updateSourceLabel(job))} · Relacionamento: ${escapeHtml(updateRelationshipLabel(job.relationship))}</div>',
+    ),
+    (
+        '<div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version||"-")} → ${escapeHtml(job.effective_source_version||job.ultrapack_version||"-")}</div>${reason?',
+        '<div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version||"-")} → ${escapeHtml(job.effective_source_version||job.ultrapack_version||"-")}</div><div class="small">Origem: ${escapeHtml(updateSourceLabel(job))}</div>${reason?',
+    ),
 )
 
 _CATALOG_SEARCH_FIELD_PATTERN = re.compile(
@@ -78,6 +83,12 @@ _CATALOG_SEARCH_FIELD_PATTERN = re.compile(
     r'<label for="catalogos_search">Buscar catálogos e contextos</label>\s*'
     r'<input id="catalogos_search" type="search" placeholder="Nome, site, tipo ou conta">\s*'
     r'</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+_UPDATE_TYPE_FIELD_PATTERN = re.compile(
+    r'\s*<div class="field">\s*<label[^>]*for=["\']updates_type_filter["\'][^>]*>.*?</label>\s*'
+    r'<select[^>]*id=["\']updates_type_filter["\'][^>]*>.*?</select>\s*</div>',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -101,8 +112,24 @@ _PLUGIN_TEMA_TOOLBAR_ACTION_PATTERN = re.compile(
 
 _PAGINATION_BRIDGE = r"""
 
-  // API explícita de paginação para o campo editável "Página X de Y".
-  // Cada setter altera o estado real da listagem e solicita o render correto.
+  function updateSourceLabel(job) {
+    const explicit = normalizeText(
+      job?.source_site || job?.source_site_key || job?.origin_site || job?.origin || ""
+    );
+    if (explicit) {
+      const normalized = explicit.toLowerCase();
+      if (normalized.includes("plugintheme") || normalized.includes("plugin_theme")) return "PluginTheme";
+      if (normalized.includes("ultrapack")) return "UltraPackV2";
+      return explicit;
+    }
+    const sourceUrl = normalizeText(
+      job?.ultrapack_url || job?.source_product_url || job?.source_url || ""
+    ).toLowerCase();
+    if (sourceUrl.includes("plugintheme")) return "PluginTheme";
+    if (sourceUrl.includes("ultrapack")) return "UltraPackV2";
+    return "Origem não informada";
+  }
+
   window.__crapscraperPagination = Object.assign(window.__crapscraperPagination || {}, {
     catalogs(page) {
       UI.catalogPage = Math.max(1, toInt(page, 1));
@@ -148,10 +175,7 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
     def repl(match: re.Match[str]) -> str:
         opening, options, closing = match.groups()
         options = re.sub(r"\s+selected(?=\s|>)", "", options, flags=re.IGNORECASE)
-        option_five = re.compile(
-            r'(<option\b[^>]*\bvalue=["\']5["\'][^>]*)(>)',
-            re.IGNORECASE,
-        )
+        option_five = re.compile(r'(<option\b[^>]*\bvalue=["\']5["\'][^>]*)(>)', re.IGNORECASE)
         if option_five.search(options):
             options = option_five.sub(r"\1 selected\2", options, count=1)
         else:
@@ -162,18 +186,13 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
 
 
 def _patch_catalog_context_search(html: str) -> str:
-    """Move a busca textual para o bloco de Contextos dos catálogos."""
     if 'id="catalogos_search"' not in html:
         return html
-
     patched = _CATALOG_SEARCH_FIELD_PATTERN.sub("", html, count=1)
-
     if 'class="catalogos-context-search cs-search-system"' in patched:
         return patched
-
     if _CATALOG_CONTEXT_TOOLBAR not in patched:
         return patched
-
     return patched.replace(
         _CATALOG_CONTEXT_TOOLBAR,
         _CATALOG_CONTEXT_TOOLBAR + _CATALOG_CONTEXT_SEARCH_BLOCK,
@@ -182,7 +201,6 @@ def _patch_catalog_context_search(html: str) -> str:
 
 
 def _patch_plugin_tema_toolbar_actions(html: str) -> str:
-    """Remove ações de catálogo da linha de paginação; ações ficam nos cards."""
     return _PLUGIN_TEMA_TOOLBAR_ACTION_PATTERN.sub("", html)
 
 
@@ -191,6 +209,7 @@ def _patch_panel_html(html: str) -> str:
         'id="updates_working_title">Aguardando / preparação</div>',
         'id="updates_working_title">Preparação</div>',
     )
+    patched = _UPDATE_TYPE_FIELD_PATTERN.sub("", patched, count=1)
     patched = _patch_catalog_context_search(patched)
     patched = _patch_plugin_tema_toolbar_actions(patched)
     for select_id in _PAGE_SIZE_SELECT_IDS:
@@ -199,17 +218,13 @@ def _patch_panel_html(html: str) -> str:
 
 
 def _patch_panel_javascript(source: str) -> str:
-    """Aplica defaults reais de paginação e expõe setters usados pela UI."""
     if not source:
         return source
-
     patched = source
     for old, new in _JS_REPLACEMENTS:
         patched = patched.replace(old, new)
-
     if "window.__crapscraperPagination" in patched:
         return patched
-
     marker = "})();"
     position = patched.rfind(marker)
     if position < 0:
@@ -251,18 +266,15 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
 
     if not script_blocks:
         return html
-
     block = "".join(script_blocks)
     marker = "</body>"
     return html.replace(marker, block + marker, 1) if marker in html else html + block
 
 
 def install_search_ui_policy() -> None:
-    """Instala a padronização visual sem alterar regras de negócio das listagens."""
     global _INSTALLED, _BASE_RENDER, _BASE_ASSET_READER
     if _INSTALLED:
         return
-
     _BASE_RENDER = web.render_panel_page
     _BASE_ASSET_READER = web._read_first_existing_asset
     web._read_first_existing_asset = _patched_asset_reader
