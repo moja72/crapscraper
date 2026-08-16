@@ -6146,6 +6146,22 @@ function updateStoreSubmitState() {
   if (button) button.disabled = byId("store_confirmation")?.value !== "ALTERAR PRECOS";
 }
 
+async function waitForStorePriceJob(resultNode) {
+  while (true) {
+    const status = await getJson(`${UI.endpoints.storePricing || "/loja/precos"}/status`);
+    const completed = Number(status.completed || 0);
+    const total = Number(status.total || 0);
+    const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+    if (resultNode) {
+      resultNode.classList.remove("hidden");
+      resultNode.innerHTML = `<strong>${escapeHtml(status.message || "Processando alteração de preços…")}</strong>${total > 0 ? `<br><progress max="100" value="${percent}">${percent}%</progress> <span>${percent}%</span>` : ""}`;
+    }
+    if (status.status === "completed") return status;
+    if (status.status === "error") throw Object.assign(new Error(status.message || "A alteração de preços falhou."), { responseData: status });
+    await new Promise(resolve => window.setTimeout(resolve, 1000));
+  }
+}
+
 async function submitStorePricing(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -6160,7 +6176,8 @@ async function submitStorePricing(event) {
   if (button) { button.disabled = true; button.textContent = "Aplicando preços..."; }
   if (resultNode) { resultNode.classList.add("hidden"); resultNode.textContent = ""; }
   try {
-    const result = await postJson(UI.endpoints.storePricing || "/loja/precos", payload);
+    await postJson(UI.endpoints.storePricing || "/loja/precos", payload);
+    const result = await waitForStorePriceJob(resultNode);
     if (resultNode) { resultNode.classList.remove("hidden"); resultNode.textContent = result.message; }
     form.elements.confirmation.value = "";
     notify(result.message, "ok");
