@@ -214,6 +214,7 @@
     const states = cache?.accordions || {};
     panel.querySelectorAll('.standard-update-accordion-card[data-update-accordion-kind]').forEach(card => {
       const kind = card.dataset.updateAccordionKind;
+      if (kind === "environment") return;
       if (!(kind in states)) return;
       const open = Boolean(states[kind]);
       card.classList.toggle("is-collapsed", !open);

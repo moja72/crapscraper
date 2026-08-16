@@ -830,7 +830,8 @@ function showElement(id, visible) {
       return await response.json();
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw new Error("A consulta excedeu 30 segundos. Verifique o WooCommerce e clique em Tentar novamente.");
+        const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+        throw new Error(`A consulta excedeu ${seconds} segundos. Verifique o WooCommerce e clique em Tentar novamente.`);
       }
       throw error;
     } finally {
@@ -6095,10 +6096,27 @@ function selectedStoreKinds() {
 function storePriceSummary(rows) {
   if (!Array.isArray(rows) || !rows.length) return "Nenhum preço encontrado";
   return rows.map(item => {
-    const regular = item.regular_price ? `R$ ${item.regular_price}` : "sem original";
-    const sale = item.sale_price ? ` → R$ ${item.sale_price}` : " (sem promoção)";
-    return `${regular}${sale} · ${item.count} var.`;
+    const money = value => {
+      const parsed = Number.parseFloat(String(value || "").replace(",", "."));
+      return Number.isFinite(parsed)
+        ? parsed.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+        : "não informado";
+    };
+    const regular = `Original: ${money(item.regular_price)}`;
+    const sale = item.sale_price ? `Promocional: ${money(item.sale_price)}` : "Sem promocional";
+    return `${regular}<br>${sale}<br><small>${Number(item.count || 0)} variação(ões)</small>`;
   }).join("<br>");
+}
+
+function storeKindPriceCard(kind, summary) {
+  const label = kind === "theme" ? "Temas" : "Plugins";
+  return `<section class="store-kind-prices" aria-label="Preços atuais de ${label}">
+    <div class="store-kind-prices-head"><strong>${label}</strong><span>${Number(summary?.product_count || 0)} produtos · ${Number(summary?.variation_count || 0)} variações</span></div>
+    <div class="store-current-prices">
+      <div><strong>Anual</strong><span>${storePriceSummary(summary?.distribution?.annual)}</span></div>
+      <div><strong>Vitalício</strong><span>${storePriceSummary(summary?.distribution?.lifetime)}</span></div>
+    </div>
+  </section>`;
 }
 
 async function refreshStorePricing() {
@@ -6110,25 +6128,11 @@ async function refreshStorePricing() {
     return;
   }
   preview.setAttribute("aria-busy", "true");
-  preview.innerHTML = '<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Consultando produtos e variações no WooCommerce...</span></span>';
+  preview.innerHTML = '<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando valores atuais de Plugins e Temas…</span></span>';
   try {
     const query = kinds.map(kind => `tipo=${encodeURIComponent(kind)}`).join("&");
-    const data = await getJsonWithTimeout(`${UI.endpoints.storePricing || "/loja/precos"}?${query}`);
-    if (data.deferred) {
-      preview.innerHTML = `<div class="store-ready-state" role="status"><strong>Loja pronta.</strong><br>${escapeHtml(data.message || "A leitura completa será feita ao aplicar os preços.")}</div>`;
-      return;
-    }
-    const ignored = Number(data.unmatched_variation_count || 0);
-    preview.innerHTML = `
-      <div class="store-preview-kpis">
-        <div><strong>${Number(data.product_count || 0)}</strong><span>produtos</span></div>
-        <div><strong>${Number(data.variation_count || 0)}</strong><span>variações reconhecidas</span></div>
-        <div><strong>${ignored}</strong><span>variações ignoradas</span></div>
-      </div>
-      <div class="store-current-prices">
-        <div><strong>Anual hoje</strong><span>${storePriceSummary(data.distribution?.annual)}</span></div>
-        <div><strong>Vitalícia hoje</strong><span>${storePriceSummary(data.distribution?.lifetime)}</span></div>
-      </div>`;
+    const data = await getJsonWithTimeout(`${UI.endpoints.storePricing || "/loja/precos"}?${query}`, 45000);
+    preview.innerHTML = `<div class="store-readonly-note">Valores atuais no WooCommerce · Somente leitura</div><div class="store-kind-price-grid">${kinds.map(kind => storeKindPriceCard(kind, data.by_kind?.[kind])).join("")}</div>`;
   } catch (error) {
     preview.innerHTML = `<div class="updates-error" role="alert"><strong>Não foi possível carregar a prévia.</strong><br>${escapeHtml(error?.message || String(error))}<br><button class="btn-secondary btn-sm" type="button" id="store_retry_btn">Tentar novamente</button></div>`;
     byId("store_retry_btn")?.addEventListener("click", refreshStorePricing, { once: true });
@@ -6370,7 +6374,6 @@ function bindMainTabs() {
       await refreshStorePricing();
     });
   }
-  byId("store_refresh_btn")?.addEventListener("click", refreshStorePricing);
   qsa('input[name="store_kind"]').forEach(node => node.addEventListener("change", refreshStorePricing));
   byId("store_confirmation")?.addEventListener("input", updateStoreSubmitState);
   byId("store_pricing_form")?.addEventListener("submit", submitStorePricing);

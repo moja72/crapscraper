@@ -141,10 +141,13 @@ class UpdateQueueUiTests(unittest.TestCase):
         self.assertIn(".main-tabs-nav .tab-btn.is-active::after{content:none!important", css)
 
     def test_plugintheme_session_action_lives_inside_diagnostic_and_reports_cookies(self):
-        environment = self.web.split('id="updates_environment_title"', 1)[1].split('id="updates_filters_title"', 1)[0]
+        environment = self.web.split('class="card updates-card-section updates-environment-card', 1)[1].split('id="updates_filters_title"', 1)[0]
         details = environment.split('id="updates_environment_details"', 1)[1]
         self.assertIn('id="plugintheme_session_renew"', details)
         self.assertIn('id="plugintheme_cookie_status"', details)
+        self.assertIn('data-update-accordion-kind="environment"', environment)
+        self.assertIn('aria-expanded="false"', environment)
+        self.assertIn('standard-update-accordion-card is-collapsed', environment)
         self.assertIn("plugintheme_cookies", self.js)
         manual = Path("app/integrations/plugintheme_manual_session.py").read_text(encoding="utf-8")
         self.assertIn("def plugintheme_cookie_diagnostic", manual)

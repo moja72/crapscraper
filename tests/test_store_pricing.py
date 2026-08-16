@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 
 from app.store_pricing import (
-    apply_store_prices, build_store_pricing_snapshot, normalize_prices, variation_period,
+    apply_store_prices, build_store_pricing_snapshot, normalize_prices,
+    read_store_price_reference_products, variation_period,
 )
 
 
@@ -49,6 +52,26 @@ class StorePricingTests(unittest.TestCase):
         self.assertEqual(snapshot["product_count"], 2)
         self.assertEqual(snapshot["variation_count"], 3)
         self.assertEqual(snapshot["unmatched_variation_count"], 0)
+        self.assertEqual(snapshot["by_kind"]["plugin"]["product_count"], 1)
+        self.assertEqual(snapshot["by_kind"]["plugin"]["variation_count"], 2)
+        self.assertEqual(snapshot["by_kind"]["theme"]["product_count"], 1)
+        self.assertEqual(snapshot["by_kind"]["theme"]["variation_count"], 1)
+
+    def test_snapshot_can_use_local_reference_products_without_listing_woocommerce(self):
+        woo = Woo()
+        snapshot = build_store_pricing_snapshot(woo, ("plugin",), products=[woo.products[0]])
+        self.assertEqual(snapshot["product_count"], 1)
+        self.assertEqual(snapshot["by_kind"]["plugin"]["variation_count"], 2)
+
+    def test_reference_products_are_read_from_imported_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plugintema-selection.csv"
+            path.write_text(
+                "ID,Nome,Categorias\n10,Plugin A,Plugins\n20,Tema A,Temas\n",
+                encoding="utf-8",
+            )
+            rows = read_store_price_reference_products(Path(directory), ("plugin", "theme"), limit_per_kind=1)
+        self.assertEqual({row["id"] for row in rows}, {10, 20})
 
     def test_prices_accept_brazilian_format_and_validate_promotion(self):
         prices = normalize_prices({
@@ -87,7 +110,7 @@ class StorePricingTests(unittest.TestCase):
         self.assertIn("flex: 1 1 auto", css)
         self.assertIn('"loja"]', js)
 
-    def test_store_preview_is_deferred_instead_of_scanning_on_tab_open(self):
+    def test_store_prices_are_loaded_automatically_without_manual_button(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1]
         web = (root / "app" / "web.py").read_text(encoding="utf-8")
@@ -95,9 +118,14 @@ class StorePricingTests(unittest.TestCase):
         route = web.split('if path == "/loja/precos":', 1)[1].split(
             'if path == "/plugintema/catalogo/baixar":', 1
         )[0]
-        self.assertIn('"deferred": True', route)
-        self.assertNotIn("build_store_pricing_snapshot", route)
-        self.assertIn("if (data.deferred)", js)
+        self.assertNotIn('"deferred": True', route)
+        self.assertNotIn('query.get("consultar")', route)
+        self.assertIn("build_store_pricing_snapshot", route)
+        self.assertIn("read_store_price_reference_products", route)
+        self.assertNotIn('id="store_refresh_btn"', web)
+        self.assertIn("storeKindPriceCard", js)
+        self.assertIn("Somente leitura", js)
+        self.assertNotIn("consultar=1", js)
 
 
 if __name__ == "__main__":

@@ -1923,8 +1923,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div id="updates_summary" class="updates-summary" aria-label="Resumo da fila"></div>
   </div>
 
-  <div class="card updates-card-section updates-environment-card" aria-labelledby="updates_environment_title">
-      <div class="updates-section-heading"><div><div class="section-title" id="updates_environment_title">Ambiente</div><div id="updates_environment_summary" class="small">Verificando pré-requisitos...</div></div><div class="row"><button class="btn-secondary" type="button" id="updates_prerequisites_btn">Verificar</button></div></div>
+  <div class="card updates-card-section updates-environment-card standard-update-accordion-card is-collapsed" data-update-accordion-kind="environment" aria-labelledby="updates_environment_title">
+      <button class="standard-update-accordion-toggle" type="button" aria-expanded="false" aria-controls="updates_environment_details"><span class="standard-update-accordion-toggle-copy"><span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">Ambiente</span></span><span class="standard-update-accordion-meta">Verificando pré-requisitos...</span></button>
+      <div class="updates-section-heading"><div><div class="section-title standard-update-original-title" id="updates_environment_title">Ambiente</div><div id="updates_environment_summary" class="small">Verificando pré-requisitos...</div></div><div class="row"><button class="btn-secondary" type="button" id="updates_prerequisites_btn">Verificar</button></div></div>
       <div id="updates_environment_details">
         <div id="updates_environment_chips" class="updates-environment-chips" aria-live="polite"></div>
         <div class="plugintheme-session-diagnostic">
@@ -2047,7 +2048,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="section-title" id="store_title">Preços da loja</div>
       <div class="small">Aplique os mesmos preços a todos os plugins e/ou temas publicados. Apenas as variações anual e vitalícia serão alteradas.</div>
     </div>
-    <button class="btn-secondary" type="button" id="store_refresh_btn">Atualizar prévia</button>
   </div>
   <form class="card store-pricing-form" id="store_pricing_form" novalidate>
     <fieldset class="store-scope">
@@ -2071,7 +2071,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <input id="store_lifetime_sale" name="lifetime_sale" inputmode="decimal" autocomplete="off" placeholder="Vazio remove a promoção">
       </fieldset>
     </div>
-    <div class="store-preview" id="store_preview" aria-live="polite" aria-busy="false">Abra a aba ou clique em “Atualizar prévia” para conferir o alcance da alteração.</div>
+    <div class="store-preview" id="store_preview" aria-live="polite" aria-busy="true"><span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando valores atuais de Plugins e Temas…</span></span></div>
     <div class="store-confirmation">
       <label for="store_confirmation">Confirmação obrigatória</label>
       <div class="small">Digite <strong>ALTERAR PRECOS</strong> para liberar a atualização em lote.</div>
@@ -3998,15 +3998,18 @@ def make_handler(
                 kinds = [value for value in query.get("tipo", []) if value in {"plugin", "theme"}]
                 try:
                     selected = kinds or ["plugin", "theme"]
-                    self._send_json({
-                        "ok": True,
-                        "deferred": True,
-                        "kinds": selected,
-                        "message": (
-                            "Pronto para aplicar. A leitura completa do WooCommerce "
-                            "será feita somente após a confirmação."
-                        ),
-                    })
+                    from app.store_pricing import (
+                        build_store_pricing_snapshot, read_store_price_reference_products,
+                    )
+                    reference_products = read_store_price_reference_products(
+                        Path(settings.COMPARISON_IMPORTS_DIR), selected
+                    )
+                    snapshot = build_store_pricing_snapshot(
+                        _build_store_woocommerce_client(), selected, products=reference_products
+                    )
+                    snapshot.pop("variations", None)
+                    snapshot["read_only"] = True
+                    self._send_json(snapshot)
                 except ValueError as error:
                     self._send_json({"ok": False, "message": str(error)}, code=400)
                 except Exception as error:
