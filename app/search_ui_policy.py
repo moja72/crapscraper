@@ -18,6 +18,7 @@ _RUN_TABS_HISTORY_STYLE_SCRIPT_PATH = Path(__file__).resolve().parent / "static"
 _UPDATE_LISTS_MANAGER_UI_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_lists_manager_ui.js"
 _SELECT_INDICATOR_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "select_indicator.js"
 _UPDATE_LOADING_UI_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_loading_ui.js"
+_CATALOG_CARDS_REFINEMENT_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "catalog_cards_refinement.js"
 
 _PAGE_SIZE_SELECT_IDS = (
     "catalogos_page_size",
@@ -239,6 +240,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
         (_UPDATE_LISTS_MANAGER_UI_SCRIPT_PATH, "data-update-lists-manager-ui"),
         (_SELECT_INDICATOR_SCRIPT_PATH, "data-select-indicator"),
         (_UPDATE_LOADING_UI_SCRIPT_PATH, "data-update-loading-ui"),
+        (_CATALOG_CARDS_REFINEMENT_SCRIPT_PATH, "data-catalog-cards-refinement"),
     ):
         try:
             script = script_path.read_text(encoding="utf-8")
