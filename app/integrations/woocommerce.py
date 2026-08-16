@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
+from urllib.request import Request
 from uuid import uuid4
 
-from app.integrations.wordpress import ReadOnlyHttpClient
+from app.integrations.wordpress import IntegrationError, ReadOnlyHttpClient, sanitize_text
 
 
 def metadata_value(product: Mapping[str, Any], key: str) -> Any:
@@ -54,11 +56,11 @@ class WooCommerceClient(ReadOnlyHttpClient):
         )
 
     def list_variations(
-        self, product_id: int, *, page: int = 1, per_page: int = 100
+        self, product_id: int, *, page: int = 1, per_page: int = 100, **filters: Any
     ) -> list[Mapping[str, Any]]:
         result = self.get(
             f"/wp-json/wc/v3/products/{int(product_id)}/variations",
-            {"page": page, "per_page": per_page},
+            {"page": page, "per_page": per_page, **filters},
         )
         return list(result or [])
 
@@ -73,6 +75,49 @@ class WooCommerceClient(ReadOnlyHttpClient):
         return self.get(
             f"/wp-json/wc/v3/products/{int(product_id)}/variations/{int(variation_id)}"
         )
+
+    def update_variations_prices(
+        self, product_id: int, updates: list[Mapping[str, Any]], *, authorized: bool = False
+    ) -> list[Mapping[str, Any]]:
+        """Escrita estreita: altera somente preços de variações via batch WooCommerce."""
+        if not authorized:
+            raise IntegrationError("Atualização de preços não autorizada")
+        sanitized: list[dict[str, str | int]] = []
+        for item in updates:
+            keys = set(item)
+            if not keys <= {"id", "regular_price", "sale_price"} or "id" not in keys:
+                raise IntegrationError("Payload de preço fora do escopo permitido")
+            sanitized.append({
+                "id": int(item["id"]),
+                "regular_price": str(item.get("regular_price", "")),
+                "sale_price": str(item.get("sale_price", "")),
+            })
+        if not sanitized:
+            return []
+        url = (
+            self.base_url.rstrip("/")
+            + f"/wp-json/wc/v3/products/{int(product_id)}/variations/batch"
+        )
+        body = json.dumps({"update": sanitized}).encode("utf-8")
+        request = Request(url, data=body, method="POST", headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": self._authorization(),
+            "User-Agent": "CrapScraper-controlled-pricing/1.0",
+        })
+        try:
+            status, _headers, response_body = self.transport(request, self.timeout)
+            if status >= 400:
+                raise IntegrationError(f"WooCommerce recusou os preços: HTTP {status}")
+            decoded = json.loads(response_body) if response_body else {}
+        except Exception as error:
+            if isinstance(error, IntegrationError):
+                raise
+            safe = sanitize_text(error, self.username, self.password)
+            raise IntegrationError(f"Falha ao atualizar preços: {safe}") from None
+        if not isinstance(decoded, Mapping):
+            raise IntegrationError("WooCommerce retornou resposta inválida ao atualizar preços")
+        return [item for item in decoded.get("update", []) or [] if isinstance(item, Mapping)]
 
     @staticmethod
     def metadata(product: Mapping[str, Any]) -> list[Mapping[str, Any]]:

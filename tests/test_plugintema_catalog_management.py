@@ -27,7 +27,8 @@ class PluginTemaCatalogManagementTests(unittest.TestCase):
             self.assertEqual(item["plugin_count"], 1)
             self.assertEqual(item["theme_count"], 1)
             self.assertEqual(item["template_count"], 1)
-            self.assertIn("(3 itens)", item["label"])
+            self.assertRegex(item["label"], r"\| \d{2}/\d{2}/\d{4} \d{2}:\d{2} \| 3 itens$")
+            self.assertNotIn("atualizados em", item["label"])
 
 
 if __name__ == "__main__":

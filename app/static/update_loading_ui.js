@@ -36,7 +36,6 @@
     }
     .cs-update-sk-line{height:14px}.cs-update-sk-pill{height:34px;border-radius:999px}.cs-update-sk-button{height:44px;border-radius:10px}.cs-update-sk-block{height:72px;border-radius:12px}
     .w-12{width:12%}.w-18{width:18%}.w-24{width:24%}.w-32{width:32%}.w-45{width:45%}.w-60{width:60%}.w-75{width:75%}.w-100{width:100%}
-    #updates_queue_checkpoint{display:flex!important;align-items:center!important;min-height:46px;line-height:1.35;}
     @keyframes csUpdateSpin{to{transform:rotate(360deg)}}
     @keyframes csUpdateSweep{100%{transform:translateX(100%)}}
     @media (prefers-reduced-motion:reduce){.cs-update-loading-spinner,.cs-update-sk-line::after,.cs-update-sk-pill::after,.cs-update-sk-button::after,.cs-update-sk-block::after{animation:none!important}}
@@ -150,8 +149,7 @@
   }
 
   function applyDisplayFormatting(){
-    formatQueueCheckpoint();
-    formatComparisonCatalogSelectors().catch(() => {});
+    // Formatação consolidada no render principal de panel.js.
   }
 
   function readCache(){
@@ -244,9 +242,6 @@
         window.setTimeout(reconcile, 0);
         window.setTimeout(applyDisplayFormatting, 250);
       }
-    });
-    document.addEventListener("change", event => {
-      if(event.target?.id === "updates_queue_select") window.setTimeout(formatQueueCheckpoint, 0);
     });
   }
 

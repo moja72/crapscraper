@@ -26,9 +26,11 @@ class UpdateQueueUiTests(unittest.TestCase):
             self.assertIn(token, self.js + self.web)
         self.assertNotIn("filtered.slice(0,100)", self.js)
         page_size = self.web.split('id="updates_page_size"', 1)[1].split("</select>", 1)[0]
-        for size in (">5<", ">10<", ">25<", ">50<", ">100<"):
+        for size in (">5<", ">10<"):
             self.assertIn(size, page_size)
-        self.assertIn("<option selected>5</option>", page_size)
+        for size in (">25<", ">50<", ">100<", ">250<"):
+            self.assertNotIn(size, page_size)
+        self.assertIn('<option value="5" selected>5</option>', page_size)
 
     def test_batch_is_sequential_and_failure_does_not_abort_loop(self):
         start = self.js.index("async function runUpdateBatch")
@@ -89,7 +91,7 @@ class UpdateQueueUiTests(unittest.TestCase):
         self.assertIn('updates-history-accordion" id="updates_history_accordion"', self.web)
         self.assertNotIn('id="updates_history_accordion" open', self.web)
         for token in ("updates_history_search", "updates_history_prev", "updates_history_next",
-                      "UPDATE_QUEUE.historyPage", "historyPageSize:10"):
+                      "UPDATE_QUEUE.historyPage", "historyPageSize:LISTING_DEFAULT_PAGE_SIZE"):
             self.assertIn(token, self.js + self.web)
 
     def test_update_lists_are_split_into_titled_cards_with_conditional_controls(self):

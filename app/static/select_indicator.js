@@ -22,13 +22,6 @@
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10' viewBox='0 0 14 10'%3E%3Ctext x='0' y='9' font-size='11' fill='%2371717a'%3E%E2%96%BC%3C/text%3E%3C/svg%3E") !important;
     }
 
-    #updates_queue_checkpoint.cs-queue-checkpoint-standardized {
-      display: flex !important;
-      align-items: center !important;
-      min-height: 46px !important;
-      margin: 0 !important;
-      line-height: 1.35 !important;
-    }
   `;
   document.head.appendChild(style);
 })();
@@ -198,8 +191,7 @@
   }
 
   function run() {
-    formatComparisonSelectors().catch(() => {});
-    formatQueueCheckpoint();
+    // A apresentação de catálogos e checkpoint pertence ao render principal.
   }
 
   function schedule() {
@@ -208,17 +200,5 @@
   }
 
   document.addEventListener("DOMContentLoaded", schedule);
-  document.addEventListener("change", event => {
-    if (["comparison_source_catalog", "comparison_target_catalog", "updates_queue_select"].includes(event.target?.id)) {
-      schedule();
-    }
-  });
-
-  new MutationObserver(schedule).observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    characterData: true,
-  });
-
   schedule();
 })();

@@ -1,5 +1,7 @@
 (() => {
   "use strict";
+  if (window.__crapscraperCatalogCardsRefinementLoaded) return;
+  window.__crapscraperCatalogCardsRefinementLoaded = true;
 
   const STYLE_ID = "crapscraper-catalog-cards-refinement";
   document.getElementById(STYLE_ID)?.remove();
@@ -16,6 +18,7 @@
       max-width:none!important;
     }
     .catalogos-top-controls-row > .field{min-width:0!important;width:100%!important;max-width:none!important}
+    .catalogos-top-controls-row > .catalogos-refresh-field{grid-column:auto!important}
     .catalogos-top-controls-row .catalogos-refresh-field .row{width:100%!important}
     .catalogos-top-controls-row .catalogos-refresh-field button{width:100%!important;min-height:46px!important}
 
@@ -75,6 +78,9 @@
       display:inline-flex!important;
       align-items:center!important;
       justify-content:center!important;
+      width:auto!important;
+      padding:0 12px!important;
+      white-space:nowrap!important;
     }
 
     #updates_queue_checkpoint{
@@ -102,6 +108,11 @@
 
     const toolbar = document.querySelector(".catalogos-table-toolbar");
     if (!toolbar) return;
+    const currentWrapper = field.closest(".catalogos-context-search,.catalogos-context-search-runtime");
+    if (currentWrapper && toolbar.nextElementSibling === currentWrapper) {
+      field.dataset.catalogContextMoved = "1";
+      return;
+    }
 
     const wrapper = document.createElement("div");
     wrapper.className = "catalogos-context-search-runtime cs-search-system";
@@ -258,7 +269,7 @@
     button.type = "button";
     button.title = `Baixar catálogo ${slotName}`;
     button.setAttribute("aria-label", `Baixar catálogo ${slotName}`);
-    button.textContent = "⬇️";
+    button.textContent = "⬇️ Baixar";
     button.addEventListener("click", () => downloadCatalogContexts(slotName, button));
     const view = actions.querySelector(".catalogo-view-button");
     if (view) view.insertAdjacentElement("afterend", button);
@@ -274,6 +285,7 @@
 
     const diagnostic = document.getElementById("updates_environment_toggle");
     if (diagnostic && /diagnóstico/i.test(text(diagnostic.textContent))) diagnostic.remove();
+    document.getElementById("updates_environment_details")?.classList.remove("hidden");
   }
 
   function refine() {

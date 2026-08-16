@@ -1,5 +1,7 @@
 (() => {
   "use strict";
+  if (window.__crapscraperPaginationAutojumpLoaded) return;
+  window.__crapscraperPaginationAutojumpLoaded = true;
 
   const DEBOUNCE_MS = 700;
   const SCAN_DELAY_MS = 50;
@@ -38,6 +40,13 @@
 
   function parseLabel(label) {
     if (!label) return null;
+    const input = label.querySelector("input[data-cs-page-input]");
+    const totalNode = label.querySelector("span");
+    if (input && totalNode) {
+      const current = Number(input.value || 0);
+      const total = Number(totalNode.textContent || 0);
+      if (current > 0 && total > 0) return { current, total };
+    }
     const match = normalize(label.textContent).match(/P[aá]gina\s+(\d+)\s+de\s+(\d+)/i);
     if (match) return { current: Number(match[1]), total: Number(match[2]) };
     const current = Number(label.dataset.csCurrent || 0);
@@ -132,15 +141,15 @@
     const numericOptions = [...select.options].filter(option => /^\d+$/.test(normalize(option.value)));
     if (!numericOptions.length || numericOptions.length !== select.options.length) return false;
 
-    if (![...select.options].some(option => Number(option.value) === DEFAULT_PAGE_SIZE)) {
-      const option = document.createElement("option");
-      option.value = String(DEFAULT_PAGE_SIZE);
-      option.textContent = String(DEFAULT_PAGE_SIZE);
-      select.appendChild(option);
+    const allowed = [5, 10];
+    if ([...select.options].map(option => Number(option.value)).join(",") !== allowed.join(",")) {
+      select.replaceChildren(...allowed.map(value => {
+        const option = document.createElement("option");
+        option.value = String(value);
+        option.textContent = String(value);
+        return option;
+      }));
     }
-    [...select.options]
-      .sort((a, b) => Number(a.value) - Number(b.value))
-      .forEach(option => select.appendChild(option));
     return true;
   }
 

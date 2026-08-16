@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import unittest
+
+from app.store_pricing import (
+    apply_store_prices, build_store_pricing_snapshot, normalize_prices, variation_period,
+)
+
+
+def product(product_id: int, category: str) -> dict:
+    return {
+        "id": product_id, "name": f"Produto {product_id}", "status": "publish",
+        "categories": [{"name": category}],
+    }
+
+
+class Woo:
+    def __init__(self) -> None:
+        self.products = [product(10, "Plugins"), product(20, "Temas"), product(30, "Templates")]
+        self.variations = {
+            10: [
+                {"id": 101, "attributes": [{"option": "Anual"}], "regular_price": "79.90", "sale_price": "59.90"},
+                {"id": 102, "attributes": [{"option": "Vitalício"}], "regular_price": "149.90", "sale_price": ""},
+            ],
+            20: [{"id": 201, "name": "Licença Lifetime", "regular_price": "149.90", "sale_price": "129.90"}],
+        }
+        self.updates = []
+
+    def list_products(self, **_kwargs):
+        return self.products
+
+    def list_variations(self, product_id, **_kwargs):
+        return self.variations.get(product_id, [])
+
+    def update_variations_prices(self, product_id, updates, *, authorized=False):
+        assert authorized
+        self.updates.append((product_id, updates))
+        return updates
+
+
+class StorePricingTests(unittest.TestCase):
+    def test_period_recognizes_portuguese_and_english(self):
+        self.assertEqual(variation_period({"attributes": [{"option": "Plano anual"}]}), "annual")
+        self.assertEqual(variation_period({"name": "Licença Vitalícia"}), "lifetime")
+        self.assertEqual(variation_period({"sku": "product-lifetime"}), "lifetime")
+
+    def test_snapshot_filters_plugins_and_themes(self):
+        snapshot = build_store_pricing_snapshot(Woo(), ("plugin", "theme"))
+        self.assertEqual(snapshot["product_count"], 2)
+        self.assertEqual(snapshot["variation_count"], 3)
+        self.assertEqual(snapshot["unmatched_variation_count"], 0)
+
+    def test_prices_accept_brazilian_format_and_validate_promotion(self):
+        prices = normalize_prices({
+            "annual_regular": "R$ 79,90", "annual_sale": "59,90",
+            "lifetime_regular": "149,90", "lifetime_sale": "",
+        })
+        self.assertEqual(prices["annual_regular"], "79.90")
+        self.assertEqual(prices["lifetime_sale"], "")
+        with self.assertRaises(ValueError):
+            normalize_prices({
+                "annual_regular": "50", "annual_sale": "60",
+                "lifetime_regular": "100", "lifetime_sale": "",
+            })
+
+    def test_apply_updates_only_scoped_price_fields(self):
+        woo = Woo()
+        result = apply_store_prices(woo, {
+            "kinds": ["plugin", "theme"], "confirmation": "ALTERAR PRECOS",
+            "annual_regular": "80", "annual_sale": "60",
+            "lifetime_regular": "150", "lifetime_sale": "130",
+        })
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["updated_variation_count"], 3)
+        self.assertEqual({item["id"] for _, rows in woo.updates for item in rows}, {101, 102, 201})
+        self.assertTrue(all(set(item) == {"id", "regular_price", "sale_price"} for _, rows in woo.updates for item in rows))
+
+    def test_panel_has_store_tab_on_opposite_edge(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        web = (root / "app" / "web.py").read_text(encoding="utf-8")
+        css = (root / "app" / "static" / "panel.css").read_text(encoding="utf-8")
+        js = (root / "app" / "static" / "panel.js").read_text(encoding="utf-8")
+        nav = web.split('class="tabs-nav main-tabs-nav"', 1)[1].split('class="page-head-sticky"', 1)[0]
+        self.assertLess(nav.index('id="tab_btn_adicoes"'), nav.index('class="main-tabs-spacer"'))
+        self.assertLess(nav.index('class="main-tabs-spacer"'), nav.index('id="tab_btn_loja"'))
+        self.assertIn("flex: 1 1 auto", css)
+        self.assertIn('"loja"]', js)
+
+    def test_store_preview_is_deferred_instead_of_scanning_on_tab_open(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        web = (root / "app" / "web.py").read_text(encoding="utf-8")
+        js = (root / "app" / "static" / "panel.js").read_text(encoding="utf-8")
+        route = web.split('if path == "/loja/precos":', 1)[1].split(
+            'if path == "/plugintema/catalogo/baixar":', 1
+        )[0]
+        self.assertIn('"deferred": True', route)
+        self.assertNotIn("build_store_pricing_snapshot", route)
+        self.assertIn("if (data.deferred)", js)
+
+
+if __name__ == "__main__":
+    unittest.main()

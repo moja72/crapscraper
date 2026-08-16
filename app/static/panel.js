@@ -61,6 +61,7 @@
       plugintemaProductSearch: "/plugintema/catalogo/pesquisar",
       plugintemaCatalogManage: "/plugintema/catalogo/gerenciar",
       plugintemaCatalogDownload: "/plugintema/catalogo/baixar",
+      storePricing: "/loja/precos",
       comparisonProducts: "/comparacao/produtos",
       comparisonRelationshipSave: "/comparacao/vinculo/salvar",
     },
@@ -69,8 +70,8 @@
 
   const POLL_INTERVAL_MS = Math.max(500, Number(BOOT.poll_interval_ms || 1200));
 
-  const LISTING_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];
-  const LISTING_DEFAULT_PAGE_SIZE = 25;
+  const LISTING_PAGE_SIZE_OPTIONS = [5, 10];
+  const LISTING_DEFAULT_PAGE_SIZE = 5;
 
   function normalizeListingPageSize(value, fallback = LISTING_DEFAULT_PAGE_SIZE) {
     const parsed = toInt(value, fallback);
@@ -112,13 +113,13 @@
     plugintemaSelectedProducts: new Map(),
     plugintemaManageRows: [],
     plugintemaManagePage: 1,
-    plugintemaManagePageSize: 25,
+    plugintemaManagePageSize: 5,
     comparison: {
       loaded: false,
       loading: false,
       sourcesLoaded: false,
       page: 1,
-      pageSize: 100,
+      pageSize: 5,
       totalPages: 1,
       status: "all",
       query: "",
@@ -148,7 +149,7 @@
       downloadUrl: "",
       title: "Prévia",
       page: 1,
-      pageSize: 25,
+      pageSize: 5,
       pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
     },
   };
@@ -231,7 +232,29 @@
 
   function catalogDisplayName(value, fallback = "") {
     const name = normalizeText(value, fallback);
-    return name.toLowerCase() === "default" ? "Principal" : name;
+    return name.toLowerCase() === "default" ? "Padrão" : name;
+  }
+
+  const PT_BR_INTEGER_FORMATTER = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+  const PT_BR_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+    timeZone: "America/Sao_Paulo",
+  });
+
+  function formatPtBrInteger(value) {
+    const parsed = Number.parseInt(String(value ?? "0").replace(/\D/g, ""), 10);
+    return PT_BR_INTEGER_FORMATTER.format(Number.isFinite(parsed) ? Math.max(0, parsed) : 0);
+  }
+
+  function formatPtBrDateTime(value, fallback = "Data não registrada") {
+    const raw = normalizeText(value);
+    if (!raw) return fallback;
+    if (/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime())
+      ? fallback
+      : PT_BR_DATE_TIME_FORMATTER.format(parsed).replace(",", "");
   }
 
   function toInt(value, fallback = 0) {
@@ -784,6 +807,35 @@ function showElement(id, visible) {
     }
 
     return await response.json();
+  }
+
+  async function getJsonWithTimeout(url, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        let message = `Falha HTTP ${response.status}`;
+        try {
+          const payload = await response.json();
+          if (payload?.message) message = String(payload.message);
+        } catch (_error) {}
+        throw new Error(message);
+      }
+      return await response.json();
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error("A consulta excedeu 30 segundos. Verifique o WooCommerce e clique em Tentar novamente.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   async function postJson(url, payload) {
@@ -2531,7 +2583,7 @@ function exposeGlobals() {
   }
 
 function activateMainTab(tabKey) {
-  const keys = ["principal", "comparacao", "atualizacoes", "adicoes"];
+  const keys = ["principal", "comparacao", "atualizacoes", "adicoes", "loja"];
   const normalized = keys.includes(tabKey) ? tabKey : "principal";
 
   keys.forEach((key) => {
@@ -2640,7 +2692,7 @@ function resetCatalogPreview(message = "Selecione uma prévia na tabela.") {
     downloadUrl: "",
     title: "Prévia",
     page: 1,
-    pageSize: 25,
+    pageSize: 5,
     pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
   };
 
@@ -2979,7 +3031,7 @@ async function showCatalogoCsvPreview(url) {
     downloadUrl: targetUrl,
     title: "catálogo",
     page: 1,
-    pageSize: 25,
+    pageSize: 5,
     pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
   };
 
@@ -3129,10 +3181,10 @@ function buildCatalogosCardsHtml(rows, currentSlot, defaultSlot, selectedFilter 
       </span>
     `).join("");
     const availability = [
-      entry.has_csv ? ["📄", "Catálogo disponível"] : null,
-      entry.has_status ? ["📝", "Estado disponível"] : null,
-      entry.has_log ? ["📋", "Log disponível"] : null,
-    ].filter(Boolean).map(([icon, label]) => `<span class="catalogo-availability-icon" tabindex="0" role="img" aria-label="${label}" data-tooltip="${label}">${icon}</span>`).join("");
+      ["📄", "Catálogo", entry.has_csv],
+      ["📝", "Estado", entry.has_status],
+      ["📋", "Log", entry.has_log],
+    ].map(([icon, label, available]) => `<span class="catalogo-availability-icon${available ? "" : " is-unavailable"}" tabindex="0" role="img" aria-label="${label}" aria-disabled="${available ? "false" : "true"}" title="${label}">${icon}</span>`).join("");
 
     return `
       <div class="card catalogo-summary-card" style="min-width:280px; flex:1 1 280px;">
@@ -3150,13 +3202,12 @@ function buildCatalogosCardsHtml(rows, currentSlot, defaultSlot, selectedFilter 
           <span>Última atualização: <time>${escapeHtml(entry.updated_at || "Data não registrada")}</time></span>
         </div>
         <div class="small">
-          ${isCurrent ? "🟢 Atual<br>" : ""}
-          ${isDefault ? "⭐ Catálogo padrão<br>" : ""}
+          <span class="catalogo-status-row" aria-label="Status do catálogo"${!isCurrent && !isDefault ? ' aria-hidden="true"' : ""}>${isCurrent ? '<span class="catalogo-status-item">🟢 Atual</span>' : ""}${isDefault ? '<span class="catalogo-status-item">⭐ Catálogo padrão</span>' : ""}</span>
           <details class="catalogo-context-accordion">
             <summary>${entry.contexts.length} ${entry.contexts.length === 1 ? "Contexto" : "Contextos"}</summary>
             <span class="catalogo-context-list">${contextLines || "Nenhum contexto"}</span>
           </details>
-          <span class="catalogo-availability" aria-label="Arquivos disponíveis">${availability || "Nenhum arquivo disponível"}</span>
+          <span class="catalogo-availability" aria-label="Arquivos disponíveis">${availability}</span>
         </div>
       </div>
     `;
@@ -4151,6 +4202,7 @@ function renderPluginTemaCatalogCards(catalogs, selectedId) {
       <div class="small">Atualizado em ${escapeHtml(item.updated_at || "-")}</div>
       <div class="plugintema-catalog-actions">
         <button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>
+        <button class="btn-secondary btn-sm" type="button" data-catalog-action="download">⬇️ Baixar</button>
         <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>
         <button class="btn-danger btn-sm" type="button" data-catalog-action="delete">🗑️ Apagar</button>
       </div>
@@ -5218,7 +5270,7 @@ const scoreMax = String(
 
 const pageSize = Math.max(
   1,
-  toInt(byId("comparison_page_size")?.value, 100)
+  toInt(byId("comparison_page_size")?.value, 5)
 );
 
   const resultSignature = JSON.stringify(comparisonFilterSnapshot());
@@ -5866,7 +5918,7 @@ function renderOperationalQueue(){
   wrap.innerHTML=visible.map(job=>compactUpdateRow(job,job.state==="executing"?"Agora":job.queue_position||queued.indexOf(job)+1)).join("")||`<div class="notice">${allItems.length?"Nenhum produto corresponde aos filtros da fila.":"Nenhum produto na fila ativa."}</div>`;bindOperationalDetails(wrap);
   const select=byId("updates_queue_select"), queues=Array.isArray(UPDATE_QUEUE.queue?.queues)?UPDATE_QUEUE.queue.queues:[];
   if(select){select.innerHTML=queues.map(item=>`<option value="${escapeHtml(item.name)}" ${item.name===queueName?"selected":""}>${escapeHtml(updateQueueDisplayName(item.name))} (${item.completed}/${item.total})</option>`).join("")||'<option value="default">Padrão</option>';select.disabled=status==="running";}
-  const metadata=queues.find(item=>item.name===queueName);setText("updates_queue_checkpoint",metadata?.last_completed_at?`Última conclusão: ${metadata.last_completed_at} · arquivo ${metadata.file}`:`Arquivo ${metadata?.file||"default.csv"} · nenhum item concluído`);
+  const metadata=queues.find(item=>item.name===queueName),total=Number(metadata?.total||0);setText("updates_queue_checkpoint",`${formatPtBrDateTime(metadata?.last_completed_at,"Sem conclusão registrada")} | ${formatPtBrInteger(total)} itens`);
   byId("updates_queue_start").textContent=status==="paused"?"Continuar fila":"Executar fila";byId("updates_queue_pause").disabled=status!=="running";
   renderUpdateListsManager();
 }
@@ -5988,6 +6040,137 @@ async function refreshUpdatePrerequisites() {
   }
 }
 
+function updateSourceLabel(job) {
+  const explicit = normalizeText(job?.source_site || job?.source_site_key || job?.origin_site || job?.origin || "");
+  if (explicit) {
+    const normalized = explicit.toLowerCase();
+    if (normalized.includes("plugintheme") || normalized.includes("plugin_theme")) return "PluginTheme";
+    if (normalized.includes("ultrapack")) return "UltraPackV2";
+    return explicit;
+  }
+  const sourceUrl = normalizeText(job?.ultrapack_url || job?.source_product_url || job?.source_url || "").toLowerCase();
+  if (sourceUrl.includes("plugintheme")) return "PluginTheme";
+  if (sourceUrl.includes("ultrapack")) return "UltraPackV2";
+  return "Origem não informada";
+}
+
+window.__crapscraperPagination = Object.assign(window.__crapscraperPagination || {}, {
+  catalogs(page) {
+    UI.catalogPage = Math.max(1, toInt(page, 1));
+    refreshCatalogos();
+  },
+  comparison(page) {
+    UI.comparison.page = Math.max(1, toInt(page, 1));
+    refreshComparison({ page: UI.comparison.page });
+  },
+  updatesWaiting(page) {
+    UPDATE_QUEUE.page = Math.max(1, toInt(page, 1));
+    renderUpdateJobs();
+  },
+  updatesQueue(page) {
+    UPDATE_QUEUE.queuePage = Math.max(1, toInt(page, 1));
+    renderOperationalQueue();
+  },
+  updatesHistory(page) {
+    UPDATE_QUEUE.historyPage = Math.max(1, toInt(page, 1));
+    renderUpdateHistory();
+  },
+  updateListPreview(page) {
+    UPDATE_QUEUE.previewPage = Math.max(1, toInt(page, 1));
+    renderUpdateListPreview();
+  },
+  pluginTemaManager(page) {
+    UI.plugintemaManagePage = Math.max(1, toInt(page, 1));
+    renderPluginTemaManagedRows();
+  },
+  catalogPreview(page) {
+    setCatalogPreviewPage(page);
+  },
+});
+
+function selectedStoreKinds() {
+  return qsa('input[name="store_kind"]:checked').map(node => node.value);
+}
+
+function storePriceSummary(rows) {
+  if (!Array.isArray(rows) || !rows.length) return "Nenhum preço encontrado";
+  return rows.map(item => {
+    const regular = item.regular_price ? `R$ ${item.regular_price}` : "sem original";
+    const sale = item.sale_price ? ` → R$ ${item.sale_price}` : " (sem promoção)";
+    return `${regular}${sale} · ${item.count} var.`;
+  }).join("<br>");
+}
+
+async function refreshStorePricing() {
+  const preview = byId("store_preview");
+  const kinds = selectedStoreKinds();
+  if (!preview) return;
+  if (!kinds.length) {
+    preview.innerHTML = '<strong>Selecione Plugins e/ou Temas.</strong>';
+    return;
+  }
+  preview.setAttribute("aria-busy", "true");
+  preview.innerHTML = '<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Consultando produtos e variações no WooCommerce...</span></span>';
+  try {
+    const query = kinds.map(kind => `tipo=${encodeURIComponent(kind)}`).join("&");
+    const data = await getJsonWithTimeout(`${UI.endpoints.storePricing || "/loja/precos"}?${query}`);
+    if (data.deferred) {
+      preview.innerHTML = `<div class="store-ready-state" role="status"><strong>Loja pronta.</strong><br>${escapeHtml(data.message || "A leitura completa será feita ao aplicar os preços.")}</div>`;
+      return;
+    }
+    const ignored = Number(data.unmatched_variation_count || 0);
+    preview.innerHTML = `
+      <div class="store-preview-kpis">
+        <div><strong>${Number(data.product_count || 0)}</strong><span>produtos</span></div>
+        <div><strong>${Number(data.variation_count || 0)}</strong><span>variações reconhecidas</span></div>
+        <div><strong>${ignored}</strong><span>variações ignoradas</span></div>
+      </div>
+      <div class="store-current-prices">
+        <div><strong>Anual hoje</strong><span>${storePriceSummary(data.distribution?.annual)}</span></div>
+        <div><strong>Vitalícia hoje</strong><span>${storePriceSummary(data.distribution?.lifetime)}</span></div>
+      </div>`;
+  } catch (error) {
+    preview.innerHTML = `<div class="updates-error" role="alert"><strong>Não foi possível carregar a prévia.</strong><br>${escapeHtml(error?.message || String(error))}<br><button class="btn-secondary btn-sm" type="button" id="store_retry_btn">Tentar novamente</button></div>`;
+    byId("store_retry_btn")?.addEventListener("click", refreshStorePricing, { once: true });
+  } finally {
+    preview.setAttribute("aria-busy", "false");
+  }
+}
+
+function updateStoreSubmitState() {
+  const button = byId("store_apply_btn");
+  if (button) button.disabled = byId("store_confirmation")?.value !== "ALTERAR PRECOS";
+}
+
+async function submitStorePricing(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = byId("store_apply_btn");
+  const resultNode = byId("store_result");
+  const kinds = selectedStoreKinds();
+  if (!kinds.length) { notify("Selecione Plugins e/ou Temas.", "error"); return; }
+  const payload = { kinds };
+  ["annual_regular", "annual_sale", "lifetime_regular", "lifetime_sale", "confirmation"].forEach(name => {
+    payload[name] = form.elements[name]?.value || "";
+  });
+  if (button) { button.disabled = true; button.textContent = "Aplicando preços..."; }
+  if (resultNode) { resultNode.classList.add("hidden"); resultNode.textContent = ""; }
+  try {
+    const result = await postJson(UI.endpoints.storePricing || "/loja/precos", payload);
+    if (resultNode) { resultNode.classList.remove("hidden"); resultNode.textContent = result.message; }
+    form.elements.confirmation.value = "";
+    notify(result.message, "ok");
+    await refreshStorePricing();
+  } catch (error) {
+    const detail = error?.responseData?.message || error?.message || String(error);
+    if (resultNode) { resultNode.classList.remove("hidden"); resultNode.innerHTML = `<strong>Atualização incompleta.</strong><br>${escapeHtml(detail)}`; }
+    notify(detail, "error");
+  } finally {
+    if (button) { button.textContent = "Aplicar preços em lote"; }
+    updateStoreSubmitState();
+  }
+}
+
 function bindMainTabs() {
   const principalBtn = byId("tab_btn_principal");
   const catalogosBtn = byId("tab_btn_catalogos");
@@ -5995,6 +6178,7 @@ function bindMainTabs() {
   const comparacaoBtn = byId("tab_btn_comparacao");
   const atualizacoesBtn = byId("tab_btn_atualizacoes");
   const adicoesBtn = byId("tab_btn_adicoes");
+  const lojaBtn = byId("tab_btn_loja");
   const filterNode = byId("catalogos_filter_slot");
 
   byId("open_catalogos_modal_btn")?.addEventListener("click", openCatalogosModal);
@@ -6029,6 +6213,9 @@ function bindMainTabs() {
       await loadPluginTemaManagedCatalog(catalogId);
       const target = byId("comparison_target_catalog");
       if (target) target.value = catalogId;
+    } else if (button.dataset.catalogAction === "download") {
+      await loadPluginTemaManagedCatalog(catalogId);
+      downloadPluginTemaManagedCatalog();
     } else if (button.dataset.catalogAction === "rename") {
       await renamePluginTemaManagedCatalog(catalogId);
     } else if (button.dataset.catalogAction === "delete") {
@@ -6176,6 +6363,17 @@ function bindMainTabs() {
       activateMainTab("adicoes");
     });
   }
+
+  if (lojaBtn) {
+    lojaBtn.addEventListener("click", async function () {
+      activateMainTab("loja");
+      await refreshStorePricing();
+    });
+  }
+  byId("store_refresh_btn")?.addEventListener("click", refreshStorePricing);
+  qsa('input[name="store_kind"]').forEach(node => node.addEventListener("change", refreshStorePricing));
+  byId("store_confirmation")?.addEventListener("input", updateStoreSubmitState);
+  byId("store_pricing_form")?.addEventListener("submit", submitStorePricing);
 
   if (filterNode) {
     filterNode.addEventListener("change", async () => {
