@@ -101,7 +101,6 @@
     if (!field || field.dataset.catalogContextMoved === "1") return;
 
     const toolbar = document.querySelector(".catalogos-table-toolbar");
-    const table = document.getElementById("catalogos_table_body")?.closest("table,.table-wrap") || document.getElementById("catalogos_table_body")?.parentElement;
     if (!toolbar) return;
 
     const wrapper = document.createElement("div");
@@ -112,7 +111,7 @@
 
     const label = field.querySelector("label");
     if (label) label.textContent = "Buscar nos contextos";
-    if (search) search.placeholder = "Catálogo, site, tipo ou conta";
+    search.placeholder = "Catálogo, site, tipo ou conta";
   }
 
   function ensureTopControlsRow() {
@@ -149,8 +148,11 @@
     while (node && node !== details) {
       const next = node.nextSibling;
       if (node.nodeType === Node.TEXT_NODE) {
-        const value = text(node.textContent);
-        if (/^(?:🟢\s*)?Atual$/i.test(value) || /^(?:⭐\s*)?Catálogo padrão$/i.test(value)) node.remove();
+        const cleaned = String(node.textContent || "")
+          .replace(/🟢\s*Atual/gi, "")
+          .replace(/⭐\s*Catálogo padrão/gi, "");
+        if (!text(cleaned)) node.remove();
+        else node.textContent = cleaned;
       } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") {
         node.remove();
       } else if (node.classList?.contains("catalogo-status-row")) {
