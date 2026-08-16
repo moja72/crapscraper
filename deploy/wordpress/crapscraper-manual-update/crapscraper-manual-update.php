@@ -2,13 +2,13 @@
 /**
  * Plugin Name: CrapScraper Manual Update
  * Description: Fila atualizações seguras de Plugin, Tema e Template para o CrapScraper local.
- * Version: 2.0.0
+ * Version: 2.1.0
  */
 defined('ABSPATH') || exit;
 
 final class CrapScraper_Manual_Update {
     const NONCE_ACTION = 'crapscraper_manual_update';
-    const DB_VERSION = '2.0.0';
+    const DB_VERSION = '2.1.0';
 
     public static function init() {
         self::ensure_table();
@@ -17,6 +17,7 @@ final class CrapScraper_Manual_Update {
         add_action('wp_ajax_crapscraper_manual_start', array(__CLASS__, 'ajax_start'));
         add_action('wp_ajax_crapscraper_manual_status', array(__CLASS__, 'ajax_status'));
         add_action('rest_api_init', array(__CLASS__, 'rest_routes'));
+        add_filter('rest_pre_serve_request', array(__CLASS__, 'rest_no_cache'), 10, 4);
     }
 
     private static function table() { global $wpdb; return $wpdb->prefix . 'crapscraper_manual_updates'; }
@@ -59,8 +60,11 @@ final class CrapScraper_Manual_Update {
             add_meta_box('crapscraper-manual-update', 'Atualização CrapScraper', array(__CLASS__, 'render'), 'product', 'side', 'high');
     }
 
-    public static function render($post) {
-        echo '<div id="crapscraper-manual" data-product-id="' . esc_attr($post->ID) . '">';
+    public static function render($post) { self::render_component($post->ID, 'admin'); }
+
+    public static function render_component($product_id, $context = 'admin') {
+        if (!self::authorized() || !self::eligible($product_id)) return;
+        echo '<div id="crapscraper-manual" data-context="' . esc_attr($context) . '" data-product-id="' . esc_attr($product_id) . '">';
         echo '<p>O pedido será processado pelo CrapScraper assim que ele estiver aberto no PC.</p>';
         echo '<button type="button" class="button button-primary" id="crapscraper-manual-button">Verificar e atualizar</button>';
         echo '<div id="crapscraper-manual-status" class="cs-status" role="status" aria-live="polite"></div>';
@@ -88,7 +92,7 @@ final class CrapScraper_Manual_Update {
         global $wpdb;
         $product_id = absint(isset($_POST['product_id']) ? $_POST['product_id'] : 0);
         self::require_admin_request($product_id);
-        $active = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE product_id=%d AND status IN ('pending','claimed','processing') ORDER BY id DESC LIMIT 1", $product_id), ARRAY_A);
+        $active = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE product_id=%d AND status IN ('pending','claimed','locating','comparing','update_found','preparing','processing','executing','validating') ORDER BY id DESC LIMIT 1", $product_id), ARRAY_A);
         if ($active) wp_send_json_success($active);
         $request_id = wp_generate_uuid4(); $now = current_time('mysql', true);
         $wpdb->insert(self::table(), array('request_id'=>$request_id, 'product_id'=>$product_id,
@@ -135,6 +139,28 @@ final class CrapScraper_Manual_Update {
             'callback'=>array(__CLASS__,'rest_update_status'), 'permission_callback'=>array(__CLASS__,'rest_permission')));
     }
 
+    private static function no_cache_response($data) {
+        nocache_headers();
+        if (defined('LSCWP_V')) do_action('litespeed_control_set_nocache', 'CrapScraper manual updates REST');
+        $response = rest_ensure_response($data);
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        $response->header('Pragma', 'no-cache');
+        $response->header('Expires', '0');
+        $response->header('CDN-Cache-Control', 'no-store');
+        $response->header('Cloudflare-CDN-Cache-Control', 'no-store');
+        return $response;
+    }
+
+    public static function rest_no_cache($served, $result, $request, $server) {
+        if (0 === strpos($request->get_route(), '/crapscraper/v1/manual-updates/')) {
+            nocache_headers();
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
+            header('CDN-Cache-Control: no-store', true);
+            if (defined('LSCWP_V')) do_action('litespeed_control_set_nocache', 'CrapScraper manual updates REST');
+        }
+        return $served;
+    }
+
     public static function rest_pending() {
         global $wpdb; $table=self::table();
         $wpdb->query("UPDATE $table SET status='pending', message='Pedido retomado após expiração da reserva.' WHERE status='claimed' AND updated_at < (UTC_TIMESTAMP() - INTERVAL 10 MINUTE)");
@@ -144,20 +170,20 @@ final class CrapScraper_Manual_Update {
                 array('request_id'=>$row['request_id'],'status'=>'pending'), array('%s','%s'), array('%s','%s'));
             if ($updated) $row['status']='claimed'; else $row=null;
         }
-        return rest_ensure_response(array('ok'=>true,'requests'=>array_values(array_filter($rows))));
+        return self::no_cache_response(array('ok'=>true,'requests'=>array_values(array_filter($rows))));
     }
 
     public static function rest_update_status($request) {
-        global $wpdb; $allowed=array('processing','up_to_date','completed','error','blocked','rolled_back','rollback_required');
+        global $wpdb; $allowed=array('locating','comparing','update_found','preparing','processing','executing','validating','up_to_date','no_match','source_not_found','source_version_missing','relationship_required','comparison_stale','completed','error','blocked','rolled_back','rollback_required');
         $status=sanitize_key($request->get_param('status'));
         if (!in_array($status,$allowed,true)) return new WP_Error('invalid_status','Status inválido.',array('status'=>400));
-        $terminal=in_array($status,array('up_to_date','completed','error','blocked','rolled_back','rollback_required'),true);
+        $terminal=in_array($status,array('up_to_date','no_match','source_not_found','source_version_missing','relationship_required','comparison_stale','completed','error','blocked','rolled_back','rollback_required'),true);
         $wpdb->update(self::table(), array('status'=>$status,'job_id'=>sanitize_text_field($request->get_param('job_id')),
             'source'=>sanitize_text_field($request->get_param('source')),'previous_version'=>sanitize_text_field($request->get_param('previous_version')),
             'new_version'=>sanitize_text_field($request->get_param('new_version')),'message'=>sanitize_textarea_field($request->get_param('message')),
             'updated_at'=>current_time('mysql',true),'completed_at'=>$terminal?current_time('mysql',true):null),
             array('request_id'=>$request['request_id']));
-        return rest_ensure_response(array('ok'=>true));
+        return self::no_cache_response(array('ok'=>true));
     }
 }
 CrapScraper_Manual_Update::init();

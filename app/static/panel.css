@@ -1063,6 +1063,15 @@ pre {
   gap: 16px;
 }
 
+.wp-manual-monitor { display:grid; gap:16px; }
+.wp-manual-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.wp-manual-grid > div { display:grid; gap:5px; min-width:0; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--bg-elev-1); }
+.wp-manual-grid span { color:var(--text-muted); font-size:12px; }
+.wp-manual-grid strong { overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.wp-manual-grid .wp-manual-state { grid-column:span 4; }
+.wp-manual-log { max-height:240px; overflow:auto; padding:14px; border:1px solid var(--line); border-radius:10px; background:rgba(0,0,0,.2); white-space:pre-wrap; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; }
+@media (max-width:900px) { .wp-manual-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .wp-manual-grid .wp-manual-state { grid-column:span 2; } }
+
 .store-hero,
 .store-form-actions {
   display: flex;

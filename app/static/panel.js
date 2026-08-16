@@ -6141,6 +6141,40 @@ async function refreshStorePricing() {
   }
 }
 
+function manualTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("pt-BR");
+}
+
+async function refreshWordPressManualMonitor() {
+  const root = byId("wp_manual_monitor");
+  if (!root) return;
+  try {
+    const data = await getJsonWithTimeout(UI.endpoints.wordpressManualStatus || "/loja/wordpress-manual/status", 8000);
+    const icons = { monitoring: "🟢", processing: "🟡", error: "🔴", disabled: "⚪" };
+    const set = (id, value) => { const node = byId(id); if (node) node.textContent = value || "—"; };
+    set("wp_manual_status", `${icons[data.monitor_status] || "⚪"} ${data.monitor_status === "monitoring" ? "Monitorando WordPress" : data.monitor_status === "processing" ? "Processando pedido" : data.monitor_status === "error" ? "Erro de conexão/autenticação" : "Monitor desativado"}`);
+    set("wp_manual_last", manualTime(data.last_check));
+    set("wp_manual_next", data.next_check ? manualTime(data.next_check) : `consultando a cada ${data.interval_seconds || 5}s`);
+    set("wp_manual_product", data.product);
+    set("wp_manual_product_id", data.product_id ? String(data.product_id) : "—");
+    set("wp_manual_source", data.source || "ainda não definida");
+    set("wp_manual_current", data.current_version);
+    set("wp_manual_new", data.new_version);
+    set("wp_manual_state", data.error || data.state);
+    const log = byId("wp_manual_log");
+    if (log) { log.textContent = (data.logs || []).join("\n") || "Nenhum pedido registrado nesta sessão."; log.scrollTop = log.scrollHeight; }
+    root.setAttribute("aria-busy", "false");
+  } catch (error) {
+    const status = byId("wp_manual_status");
+    if (status) status.textContent = "🔴 Erro ao consultar o monitor";
+    const state = byId("wp_manual_state");
+    if (state) state.textContent = error?.message || "Falha local";
+    root.setAttribute("aria-busy", "false");
+  }
+}
+
 function updateStoreSubmitState() {
   const button = byId("store_apply_btn");
   if (button) button.disabled = byId("store_confirmation")?.value !== "ALTERAR PRECOS";
@@ -6399,9 +6433,12 @@ function bindMainTabs() {
   if (lojaBtn) {
     lojaBtn.addEventListener("click", async function () {
       activateMainTab("loja");
-      await refreshStorePricing();
+      await Promise.all([refreshStorePricing(), refreshWordPressManualMonitor()]);
     });
   }
+  window.setInterval(() => {
+    if (!byId("tab_panel_loja")?.classList.contains("hidden")) refreshWordPressManualMonitor();
+  }, 5000);
   qsa('input[name="store_kind"]').forEach(node => node.addEventListener("change", refreshStorePricing));
   byId("store_confirmation")?.addEventListener("input", updateStoreSubmitState);
   byId("store_pricing_form")?.addEventListener("submit", submitStorePricing);

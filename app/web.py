@@ -10,7 +10,7 @@ import webbrowser
 from uuid import uuid4
 from collections.abc import Mapping
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
@@ -171,7 +171,7 @@ def _start_update_queue_worker() -> bool:
         return True
 
 
-def _start_wordpress_manual_worker(manager: Any) -> bool:
+def _start_wordpress_manual_worker_legacy(manager: Any) -> bool:
     """Busca no WordPress pedidos criados pelo botão Super Admin."""
     global _WORDPRESS_MANUAL_WORKER
     if os.getenv("SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
@@ -230,13 +230,134 @@ def _start_wordpress_manual_worker(manager: Any) -> bool:
                         except Exception as error:
                             with suppress(Exception):
                                 client.report(request_id, status="error", message=str(error))
-                except Exception:
-                    pass
+                except Exception as error:
+                    from app.wordpress_manual_update import manual_monitor_log
+                    manual_monitor_log(f"Falha no worker legado: {error}")
                 threading.Event().wait(5)
 
         _WORDPRESS_MANUAL_WORKER = threading.Thread(
             target=loop, name="wordpress-manual-poller", daemon=True,
         )
+        _WORDPRESS_MANUAL_WORKER.start()
+        return True
+
+
+def _start_wordpress_manual_worker(manager: Any) -> bool:
+    """Worker observável que consome a fila REST e reutiliza o fluxo seguro local."""
+    global _WORDPRESS_MANUAL_WORKER
+    from app.wordpress_manual_update import manual_monitor_log, manual_monitor_update
+    enabled = os.getenv("SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    secret = os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET", "").strip()
+    base_url = os.getenv("SCRAPER_WP_BASE_URL", "").strip()
+    if not enabled:
+        manual_monitor_update(enabled=False, monitor_status="disabled", state="Monitor desativado")
+        return False
+    if not secret or not base_url:
+        manual_monitor_update(enabled=False, monitor_status="error", state="Configuração incompleta",
+                              error="URL ou segredo da fila WordPress não configurado.")
+        return False
+    with _UPDATE_WORKERS_LOCK:
+        if _WORDPRESS_MANUAL_WORKER and _WORDPRESS_MANUAL_WORKER.is_alive():
+            return False
+
+        def loop() -> None:
+            from app.operations.execution_plan import build_execution_plan
+            from app.operations.update_logging import UpdateLogger
+            from app.wordpress_manual_update import WordPressManualQueueClient, create_manual_job, manual_job_status, run_manual_job
+            client = WordPressManualQueueClient(base_url, secret)
+            manual_monitor_update(enabled=True, monitor_status="monitoring", state="Monitorando WordPress", error="")
+            manual_monitor_log("Monitor WordPress iniciado; consulta a cada 5s.")
+            while True:
+                try:
+                    now = datetime.now().astimezone()
+                    manual_monitor_update(last_check=now.isoformat(), next_check=(now + timedelta(seconds=5)).isoformat(),
+                                          monitor_status="monitoring", state="Consultando WordPress", error="")
+                    requests = client.pending()
+                    if not requests:
+                        manual_monitor_update(state="Monitorando WordPress")
+                    for request in requests:
+                        request_id = str(request.get("request_id") or "")
+                        product_id = int(request.get("product_id") or 0)
+                        if not request_id or product_id <= 0:
+                            manual_monitor_log("Pedido inválido ignorado: identificador ou Woo ID ausente.")
+                            continue
+                        try:
+                            manual_monitor_update(monitor_status="processing", state="Pedido recebido", request_id=request_id,
+                                                  product_id=product_id, product="", source="", current_version="", new_version="")
+                            manual_monitor_log(f"Pedido recebido do WordPress; Woo ID: {product_id}")
+                            client.report(request_id, status="locating", message="Pedido recebido pelo PC. Localizando correspondências.")
+                            primary = _get_primary_app(manager)
+
+                            def inspect(row: Mapping[str, Any]) -> Any:
+                                from app.integrations.plugintheme_download import PluginThemeDownloader, SourceDownloader
+                                from app.integrations.ultrapack_download import UltrapackDownloader
+                                from app.integrations.ultrapack_session import get_authenticated_plugintheme_session, get_authenticated_ultrapack_session
+                                url = str(row.get("source_product_url") or "")
+                                downloader = SourceDownloader(UltrapackDownloader(getattr(primary, "ultrapack_http_session", None)),
+                                                              PluginThemeDownloader(getattr(primary, "plugintheme_http_session", None)))
+                                session = (get_authenticated_plugintheme_session(primary, url) if SourceDownloader.is_plugintheme(url)
+                                           else get_authenticated_ultrapack_session(primary, url))
+                                downloader.session = session.session
+                                return downloader.inspect_product(url)
+
+                            client.report(request_id, status="comparing", message="Comparando versões em PluginTheme e UltraPackV2.")
+                            manual_monitor_update(state="Comparando versões")
+                            job, response = create_manual_job(
+                                _build_readonly_woocommerce_client(), product_id,
+                                initiated_by=f"wordpress-super-admin #{request.get('requested_by', '')}",
+                                inspector=inspect, log=manual_monitor_log,
+                            )
+                            if job is None:
+                                result_state = str(response.get("status") or "no_match")
+                                manual_monitor_update(monitor_status="monitoring", state=response.get("message", result_state),
+                                                      product=response.get("product_name", ""),
+                                                      current_version=response.get("current_version", ""))
+                                client.report(request_id, status=result_state,
+                                              previous_version=response.get("current_version", ""),
+                                              message=response.get("message", "Nenhuma atualização encontrada."))
+                                continue
+                            logger = _UPDATE_LOGS.for_job(job.job_id)
+                            logger.clear()
+                            manual_monitor_update(state="Preparando atualização", product=job.name, source=job.source_name,
+                                                  current_version=job.plugintema_version, new_version=job.approved_source_version)
+                            client.report(request_id, status="preparing", job_id=job.job_id, source=job.source_name,
+                                          previous_version=job.plugintema_version, new_version=job.approved_source_version,
+                                          message="Atualização encontrada. Preparando o fluxo seguro.")
+                            if not response.get("reused"):
+                                def report_phase(phase: str, message: str) -> None:
+                                    manual_monitor_update(state=message)
+                                    manual_monitor_log(message)
+                                    client.report(request_id, status=phase, job_id=job.job_id, source=job.source_name,
+                                                  previous_version=job.plugintema_version,
+                                                  new_version=job.approved_source_version, message=message)
+                                run_manual_job(job, preparation_factory=lambda: _build_update_preparation_service(primary, logger.log),
+                                               plan_builder=build_execution_plan,
+                                               executor_factory=lambda current: _build_controlled_update_executor(current, logger.log),
+                                               logger=logger, state_callback=report_phase)
+                            status = manual_job_status(job.job_id)
+                            final_state = status["status"] if status["terminal"] else "processing"
+                            if final_state not in {"processing", "completed", "error", "blocked", "rolled_back", "rollback_required"}:
+                                final_state = "error"
+                            client.report(request_id, status=final_state, job_id=job.job_id, source=status["source"],
+                                          previous_version=status["previous_version"], new_version=status["new_version"],
+                                          message=status["result"] or ("Atualização concluída." if final_state == "completed" else "Processando."))
+                            for entry in status.get("logs", []):
+                                manual_monitor_log(entry)
+                            manual_monitor_update(monitor_status="monitoring", state="Concluído" if final_state == "completed" else final_state,
+                                                  source=status["source"], current_version=status["previous_version"], new_version=status["new_version"])
+                        except Exception as error:
+                            safe = UpdateLogger.sanitize(error)
+                            manual_monitor_log(f"Erro no pedido {request_id}: {safe}")
+                            manual_monitor_update(monitor_status="error", state="Erro", error=safe)
+                            with suppress(Exception):
+                                client.report(request_id, status="error", message=safe)
+                except Exception as error:
+                    safe = UpdateLogger.sanitize(error)
+                    manual_monitor_log(f"Falha REST WordPress: {safe}")
+                    manual_monitor_update(monitor_status="error", state="Erro de conexão/autenticação", error=safe)
+                threading.Event().wait(5)
+
+        _WORDPRESS_MANUAL_WORKER = threading.Thread(target=loop, name="wordpress-manual-poller", daemon=True)
         _WORDPRESS_MANUAL_WORKER.start()
         return True
 
@@ -2182,6 +2303,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </div>
 
 <section class="tab-panel hidden store-panel" id="tab_panel_loja" aria-labelledby="store_title">
+  <section class="card wp-manual-monitor" aria-labelledby="wp_manual_monitor_title">
+    <div class="section-title" id="wp_manual_monitor_title">Atualizações solicitadas pelo WordPress</div>
+    <div class="wp-manual-grid" id="wp_manual_monitor" aria-live="polite" aria-busy="true">
+      <div><span>Status do monitor</span><strong id="wp_manual_status">Carregando…</strong></div>
+      <div><span>Última consulta</span><strong id="wp_manual_last">—</strong></div>
+      <div><span>Próxima consulta</span><strong id="wp_manual_next">a cada 5s</strong></div>
+      <div><span>Pedido atual</span><strong id="wp_manual_product">—</strong></div>
+      <div><span>WooCommerce ID</span><strong id="wp_manual_product_id">—</strong></div>
+      <div><span>Origem</span><strong id="wp_manual_source">ainda não definida</strong></div>
+      <div><span>Versão atual</span><strong id="wp_manual_current">—</strong></div>
+      <div><span>Versão encontrada</span><strong id="wp_manual_new">—</strong></div>
+      <div class="wp-manual-state"><span>Estado</span><strong id="wp_manual_state">—</strong></div>
+    </div>
+    <div class="wp-manual-log" id="wp_manual_log" role="log" aria-label="Log das atualizações manuais">Aguardando o monitor…</div>
+  </section>
   <div class="card store-hero">
     <div>
       <div class="section-title" id="store_title">Preços da loja</div>
@@ -2724,6 +2860,7 @@ def _build_run_endpoints(run_id: str | None) -> dict[str, str]:
 "plugintemaCatalogManage": "/plugintema/catalogo/gerenciar",
         "plugintemaCatalogDownload": "/plugintema/catalogo/baixar",
         "storePricing": "/loja/precos",
+        "wordpressManualStatus": "/loja/wordpress-manual/status",
 "comparisonProducts": "/comparacao/produtos",
 "comparisonRelationshipSave": "/comparacao/vinculo/salvar",
 }
@@ -4133,6 +4270,11 @@ def make_handler(
                     self._send_json({"ok": True, "products": products})
                 except Exception as error:
                     self._send_json(build_error_payload(error), code=500)
+                return True
+
+            if path == "/loja/wordpress-manual/status":
+                from app.wordpress_manual_update import manual_monitor_snapshot
+                self._send_json(manual_monitor_snapshot())
                 return True
 
             if path == "/loja/precos":

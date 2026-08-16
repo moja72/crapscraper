@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.wordpress_manual_update import (
-    WordPressManualQueueClient, create_manual_job, select_manual_candidate,
+    WordPressManualQueueClient, create_manual_job, evaluate_manual_candidates, select_manual_candidate,
 )
 
 
@@ -29,15 +29,33 @@ def decision(source_url, version, relationship="manual_confirmed"):
 
 
 class WordPressManualUpdateTests(unittest.TestCase):
-    def test_plugintheme_is_prioritized_and_ultrapack_is_fallback(self):
+    def test_highest_new_version_wins_and_source_priority_only_breaks_ties(self):
         rows = [
             decision("https://ultrapackv2.com/item", "3.0.0"),
             decision("https://plugintheme.net/item", "2.0.0"),
         ]
         selected = select_manual_candidate(42, "1.0.0", rows)
-        self.assertEqual(selected["manual_source_name"], "PluginTheme")
-        fallback = select_manual_candidate(42, "2.0.0", rows)
-        self.assertEqual(fallback["manual_source_name"], "UltraPackV2")
+        self.assertEqual(selected["manual_source_name"], "UltraPackV2")
+        tied = [decision("https://ultrapackv2.com/item", "3.0.0"),
+                decision("https://plugintheme.net/item", "3.0.0")]
+        self.assertEqual(select_manual_candidate(42, "1.0.0", tied)["manual_source_name"], "PluginTheme")
+
+    def test_requested_version_scenarios_choose_ultrapack(self):
+        first = [decision("https://plugintheme.net/item", "4.0.4"),
+                 decision("https://ultrapackv2.com/item", "4.1.0")]
+        second = [decision("https://plugintheme.net/item", "4.1.0"),
+                  decision("https://ultrapackv2.com/item", "4.2.0")]
+        self.assertEqual(select_manual_candidate(42, "4.0.4", first)["source_version"], "4.1.0")
+        self.assertEqual(select_manual_candidate(42, "4.0.4", second)["source_version"], "4.2.0")
+
+    def test_empty_missing_equal_and_unsafe_are_distinct(self):
+        self.assertEqual(evaluate_manual_candidates(42, "4.0.4", [])["status"], "no_match")
+        equal = [decision("https://plugintheme.net/item", "4.0.4")]
+        self.assertEqual(evaluate_manual_candidates(42, "4.0.4", equal)["status"], "up_to_date")
+        missing = [decision("https://plugintheme.net/item", "")]
+        self.assertEqual(evaluate_manual_candidates(42, "4.0.4", missing)["status"], "source_version_missing")
+        unsafe = [decision("https://ultrapackv2.com/item", "4.2.0", "pending_review")]
+        self.assertEqual(evaluate_manual_candidates(42, "4.0.4", unsafe)["status"], "relationship_required")
 
     def test_unsafe_or_old_relationship_is_not_selected(self):
         rows = [decision("https://plugintheme.net/item", "2.0.0", "pending_review")]
@@ -76,6 +94,8 @@ class WordPressManualUpdateTests(unittest.TestCase):
         self.assertNotIn("CRAPSCRAPER_MANUAL_API_URL", php)
         for state in ("loading", "success", "error", "empty"):
             self.assertIn(state, js)
+        for header in ("Cache-Control", "CDN-Cache-Control", "litespeed_control_set_nocache"):
+            self.assertIn(header, php)
         runtime = (root / "app/operations/runtime.py").read_text(encoding="utf-8")
         for field in ("source", "previous_version", "new_version", "requested_at", "result"):
             self.assertIn(f'"{field}"', runtime)
@@ -92,6 +112,17 @@ class WordPressManualUpdateTests(unittest.TestCase):
         sent = request.call_args.args[0]
         self.assertEqual(sent.full_url, "https://plugintema.com/wp-json/crapscraper/v1/manual-updates/pending")
         self.assertTrue(sent.headers.get("X-crapscraper-signature"))
+
+    def test_store_panel_uses_real_worker_monitor_and_sanitized_rest_errors(self):
+        root = Path(__file__).resolve().parents[1]
+        web = (root / "app/web.py").read_text(encoding="utf-8")
+        panel = (root / "app/static/panel.js").read_text(encoding="utf-8")
+        self.assertIn("Atualizações solicitadas pelo WordPress", web)
+        self.assertIn("manual_monitor_snapshot", web)
+        self.assertIn("UpdateLogger.sanitize(error)", web)
+        self.assertNotIn("def _start_wordpress_manual_worker(manager: Any):\n", web.split("def _start_wordpress_manual_worker_legacy", 1)[0])
+        self.assertIn("refreshWordPressManualMonitor", panel)
+        self.assertIn("Erro de conexão/autenticação", panel)
 
 
 if __name__ == "__main__":

@@ -21,10 +21,10 @@
   };
   const poll = async (requestId) => {
     const data = await request('crapscraper_manual_status', { request_id: requestId });
-    const terminal = ['up_to_date','completed','error','blocked','rolled_back','rollback_required'].includes(data.status);
-    const labels = { pending:'Aguardando o CrapScraper no PC', claimed:'Pedido recebido pelo PC', processing:'Verificando e atualizando', up_to_date:'Produto já atualizado', completed:'Atualização concluída', rolled_back:'Falha revertida com segurança' };
+    const terminal = ['up_to_date','no_match','source_not_found','source_version_missing','relationship_required','comparison_stale','completed','error','blocked','rolled_back','rollback_required'].includes(data.status);
+    const labels = { pending:'Aguardando o CrapScraper', claimed:'Pedido recebido pelo PC', locating:'Localizando versão', comparing:'Comparando versões', update_found:'Atualização encontrada', preparing:'Preparando atualização', processing:'Executando atualização', executing:'Executando atualização', validating:'Validando atualização', up_to_date:'Produto já está atualizado', no_match:'Não foi possível localizar correspondência', source_not_found:'Fonte não encontrada', source_version_missing:'Versão da fonte não identificada', relationship_required:'Vínculo seguro necessário', comparison_stale:'Comparação desatualizada', completed:'Atualização concluída', rolled_back:'Falha revertida com segurança', error:'Erro' };
     const versions = data.previous_version || data.new_version ? ` · ${data.previous_version || '?'} → ${data.new_version || '?'}` : '';
-    const tone = !terminal ? 'loading' : (data.status === 'up_to_date' ? 'empty' : (data.status === 'completed' ? 'success' : 'error'));
+    const tone = !terminal ? 'loading' : (['up_to_date','no_match','source_not_found','source_version_missing','comparison_stale'].includes(data.status) ? 'empty' : (data.status === 'completed' ? 'success' : 'error'));
     show(`${labels[data.status] || data.message || 'Processando'}${data.source ? ` · ${data.source}` : ''}${versions}`, tone);
     if (!terminal) window.setTimeout(() => poll(requestId).catch(fail), 3000);
     else { button.disabled=false; button.removeAttribute('aria-busy'); }
