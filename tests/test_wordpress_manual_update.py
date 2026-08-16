@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import time
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 from app.wordpress_manual_update import (
-    create_manual_job, select_manual_candidate, verify_signed_request,
+    WordPressManualQueueClient, create_manual_job, select_manual_candidate,
 )
 
 
@@ -45,19 +43,6 @@ class WordPressManualUpdateTests(unittest.TestCase):
         rows = [decision("https://plugintheme.net/item", "2.0.0", "pending_review")]
         self.assertIsNone(select_manual_candidate(42, "1.0.0", rows))
 
-    def test_hmac_rejects_replay(self):
-        secret = "x" * 32
-        now = int(time.time())
-        nonce = "nonce-test-replay"
-        message = f"{now}\n{nonce}\nPOST\n/wordpress/manual-update\n42"
-        headers = {
-            "X-CrapScraper-Timestamp": str(now), "X-CrapScraper-Nonce": nonce,
-            "X-CrapScraper-Signature": hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest(),
-        }
-        verify_signed_request(headers, "POST", "/wordpress/manual-update", "42", now=now, secret=secret)
-        with self.assertRaises(PermissionError):
-            verify_signed_request(headers, "POST", "/wordpress/manual-update", "42", now=now, secret=secret)
-
     def test_job_is_registered_in_manual_queue_with_audit_fields(self):
         row = decision("https://plugintheme.net/item", "2.0.0")
         with patch("app.wordpress_manual_update.get_active_manual_job", return_value=None), \
@@ -83,17 +68,30 @@ class WordPressManualUpdateTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         php = (root / "deploy/wordpress/crapscraper-manual-update/crapscraper-manual-update.php").read_text(encoding="utf-8")
         js = (root / "deploy/wordpress/crapscraper-manual-update/manual-update.js").read_text(encoding="utf-8")
-        web = (root / "app/web.py").read_text(encoding="utf-8")
         self.assertIn("is_super_admin(get_current_user_id())", php)
         self.assertIn("check_ajax_referer", php)
         self.assertIn("hash_hmac('sha256'", php)
+        self.assertIn("register_rest_route('crapscraper/v1'", php)
+        self.assertIn("crapscraper_manual_updates", php)
+        self.assertNotIn("CRAPSCRAPER_MANUAL_API_URL", php)
         for state in ("loading", "success", "error", "empty"):
             self.assertIn(state, js)
-        self.assertIn('/wordpress/manual-update/status', web)
-        self.assertIn('verify_signed_request', web)
         runtime = (root / "app/operations/runtime.py").read_text(encoding="utf-8")
         for field in ("source", "previous_version", "new_version", "requested_at", "result"):
             self.assertIn(f'"{field}"', runtime)
+
+    def test_local_client_polls_wordpress_over_https_with_hmac(self):
+        response = type("Response", (), {
+            "__enter__": lambda self: self, "__exit__": lambda self, *args: None,
+            "read": lambda self: json.dumps({"ok": True, "requests": [{"request_id": "r1"}]}).encode(),
+        })()
+        client = WordPressManualQueueClient("https://plugintema.com", "s" * 32)
+        with patch("app.wordpress_manual_update.urlopen", return_value=response) as request:
+            rows = client.pending()
+        self.assertEqual(rows[0]["request_id"], "r1")
+        sent = request.call_args.args[0]
+        self.assertEqual(sent.full_url, "https://plugintema.com/wp-json/crapscraper/v1/manual-updates/pending")
+        self.assertTrue(sent.headers.get("X-crapscraper-signature"))
 
 
 if __name__ == "__main__":

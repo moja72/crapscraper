@@ -17,6 +17,7 @@ if not errorlevel 1 (
 rem A escrita continua protegida por preview, plano, fila e confirmação individual.
 set "SCRAPER_UPDATE_EXECUTION_ENABLED=1"
 set "SCRAPER_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS=*"
+set "SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED=1"
 
 python main.py
 

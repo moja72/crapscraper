@@ -4,11 +4,12 @@ import hashlib
 import hmac
 import os
 import re
-import threading
 import time
+import json
 from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from app.comparison_decisions import list_decisions
 from app.operations.models import JobState, OperationalJob, utc_now_iso
@@ -19,8 +20,6 @@ from app.plugintema_catalog import product_matches_catalog_kind
 
 ALLOWED_KINDS = ("plugin", "theme", "template")
 TERMINAL_STATES = frozenset({"completed", "failed", "error", "blocked", "rolled_back", "rollback_required"})
-_NONCES: dict[str, int] = {}
-_NONCE_LOCK = threading.RLock()
 
 
 def _version(value: Any) -> tuple[int, ...] | None:
@@ -60,34 +59,6 @@ def select_manual_candidate(product_id: int, current_version: str,
     _priority, selected, origin = min(candidates, key=lambda item: item[0])
     selected["manual_source_name"] = origin
     return selected
-
-
-def verify_signed_request(headers: Mapping[str, Any], method: str, path: str, subject: str,
-                          *, now: int | None = None, secret: str | None = None) -> None:
-    shared = str(secret if secret is not None else os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET", ""))
-    if len(shared) < 24:
-        raise PermissionError("Integração manual não configurada com segredo forte.")
-    timestamp = str(headers.get("X-CrapScraper-Timestamp", "") or "")
-    nonce = str(headers.get("X-CrapScraper-Nonce", "") or "")
-    signature = str(headers.get("X-CrapScraper-Signature", "") or "")
-    current = int(time.time() if now is None else now)
-    try:
-        numeric_timestamp = int(timestamp)
-    except ValueError:
-        raise PermissionError("Assinatura sem data válida.") from None
-    if abs(current - numeric_timestamp) > 300 or not nonce or len(nonce) > 128:
-        raise PermissionError("Assinatura expirada ou nonce inválido.")
-    message = "\n".join((timestamp, nonce, method.upper(), path, str(subject)))
-    expected = hmac.new(shared.encode(), message.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, expected):
-        raise PermissionError("Assinatura da requisição inválida.")
-    with _NONCE_LOCK:
-        for key, seen in list(_NONCES.items()):
-            if current - seen > 300:
-                _NONCES.pop(key, None)
-        if nonce in _NONCES:
-            raise PermissionError("Requisição já utilizada.")
-        _NONCES[nonce] = current
 
 
 def create_manual_job(woo: Any, product_id: int, *, initiated_by: str) -> tuple[OperationalJob | None, dict[str, Any]]:
@@ -157,3 +128,39 @@ def manual_job_status(job_id: str) -> dict[str, Any]:
             "requested_at": job.manual_requested_at, "completed_at": job.completed_at,
             "result": job.execution_error or (job.diagnostics[-1] if job.diagnostics else ""),
             "logs": list(job.execution_logs[-20:]), "queue_name": job.queue_name}
+
+
+class WordPressManualQueueClient:
+    """Cliente outbound: o PC busca pedidos no WordPress, sem expor porta local."""
+    def __init__(self, base_url: str, secret: str, *, timeout: float = 20.0) -> None:
+        self.base_url = str(base_url).rstrip("/")
+        self.secret = str(secret)
+        self.timeout = float(timeout)
+        if not self.base_url.startswith("https://"):
+            raise ValueError("A fila manual exige SCRAPER_WP_BASE_URL com HTTPS.")
+        if len(self.secret) < 24:
+            raise ValueError("SCRAPER_WORDPRESS_MANUAL_SECRET deve ter ao menos 24 caracteres.")
+
+    def _request(self, method: str, route: str, subject: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        timestamp, nonce = str(int(time.time())), os.urandom(16).hex()
+        message = "\n".join((timestamp, nonce, method.upper(), route, subject))
+        signature = hmac.new(self.secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+        body = json.dumps(dict(payload or {})).encode("utf-8") if payload is not None else None
+        request = Request(self.base_url + "/wp-json" + route, data=body, method=method.upper(), headers={
+            "Accept": "application/json", "Content-Type": "application/json",
+            "X-CrapScraper-Timestamp": timestamp, "X-CrapScraper-Nonce": nonce,
+            "X-CrapScraper-Signature": signature,
+        })
+        with urlopen(request, timeout=self.timeout) as response:
+            decoded = json.loads(response.read().decode("utf-8") or "{}")
+        if not isinstance(decoded, dict) or decoded.get("ok") is False:
+            raise RuntimeError(str(decoded.get("message") if isinstance(decoded, dict) else "Resposta WordPress inválida"))
+        return decoded
+
+    def pending(self) -> list[dict[str, Any]]:
+        result = self._request("GET", "/crapscraper/v1/manual-updates/pending", "poll")
+        return [dict(item) for item in result.get("requests", []) if isinstance(item, Mapping)]
+
+    def report(self, request_id: str, **payload: Any) -> dict[str, Any]:
+        route = f"/crapscraper/v1/manual-updates/{request_id}/status"
+        return self._request("POST", route, request_id, payload)

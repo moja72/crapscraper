@@ -55,6 +55,7 @@ _UPDATE_WORKERS: dict[str, threading.Thread] = {}
 _UPDATE_JOB_LOCKS: dict[str, threading.Lock] = {}
 _UPDATE_WORKERS_LOCK = threading.RLock()
 _UPDATE_QUEUE_WORKER: threading.Thread | None = None
+_WORDPRESS_MANUAL_WORKER: threading.Thread | None = None
 _STORE_PRICE_LOCK = threading.RLock()
 _STORE_PRICE_JOB: dict[str, Any] = {
     "job_id": "", "status": "idle", "phase": "", "completed": 0, "total": 0, "message": "",
@@ -167,6 +168,76 @@ def _start_update_queue_worker() -> bool:
             target=_run_update_queue, name="update-queue", daemon=True
         )
         _UPDATE_QUEUE_WORKER.start()
+        return True
+
+
+def _start_wordpress_manual_worker(manager: Any) -> bool:
+    """Busca no WordPress pedidos criados pelo botão Super Admin."""
+    global _WORDPRESS_MANUAL_WORKER
+    if os.getenv("SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
+    secret = os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET", "").strip()
+    base_url = os.getenv("SCRAPER_WP_BASE_URL", "").strip()
+    if not secret or not base_url:
+        return False
+    with _UPDATE_WORKERS_LOCK:
+        if _WORDPRESS_MANUAL_WORKER and _WORDPRESS_MANUAL_WORKER.is_alive():
+            return False
+
+        def loop() -> None:
+            from app.operations.execution_plan import build_execution_plan
+            from app.wordpress_manual_update import (
+                WordPressManualQueueClient, create_manual_job, manual_job_status, run_manual_job,
+            )
+            client = WordPressManualQueueClient(base_url, secret)
+            while True:
+                try:
+                    requests = client.pending()
+                    for request in requests:
+                        request_id = str(request.get("request_id") or "")
+                        product_id = int(request.get("product_id") or 0)
+                        if not request_id or product_id <= 0:
+                            continue
+                        try:
+                            client.report(request_id, status="processing", message="CrapScraper iniciou a verificação segura.")
+                            job, response = create_manual_job(
+                                _build_readonly_woocommerce_client(), product_id,
+                                initiated_by=f"wordpress-super-admin #{request.get('requested_by', '')}",
+                            )
+                            if job is None:
+                                client.report(request_id, status="up_to_date",
+                                              previous_version=response.get("current_version", ""),
+                                              message=response.get("message", "Nenhuma atualização encontrada."))
+                                continue
+                            logger = _UPDATE_LOGS.for_job(job.job_id)
+                            logger.clear()
+                            primary = _get_primary_app(manager)
+                            if not response.get("reused"):
+                                run_manual_job(
+                                    job, preparation_factory=lambda: _build_update_preparation_service(primary, logger.log),
+                                    plan_builder=build_execution_plan,
+                                    executor_factory=lambda current: _build_controlled_update_executor(current, logger.log),
+                                    logger=logger,
+                                )
+                            status = manual_job_status(job.job_id)
+                            final_state = status["status"] if status["terminal"] else "processing"
+                            if final_state not in {"processing", "completed", "error", "blocked", "rolled_back", "rollback_required"}:
+                                final_state = "error"
+                            client.report(request_id, status=final_state, job_id=job.job_id,
+                                          source=status["source"], previous_version=status["previous_version"],
+                                          new_version=status["new_version"],
+                                          message=status["result"] or ("Atualização concluída." if final_state == "completed" else "Processando."))
+                        except Exception as error:
+                            with suppress(Exception):
+                                client.report(request_id, status="error", message=str(error))
+                except Exception:
+                    pass
+                threading.Event().wait(5)
+
+        _WORDPRESS_MANUAL_WORKER = threading.Thread(
+            target=loop, name="wordpress-manual-poller", daemon=True,
+        )
+        _WORDPRESS_MANUAL_WORKER.start()
         return True
 
 
@@ -4091,21 +4162,6 @@ def make_handler(
                 self._send_json({"ok": True, **_store_price_job_snapshot()})
                 return True
 
-            if path == "/wordpress/manual-update/status":
-                query = parse_qs(urlsplit(self.path).query or "")
-                job_id = str((query.get("job_id") or [""])[0] or "").strip()
-                try:
-                    from app.wordpress_manual_update import manual_job_status, verify_signed_request
-                    verify_signed_request(self.headers, "GET", path, job_id)
-                    self._send_json(manual_job_status(job_id))
-                except PermissionError as error:
-                    self._send_json({"ok": False, "message": str(error)}, code=403)
-                except KeyError as error:
-                    self._send_json({"ok": False, "message": str(error)}, code=404)
-                except Exception as error:
-                    self._send_json(build_error_payload(error), code=500)
-                return True
-
             if path == "/plugintema/catalogo/baixar":
                 query = parse_qs(urlsplit(self.path).query or "")
                 catalog_id = str((query.get("catalog_id") or [""])[0] or "").strip()
@@ -4252,55 +4308,6 @@ def make_handler(
                     result = _start_store_price_job(payload)
                     self._send_json({"ok": True, "started": True, **result}, code=202)
                 except ValueError as error:
-                    self._send_json({"ok": False, "message": str(error)}, code=400)
-                except Exception as error:
-                    self._send_json(build_error_payload(error), code=500)
-                return True
-
-            if path == "/wordpress/manual-update":
-                try:
-                    from app.operations.execution_plan import build_execution_plan
-                    from app.wordpress_manual_update import (
-                        create_manual_job, run_manual_job, verify_signed_request,
-                    )
-                    product_id = int(payload.get("product_id") or 0)
-                    verify_signed_request(self.headers, "POST", path, str(product_id))
-                    if not settings.UPDATE_EXECUTION_ENABLED:
-                        raise PermissionError("Execução real está desabilitada no CrapScraper.")
-                    if (settings.UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS
-                            and product_id not in settings.UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS):
-                        raise PermissionError(f"Produto WooCommerce #{product_id} não está autorizado.")
-                    job, response = create_manual_job(
-                        _build_readonly_woocommerce_client(), product_id,
-                        initiated_by=str(payload.get("initiated_by") or "wordpress-super-admin"),
-                    )
-                    if job is None:
-                        self._send_json(response)
-                        return True
-                    if response.get("reused"):
-                        self._send_json(response, code=202)
-                        return True
-                    logger = _UPDATE_LOGS.for_job(job.job_id)
-                    logger.clear()
-                    primary = _get_primary_app(manager)
-                    worker = threading.Thread(
-                        target=run_manual_job,
-                        kwargs={
-                            "job": job,
-                            "preparation_factory": lambda: _build_update_preparation_service(primary, logger.log),
-                            "plan_builder": build_execution_plan,
-                            "executor_factory": lambda current: _build_controlled_update_executor(current, logger.log),
-                            "logger": logger,
-                        },
-                        name=f"wordpress-manual-{job.job_id}", daemon=True,
-                    )
-                    with _UPDATE_WORKERS_LOCK:
-                        _UPDATE_WORKERS[job.job_id] = worker
-                    worker.start()
-                    self._send_json(response, code=202)
-                except PermissionError as error:
-                    self._send_json({"ok": False, "message": str(error)}, code=403)
-                except (TypeError, ValueError) as error:
                     self._send_json({"ok": False, "message": str(error)}, code=400)
                 except Exception as error:
                     self._send_json(build_error_payload(error), code=500)
@@ -5213,6 +5220,7 @@ def serve(
     _boot_log(f"Painel iniciado em {url}")
     _boot_log("Abra no navegador se não abrir sozinho.")
 
+    _start_wordpress_manual_worker(_ensure_manager(resolved_target))
     open_panel_in_browser(url, enabled=open_browser)
 
     try:
@@ -5245,6 +5253,8 @@ def start_server_in_thread(
         port=port,
         include_inline_assets=include_inline_assets,
     )
+
+    _start_wordpress_manual_worker(_ensure_manager(resolved_target))
 
     def _runner() -> None:
         try:

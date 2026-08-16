@@ -5,7 +5,8 @@ $variables = @(
     @{ Name = "SCRAPER_WP_USERNAME"; Label = "Usuário WordPress"; Secret = $false },
     @{ Name = "SCRAPER_WP_APPLICATION_PASSWORD"; Label = "Application Password WordPress"; Secret = $true },
     @{ Name = "SCRAPER_WC_CONSUMER_KEY"; Label = "Consumer Key WooCommerce"; Secret = $true },
-    @{ Name = "SCRAPER_WC_CONSUMER_SECRET"; Label = "Consumer Secret WooCommerce"; Secret = $true }
+    @{ Name = "SCRAPER_WC_CONSUMER_SECRET"; Label = "Consumer Secret WooCommerce"; Secret = $true },
+    @{ Name = "SCRAPER_WORDPRESS_MANUAL_SECRET"; Label = "Segredo do plugin CrapScraper Manual Update"; Secret = $true }
 )
 
 Write-Host "Configuração local do CrapScraper (ambiente User do Windows)."

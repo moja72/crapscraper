@@ -19,11 +19,15 @@
     status.textContent = message;
     progress.hidden = tone !== 'loading';
   };
-  const poll = async (jobId) => {
-    const data = await request('crapscraper_manual_status', { job_id: jobId });
-    const labels = { approved: 'Validando vínculo', validating: 'Validando produto', downloading: 'Baixando arquivo', prepared: 'Arquivo validado', plan_ready: 'Plano seguro pronto', executing: 'Atualizando produto', completed: 'Atualização concluída', rolled_back: 'Falha revertida com segurança' };
-    show(`${labels[data.status] || 'Processando'} · ${data.source || ''} · ${data.previous_version || '?'} → ${data.new_version || '?'}`, data.terminal ? (data.status === 'completed' ? 'success' : 'error') : 'loading');
-    if (!data.terminal) window.setTimeout(() => poll(jobId).catch(fail), 2000);
+  const poll = async (requestId) => {
+    const data = await request('crapscraper_manual_status', { request_id: requestId });
+    const terminal = ['up_to_date','completed','error','blocked','rolled_back','rollback_required'].includes(data.status);
+    const labels = { pending:'Aguardando o CrapScraper no PC', claimed:'Pedido recebido pelo PC', processing:'Verificando e atualizando', up_to_date:'Produto já atualizado', completed:'Atualização concluída', rolled_back:'Falha revertida com segurança' };
+    const versions = data.previous_version || data.new_version ? ` · ${data.previous_version || '?'} → ${data.new_version || '?'}` : '';
+    const tone = !terminal ? 'loading' : (data.status === 'up_to_date' ? 'empty' : (data.status === 'completed' ? 'success' : 'error'));
+    show(`${labels[data.status] || data.message || 'Processando'}${data.source ? ` · ${data.source}` : ''}${versions}`, tone);
+    if (!terminal) window.setTimeout(() => poll(requestId).catch(fail), 3000);
+    else { button.disabled=false; button.removeAttribute('aria-busy'); }
   };
   const fail = (error) => { show(error.message || String(error), 'error'); button.disabled = false; button.removeAttribute('aria-busy'); };
   button.addEventListener('click', async () => {
@@ -31,9 +35,8 @@
     show('Consultando PluginTheme…', 'loading');
     try {
       const data = await request('crapscraper_manual_start');
-      if (data.status === 'up_to_date') { show(data.message, 'empty'); button.disabled = false; button.removeAttribute('aria-busy'); return; }
-      show(`${data.message} ${data.previous_version} → ${data.new_version}`, 'loading');
-      await poll(data.job_id);
+      show(data.message || 'Pedido criado. Aguardando o CrapScraper no PC.', 'loading');
+      await poll(data.request_id);
     } catch (error) { fail(error); }
   });
 })();
