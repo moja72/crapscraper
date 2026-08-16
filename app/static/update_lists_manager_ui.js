@@ -2,14 +2,14 @@
   "use strict";
 
   const STYLE_ID = "crapscraper-update-lists-manager-ui";
-  const PAGE_SIZES = [5, 10];
+  const DEFAULT_PAGE_SIZE = 25;
   const state = {
     selectedName: "",
     items: [],
     metadata: null,
     query: "",
     page: 1,
-    pageSize: 5,
+    pageSize: DEFAULT_PAGE_SIZE,
     loading: false,
     requestToken: 0,
   };
@@ -324,7 +324,8 @@
 
   function pageInfo() {
     const items = filteredItems();
-    const size = PAGE_SIZES.includes(Number(state.pageSize)) ? Number(state.pageSize) : 5;
+    const requested = Number.parseInt(String(state.pageSize || ""), 10);
+    const size = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 10000) : DEFAULT_PAGE_SIZE;
     const pages = Math.max(1, Math.ceil(items.length / size));
     state.page = Math.max(1, Math.min(Number(state.page) || 1, pages));
     const start = (state.page - 1) * size;
@@ -386,7 +387,6 @@
 
     const info = pageInfo();
     const displayName = state.selectedName === "default" ? "Padrão" : state.selectedName;
-    const options = PAGE_SIZES.map(size => `<option value="${size}" ${size === info.size ? "selected" : ""}>${size}</option>`).join("");
     const rows = info.visible.map(item => `
       <tr>
         <td>${escapeHtml(item.position || "-")}</td>
@@ -414,7 +414,7 @@
       <div class="update-lists-preview-meta">
         <div class="small">${escapeHtml(rangeText(info.items.length, state.page, info.size))}</div>
         <label class="update-lists-preview-page-size">Itens por página
-          <select id="update_lists_inline_page_size">${options}</select>
+          <input id="update_lists_inline_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="${info.size}" inputmode="numeric">
         </label>
       </div>
       <div class="update-lists-preview-pagination">
@@ -564,7 +564,8 @@
 
   document.addEventListener("change", event => {
     if (event.target?.id === "update_lists_inline_page_size") {
-      state.pageSize = Number(event.target.value) || 5;
+      const requested = Number.parseInt(event.target.value, 10);
+      state.pageSize = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 10000) : DEFAULT_PAGE_SIZE;
       state.page = 1;
       renderPreview();
     }

@@ -25,12 +25,11 @@ class UpdateQueueUiTests(unittest.TestCase):
                       "UPDATE_QUEUE.pageSize", "UPDATE_QUEUE.workingFiltered.slice(start,start+UPDATE_QUEUE.pageSize)"):
             self.assertIn(token, self.js + self.web)
         self.assertNotIn("filtered.slice(0,100)", self.js)
-        page_size = self.web.split('id="updates_page_size"', 1)[1].split("</select>", 1)[0]
-        for size in (">5<", ">10<"):
-            self.assertIn(size, page_size)
-        for size in (">25<", ">50<", ">100<", ">250<"):
-            self.assertNotIn(size, page_size)
-        self.assertIn('<option value="5" selected>5</option>', page_size)
+        page_size = self.web.split('id="updates_page_size"', 1)[1][:180]
+        self.assertIn('type="number"', page_size)
+        self.assertIn('min="1"', page_size)
+        self.assertIn('value="25"', page_size)
+        self.assertIn("Math.min(parsed, LISTING_MAX_PAGE_SIZE)", self.js)
 
     def test_batch_is_sequential_and_failure_does_not_abort_loop(self):
         start = self.js.index("async function runUpdateBatch")
@@ -180,6 +179,23 @@ class UpdateQueueUiTests(unittest.TestCase):
         self.assertIn("rename_update_queue", runtime)
         self.assertIn("delete_update_queue", runtime)
         self.assertIn("clear_update_queue", runtime)
+
+    def test_active_queue_switch_clears_stale_state_and_loads_real_items(self):
+        self.assertIn("async function selectAndRefreshUpdateQueue", self.js)
+        body = self.js.split("async function selectAndRefreshUpdateQueue", 1)[1].split("function startUpdateQueuePolling", 1)[0]
+        self.assertIn("UPDATE_QUEUE.jobs = []", body)
+        self.assertIn("UPDATE_QUEUE.queuePage = 1", body)
+        self.assertIn('getJson("/atualizacoes/jobs")', body)
+        self.assertIn("selected?.details?.items", body)
+        render = self.js.split("function renderOperationalQueue", 1)[1].split("function renderUpdateListsManager", 1)[0]
+        self.assertIn('normalizeText(job.queue_name,"default")===queueName', render)
+        self.assertNotIn('job.state==="queued"&&', render)
+
+    def test_manual_history_refreshes_and_shows_wordpress_audit(self):
+        self.assertIn("async function refreshUpdateRuntime", self.js)
+        self.assertIn("Manual pelo WordPress", self.js)
+        self.assertIn("manual_requested_at", self.js)
+        self.assertIn('tab_panel_atualizacoes', self.js)
 
     def test_update_lists_use_rename_and_preview_modals(self):
         combined = self.js + self.web

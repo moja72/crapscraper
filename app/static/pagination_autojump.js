@@ -6,7 +6,7 @@
   const DEBOUNCE_MS = 700;
   const SCAN_DELAY_MS = 50;
   const FALLBACK_SCAN_MS = 500;
-  const DEFAULT_PAGE_SIZE = 5;
+  const DEFAULT_PAGE_SIZE = 25;
   const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const timers = new WeakMap();
 
@@ -30,6 +30,7 @@
     "updates_history_page_size",
     "update_list_preview_page_size",
     "catalog_preview_page_size",
+    "update_lists_inline_page_size",
   ];
 
   function clampPage(value, total, fallback) {
@@ -163,10 +164,26 @@
   }
 
   function scanPageSizes() {
-    PAGE_SIZE_IDS.forEach(id => enforceDefaultPageSize(document.getElementById(id)));
-    document.querySelectorAll("select").forEach(select => {
-      const nearby = normalize(select.closest("label,.listing-page-size,.cs-page-size-wrap")?.textContent);
-      if (/itens por página|linhas por página/i.test(nearby)) enforceDefaultPageSize(select);
+    const bind = input => {
+      if (!input || input.tagName !== "INPUT" || input.dataset.csPageSizeBound === "1") return;
+      input.dataset.csPageSizeBound = "1";
+      input.min = "1";
+      input.step = "1";
+      input.inputMode = "numeric";
+      input.dataset.csLastValid = String(Math.max(1, Number.parseInt(input.value, 10) || DEFAULT_PAGE_SIZE));
+      const validate = () => {
+        const parsed = Number.parseInt(input.value, 10);
+        const value = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 10000) : Number(input.dataset.csLastValid || DEFAULT_PAGE_SIZE);
+        input.value = String(value);
+        input.dataset.csLastValid = String(value);
+      };
+      input.addEventListener("change", validate);
+      input.addEventListener("blur", validate);
+    };
+    PAGE_SIZE_IDS.forEach(id => bind(document.getElementById(id)));
+    document.querySelectorAll('input[type="number"]').forEach(input => {
+      const nearby = normalize(input.closest("label,.listing-page-size,.cs-page-size-wrap")?.textContent);
+      if (/itens por página|linhas por página/i.test(nearby)) bind(input);
     });
   }
 

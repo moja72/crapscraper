@@ -1231,7 +1231,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         <div class="listing-meta-row catalogos-listing-meta">
           <div class="small" id="catalogos_result_meta">Mostrando 0 de 0 itens</div>
-          <div class="listing-page-size"><label for="catalogos_page_size" class="small">Itens por página</label><select id="catalogos_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
+          <div class="listing-page-size"><label for="catalogos_page_size" class="small">Itens por página</label><input id="catalogos_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"></div>
         </div>
 
         <div class="listing-pagination catalogos-pagination">
@@ -2077,7 +2077,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="small" id="comparison_result_meta">-</div>
           <div class="listing-page-size">
             <label for="comparison_page_size" class="small">Itens por página</label>
-            <select id="comparison_page_size"><option value="5" selected>5</option><option value="10">10</option></select>
+            <input id="comparison_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric">
           </div>
         </div>
 
@@ -2161,7 +2161,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="small">Selecione, renomeie ou apague um catálogo. As contagens usam as categorias dos produtos WooCommerce.</div>
     <div class="plugintema-catalog-cards" id="plugintema_manage_catalog_cards" aria-live="polite"></div>
     <div class="form-grid plugintema-manage-filters"><div class="field"><label for="plugintema_manage_catalog">Cat&aacute;logo</label><select id="plugintema_manage_catalog"></select></div><div class="field"><label for="plugintema_manage_search">Pesquisar no cat&aacute;logo</label><input id="plugintema_manage_search" type="search" placeholder="Nome, ID, categoria ou versão"></div><div class="field"><label for="plugintema_manage_type">Tipo</label><select id="plugintema_manage_type"><option value="">Todos</option><option value="plugin">Plugins</option><option value="theme">Temas</option><option value="template">Templates</option></select></div><div class="field"><label for="plugintema_manage_status">Status</label><select id="plugintema_manage_status"><option value="">Todos</option><option value="publish">Publicado</option><option value="draft">Rascunho</option><option value="private">Privado</option></select></div></div>
-    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Itens por página</label><select id="plugintema_manage_page_size"><option value="5" selected>5</option><option value="10">10</option></select><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
+    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Itens por página</label><input id="plugintema_manage_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
     <div class="listing-pagination plugintema-manage-pagination"><button class="btn-secondary btn-sm" id="plugintema_manage_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="plugintema_manage_page_status">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary btn-sm" id="plugintema_manage_next" type="button">Próxima →</button></div>
     <div class="table-wrap"><table class="catalogos-table plugintema-manage-table"><thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Vers&atilde;o</th><th>Categorias</th><th>Status</th></tr></thead><tbody id="plugintema_manage_rows"><tr><td colspan="6">Selecione um cat&aacute;logo.</td></tr></tbody></table></div>
   </div>
@@ -2205,7 +2205,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <label>Versão<select id="updates_version_filter"><option value="">Todas</option><option value="update">Somente com atualização</option><option value="advanced">Fonte avançou</option><option value="equal">Igual à comparação</option></select></label>
       <label>Relacionamento<select id="updates_relationship_filter"><option value="">Todos</option><option value="safe_auto">Vinculação automática</option><option value="manual_confirmed">Vinculação manual confirmada</option><option value="candidate">Candidato</option><option value="manual_rejected">Vinculação manual rejeitada</option><option value="confirmed_not_in_source">Confirmado como ausente no Ultrapack</option><option value="pending_review">Revisão pendente</option><option value="other">Outros</option></select></label>
       <button class="btn-secondary" type="button" id="updates_clear_filters">Limpar filtros</button>
-    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><select id="updates_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div></div>
+    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><input id="updates_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"></div></div>
     <div class="listing-pagination"><button class="btn-secondary" type="button" id="updates_prev_page">← Anterior</button><span class="badge cs-page-jump" id="updates_page_label">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" type="button" id="updates_next_page">Próxima →</button></div>
     <div class="updates-subtitle" id="updates_bulk_title">Operações em lote</div><div class="updates-bulkbar">
       <strong id="updates_selected_count">0 selecionados</strong>
@@ -2228,7 +2228,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="updates-list-controls">
           <label>Buscar na fila<input id="updates_queue_search" type="search" placeholder="Nome ou WooCommerce ID"></label>
           <label>Estado<select id="updates_queue_status_filter"><option value="">Todos</option><option value="executing">Executando</option><option value="queued">Aguardando execução</option></select></label>
-          <label>Itens por página<select id="updates_queue_page_size"><option value="5" selected>5</option><option value="10">10</option></select></label>
+          <label>Itens por página<input id="updates_queue_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"></label>
           <strong id="updates_queue_found_count">0 itens</strong>
         </div>
         <div class="listing-pagination"><button class="btn-secondary" id="updates_queue_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="updates_queue_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="updates_queue_next" type="button">Próxima →</button></div>
@@ -2243,7 +2243,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="updates-history-tabs" role="tablist" aria-label="Tipo de histórico"><button class="updates-history-tab is-active" id="updates_history_completed" role="tab" aria-selected="true" type="button">Concluídos</button><button class="updates-history-tab" id="updates_history_errors" role="tab" aria-selected="false" type="button">Erros</button></div>
       <div class="listing-meta-row updates-history-listing-meta">
         <div class="small" id="updates_history_result_meta">Mostrando 0 de 0 itens</div>
-        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><select id="updates_history_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
+        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><input id="updates_history_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"></div>
       </div>
       <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="updates_history_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="updates_history_next" type="button">Próxima →</button></div>
       </div>
@@ -2284,7 +2284,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="table-wrap"><table class="catalogos-table update-list-preview-table"><thead><tr><th>Posição</th><th>Woo ID</th><th>Produto</th><th>Estado</th><th>Versões</th><th>Atualização</th><th>Última etapa</th></tr></thead><tbody id="update_list_preview_rows"><tr><td colspan="7">Carregando...</td></tr></tbody></table></div>
     <div class="listing-meta-row update-list-preview-listing-meta">
       <div class="small" id="update_list_preview_result_meta">Mostrando 0 de 0 itens</div>
-      <div class="listing-page-size"><label for="update_list_preview_page_size" class="small">Itens por página</label><select id="update_list_preview_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
+      <div class="listing-page-size"><label for="update_list_preview_page_size" class="small">Itens por página</label><input id="update_list_preview_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="25" inputmode="numeric"></div>
     </div>
     <div class="listing-pagination"><button class="btn-secondary" id="update_list_preview_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="update_list_preview_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="update_list_preview_next" type="button">Próxima →</button></div>
   </div>
@@ -3808,11 +3808,20 @@ def make_handler(
 
             if path == "/atualizacoes/historico/baixar":
                 output = io.StringIO(newline="")
-                columns = ["woocommerce_id", "produto", "estado", "versao_anterior", "versao_origem", "concluido_em", "ultima_etapa", "erro"]
+                columns = ["woocommerce_id", "produto", "estado", "origem", "fila", "iniciado_por",
+                           "solicitado_em", "versao_anterior", "versao_origem", "concluido_em",
+                           "ultima_etapa", "erro"]
                 writer = csv.DictWriter(output, fieldnames=columns)
                 writer.writeheader()
                 for job in history_jobs():
-                    writer.writerow({"woocommerce_id": job.get("woo_product_id"), "produto": job.get("name"), "estado": job.get("state"), "versao_anterior": job.get("plugintema_version"), "versao_origem": job.get("effective_source_version") or job.get("ultrapack_version"), "concluido_em": job.get("completed_at"), "ultima_etapa": job.get("last_completed_step"), "erro": job.get("execution_error")})
+                    writer.writerow({"woocommerce_id": job.get("woo_product_id"), "produto": job.get("name"),
+                                     "estado": job.get("state"), "origem": job.get("source_name"),
+                                     "fila": job.get("queue_name"), "iniciado_por": job.get("initiated_by"),
+                                     "solicitado_em": job.get("manual_requested_at"),
+                                     "versao_anterior": job.get("plugintema_version"),
+                                     "versao_origem": job.get("effective_source_version") or job.get("approved_source_version") or job.get("ultrapack_version"),
+                                     "concluido_em": job.get("completed_at"),
+                                     "ultima_etapa": job.get("last_completed_step"), "erro": job.get("execution_error")})
                 body = ("\ufeff" + output.getvalue()).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/csv; charset=utf-8")
@@ -4628,7 +4637,10 @@ def make_handler(
                 return True
 
             if path == "/atualizacoes/filas/selecionar":
-                self._send_json({"ok": True, "queue": select_update_queue(payload.get("name", ""))})
+                selected_name = str(payload.get("name", "") or "")
+                queue = select_update_queue(selected_name)
+                self._send_json({"ok": True, "queue": queue,
+                                 "details": update_queue_details(queue["active_queue"])})
                 return True
 
             if path == "/atualizacoes/filas/renomear":

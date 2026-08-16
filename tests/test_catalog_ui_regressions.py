@@ -21,7 +21,8 @@ class CatalogUiRegressionTests(unittest.TestCase):
     assert "opacity:.12" in CSS + CARDS
     assert "data-tooltip=\"${label}\"" not in JS
     assert 'title="${label}"' in JS
-    assert 'button.textContent = "⬇️ Baixar"' in CARDS
+    assert 'button.textContent = "⬇️"' in CARDS
+    assert 'button.title = "Baixar catálogo"' in CARDS
 
 
   def test_catalog_controls_and_context_search_order(self):
@@ -44,18 +45,20 @@ class CatalogUiRegressionTests(unittest.TestCase):
     assert 'class="standard-update-accordion-toggle" type="button" aria-expanded="false"' in panel
 
 
-  def test_every_page_size_defaults_to_five_and_page_is_editable(self):
+  def test_every_page_size_accepts_custom_positive_values(self):
     ids = (
         "catalogos_page_size", "comparison_page_size", "plugintema_manage_page_size",
         "updates_page_size", "updates_queue_page_size", "updates_history_page_size",
         "update_list_preview_page_size",
     )
-    for select_id in ids:
-        select = WEB.split(f'id="{select_id}"', 1)[1].split("</select>", 1)[0]
-        assert '<option value="5" selected>5</option>' in select
-        assert '<option value="10">10</option>' in select
-        assert all(f'value="{size}"' not in select for size in (25, 50, 100, 250))
-    assert "const LISTING_DEFAULT_PAGE_SIZE = 5" in JS
+    for input_id in ids:
+        field = WEB.split(f'id="{input_id}"', 1)[1][:180]
+        assert 'type="number"' in field
+        assert 'min="1"' in field
+        assert 'value="25"' in field
+    assert "const LISTING_DEFAULT_PAGE_SIZE = 25" in JS
+    assert "parsed < 1" in JS
+    assert "LISTING_PAGE_SIZE_OPTIONS.includes" not in JS
     assert "const DEBOUNCE_MS = 700" in PAGINATION
     assert 'event.key !== "Enter"' in PAGINATION
     assert "data-cs-page-input" in PAGINATION

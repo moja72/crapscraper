@@ -236,7 +236,10 @@ def job_public(job: OperationalJob) -> dict[str, Any]:
 def materialize(comparison_rows: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
     queues = materialize_queue(comparison_rows=comparison_rows)
     with _LOCK:
-        previous = {job.comparison_item_id: job for job in _JOBS.values()}
+        # Jobs manuais são registros operacionais próprios e não podem ser
+        # absorvidos pelo próximo materialize da comparação normal.
+        previous = {job.comparison_item_id: job for job in _JOBS.values()
+                    if getattr(job, "queue_name", "default") != "Manual"}
         for candidate in queues["update"]:
             dismissed_version = _DISMISSED_HISTORY.get(candidate.comparison_item_id)
             if dismissed_version == candidate.approved_source_version:

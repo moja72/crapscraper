@@ -78,8 +78,8 @@
       display:inline-flex!important;
       align-items:center!important;
       justify-content:center!important;
-      width:auto!important;
-      padding:0 12px!important;
+      width:44px!important;
+      padding:0!important;
       white-space:nowrap!important;
     }
 
@@ -267,9 +267,9 @@
     const button = document.createElement("button");
     button.className = "catalogo-icon-button catalogo-download-button";
     button.type = "button";
-    button.title = `Baixar catálogo ${slotName}`;
+    button.title = "Baixar catálogo";
     button.setAttribute("aria-label", `Baixar catálogo ${slotName}`);
-    button.textContent = "⬇️ Baixar";
+    button.textContent = "⬇️";
     button.addEventListener("click", () => downloadCatalogContexts(slotName, button));
     const view = actions.querySelector(".catalogo-view-button");
     if (view) view.insertAdjacentElement("afterend", button);

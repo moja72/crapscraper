@@ -70,12 +70,13 @@
 
   const POLL_INTERVAL_MS = Math.max(500, Number(BOOT.poll_interval_ms || 1200));
 
-  const LISTING_PAGE_SIZE_OPTIONS = [5, 10];
-  const LISTING_DEFAULT_PAGE_SIZE = 5;
+  const LISTING_DEFAULT_PAGE_SIZE = 25;
+  const LISTING_MAX_PAGE_SIZE = 10000;
 
   function normalizeListingPageSize(value, fallback = LISTING_DEFAULT_PAGE_SIZE) {
-    const parsed = toInt(value, fallback);
-    return LISTING_PAGE_SIZE_OPTIONS.includes(parsed) ? parsed : fallback;
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return Math.max(1, toInt(fallback, LISTING_DEFAULT_PAGE_SIZE));
+    return Math.min(parsed, LISTING_MAX_PAGE_SIZE);
   }
 
   function listingRangeText(total, page, pageSize, noun = "itens") {
@@ -113,13 +114,13 @@
     plugintemaSelectedProducts: new Map(),
     plugintemaManageRows: [],
     plugintemaManagePage: 1,
-    plugintemaManagePageSize: 5,
+    plugintemaManagePageSize: 25,
     comparison: {
       loaded: false,
       loading: false,
       sourcesLoaded: false,
       page: 1,
-      pageSize: 5,
+      pageSize: 25,
       totalPages: 1,
       status: "all",
       query: "",
@@ -149,8 +150,7 @@
       downloadUrl: "",
       title: "Prévia",
       page: 1,
-      pageSize: 5,
-      pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
+      pageSize: 25,
     },
   };
 
@@ -2609,12 +2609,8 @@ function setCatalogPreviewPage(page) {
 }
 
 function setCatalogPreviewPageSize(pageSize) {
-  const allowed = Array.isArray(UI.catalogPreview?.pageSizeOptions)
-    ? UI.catalogPreview.pageSizeOptions
-    : LISTING_PAGE_SIZE_OPTIONS;
-
   const nextSize = normalizeListingPageSize(pageSize, LISTING_DEFAULT_PAGE_SIZE);
-  UI.catalogPreview.pageSize = allowed.includes(nextSize) ? nextSize : LISTING_DEFAULT_PAGE_SIZE;
+  UI.catalogPreview.pageSize = nextSize;
   UI.catalogPreview.page = 1;
   renderCatalogPreview();
 }
@@ -2693,8 +2689,7 @@ function resetCatalogPreview(message = "Selecione uma prévia na tabela.") {
     downloadUrl: "",
     title: "Prévia",
     page: 1,
-    pageSize: 5,
-    pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
+    pageSize: 25,
   };
 
   const searchNode = byId("catalogos_preview_search");
@@ -2837,13 +2832,7 @@ function buildCsvPreviewHtml(text, searchTerm = "") {
       )
     : allRows;
 
-  const pageSizeOptions = Array.isArray(UI.catalogPreview?.pageSizeOptions)
-    ? UI.catalogPreview.pageSizeOptions
-    : LISTING_PAGE_SIZE_OPTIONS;
-
-  const pageSize = pageSizeOptions.includes(toInt(UI.catalogPreview?.pageSize, LISTING_DEFAULT_PAGE_SIZE))
-    ? toInt(UI.catalogPreview?.pageSize, LISTING_DEFAULT_PAGE_SIZE)
-    : 50;
+  const pageSize = normalizeListingPageSize(UI.catalogPreview?.pageSize, LISTING_DEFAULT_PAGE_SIZE);
 
   const totalRows = filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -2867,11 +2856,7 @@ function buildCsvPreviewHtml(text, searchTerm = "") {
 
       <div class="listing-page-size">
         <label for="catalog_preview_page_size" class="small">Linhas por página</label>
-        <select id="catalog_preview_page_size" onchange="setCatalogPreviewPageSize(this.value)">
-          ${pageSizeOptions.map((size) => `
-            <option value="${size}" ${size === pageSize ? "selected" : ""}>${size}</option>
-          `).join("")}
-        </select>
+        <input id="catalog_preview_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="${pageSize}" inputmode="numeric" onchange="setCatalogPreviewPageSize(this.value)">
       </div>
     </div>
 
@@ -3032,8 +3017,7 @@ async function showCatalogoCsvPreview(url) {
     downloadUrl: targetUrl,
     title: "catálogo",
     page: 1,
-    pageSize: 5,
-    pageSizeOptions: LISTING_PAGE_SIZE_OPTIONS,
+    pageSize: 25,
   };
 
   setCatalogPreviewHeader("Prévia de Catálogo", targetUrl);
@@ -5903,12 +5887,24 @@ function renderUpdateJobs(jobs = UPDATE_QUEUE.jobs) {
   qsa(".update-execute", wrap).forEach(button => button.addEventListener("click",()=>openUpdateExecuteModal(UPDATE_QUEUE.jobs.find(j=>j.job_id===button.closest("[data-update-job-id]").dataset.updateJobId))));
 }
 
-function compactUpdateRow(job, position="") { const reason=job.state==="blocked"?updateBlockedReason(job):job.execution_error;return `<article class="update-queue-row"><div class="update-queue-position">${position?`#${position}`:""}</div><div><strong>${escapeHtml(job.name)}</strong><div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version||"-")} → ${escapeHtml(job.effective_source_version||job.ultrapack_version||"-")}</div>${reason?`<div class="updates-error">${escapeHtml(reason)}</div>`:""}</div><span class="badge">${escapeHtml(updateStatusLabel(job.state))}</span><button class="btn-secondary update-history-details" data-update-detail="${escapeHtml(job.job_id)}" aria-expanded="false" type="button">Detalhes</button><div class="update-operational-detail hidden"></div></article>`; }
 function bindOperationalDetails(scope){qsa("[data-update-detail]",scope).forEach(button=>button.addEventListener("click",()=>{const job=UPDATE_QUEUE.jobs.find(j=>j.job_id===button.dataset.updateDetail),slot=qs(".update-operational-detail",button.parentElement),hidden=slot.classList.toggle("hidden");button.setAttribute("aria-expanded",String(!hidden));if(!hidden&&!slot.dataset.rendered){slot.innerHTML=planSection("Resumo",[["Produto",job.name],["WooCommerce",`#${job.woo_product_id}`],["Versão",`${job.plugintema_version} → ${job.effective_source_version||job.ultrapack_version}`],["Relacionamento",updateRelationshipLabel(job.relationship)],["Tentativas",job.attempts||0],["Última etapa",job.last_completed_step||"-"]])+renderExecutionPlan(job.execution_plan)+(job.execution_logs?.length?`<details><summary>Ver log técnico</summary><pre>${escapeHtml(job.execution_logs.join("\n"))}</pre></details>`:"");slot.dataset.rendered="1";}}));}
 function updateQueueDisplayName(name){return normalizeText(name)==="default"?"Padrão":normalizeText(name);}
+function compactUpdateRow(job, position="") {
+  const reason=job.state==="blocked"?updateBlockedReason(job):job.execution_error;
+  const manual=normalizeText(job.queue_name)==="Manual"||Boolean(normalizeText(job.manual_requested_at));
+  const origin=job.source_name||updateSourceLabel(job)||"-";
+  const nextVersion=job.effective_source_version||job.approved_source_version||job.ultrapack_version||"-";
+  const finalDate=job.completed_at||job.updated_at||job.manual_requested_at;
+  const audit=`Origem: ${escapeHtml(origin)}${manual?` · Manual pelo WordPress${job.initiated_by?` · ${escapeHtml(job.initiated_by)}`:""}`:""}${finalDate?` · ${escapeHtml(formatPtBrDateTime(finalDate))}`:""}`;
+  return `<article class="update-queue-row"><div class="update-queue-position">${position?`#${position}`:""}</div><div><strong>${escapeHtml(job.name)}</strong><div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version||"-")} → ${escapeHtml(nextVersion)}</div><div class="small">${audit}</div>${reason?`<div class="updates-error">${escapeHtml(reason)}</div>`:""}</div><span class="badge">${escapeHtml(updateStatusLabel(job.state))}</span><button class="btn-secondary update-history-details" data-update-detail="${escapeHtml(job.job_id)}" aria-expanded="false" type="button">Detalhes</button><div class="update-operational-detail hidden"></div></article>`;
+}
+
 function renderOperationalQueue(){
-  const queueName=normalizeText(UPDATE_QUEUE.queue?.active_queue,"default"), queued=UPDATE_QUEUE.jobs.filter(j=>j.state==="queued"&&normalizeText(j.queue_name,"default")===queueName).sort((a,b)=>(a.queue_position||0)-(b.queue_position||0)),active=UPDATE_QUEUE.jobs.filter(j=>j.state==="executing"&&normalizeText(j.queue_name,"default")===queueName),status=UPDATE_QUEUE.queue?.status||"stopped",label={running:"Executando",paused:"Pausada",stopped:"Fila parada"}[status],wrap=byId("updates_queue_jobs");
-  const allItems=[...active,...queued],query=normalizeText(byId("updates_queue_search")?.value).toLowerCase(),stateFilter=normalizeText(byId("updates_queue_status_filter")?.value);
+  const queueName=normalizeText(UPDATE_QUEUE.queue?.active_queue,"default"),status=UPDATE_QUEUE.queue?.status||"stopped",label={running:"Executando",paused:"Pausada",stopped:"Fila parada"}[status],wrap=byId("updates_queue_jobs");
+  const allItems=UPDATE_QUEUE.jobs.filter(job=>normalizeText(job.queue_name,"default")===queueName).sort((a,b)=>{
+    if(a.state==="executing"&&b.state!=="executing")return -1;if(b.state==="executing"&&a.state!=="executing")return 1;
+    return (Number(a.queue_position)||Number.MAX_SAFE_INTEGER)-(Number(b.queue_position)||Number.MAX_SAFE_INTEGER);
+  }),query=normalizeText(byId("updates_queue_search")?.value).toLowerCase(),stateFilter=normalizeText(byId("updates_queue_status_filter")?.value);
   const filtered=allItems.filter(job=>(!stateFilter||job.state===stateFilter)&&(!query||`${job.name} ${job.woo_product_id}`.toLowerCase().includes(query)));
   UPDATE_QUEUE.queuePageSize=normalizeListingPageSize(byId("updates_queue_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);
   const pages=Math.max(1,Math.ceil(filtered.length/UPDATE_QUEUE.queuePageSize));UPDATE_QUEUE.queuePage=Math.min(Math.max(1,UPDATE_QUEUE.queuePage),pages);
@@ -5916,7 +5912,7 @@ function renderOperationalQueue(){
   byId("updates_queue_list_controls")?.classList.toggle("hidden",allItems.length===0);
   setText("updates_queue_found_count",listingRangeText(filtered.length,UPDATE_QUEUE.queuePage,UPDATE_QUEUE.queuePageSize));setText("updates_queue_page",`Página ${UPDATE_QUEUE.queuePage} de ${pages}`);setDisabled("updates_queue_prev",UPDATE_QUEUE.queuePage<=1);setDisabled("updates_queue_next",UPDATE_QUEUE.queuePage>=pages);
   byId("updates_queue_meta").textContent=`${allItems.length} produtos · ${label} · ${updateQueueDisplayName(queueName)}`;
-  wrap.innerHTML=visible.map(job=>compactUpdateRow(job,job.state==="executing"?"Agora":job.queue_position||queued.indexOf(job)+1)).join("")||`<div class="notice">${allItems.length?"Nenhum produto corresponde aos filtros da fila.":"Nenhum produto na fila ativa."}</div>`;bindOperationalDetails(wrap);
+  wrap.innerHTML=visible.map((job,index)=>compactUpdateRow(job,job.state==="executing"?"Agora":job.queue_position||index+1)).join("")||`<div class="notice">${allItems.length?"Nenhum produto corresponde aos filtros da fila.":"Nenhum produto na fila ativa."}</div>`;bindOperationalDetails(wrap);
   const select=byId("updates_queue_select"), queues=Array.isArray(UPDATE_QUEUE.queue?.queues)?UPDATE_QUEUE.queue.queues:[];
   if(select){select.innerHTML=queues.map(item=>`<option value="${escapeHtml(item.name)}" ${item.name===queueName?"selected":""}>${escapeHtml(updateQueueDisplayName(item.name))} (${item.completed}/${item.total})</option>`).join("")||'<option value="default">Padrão</option>';select.disabled=status==="running";}
   const metadata=queues.find(item=>item.name===queueName),total=Number(metadata?.total||0);setText("updates_queue_checkpoint",`${formatPtBrDateTime(metadata?.last_completed_at,"Sem conclusão registrada")} | ${formatPtBrInteger(total)} itens`);
@@ -5988,6 +5984,19 @@ async function refreshUpdateJobs() {
   const result = await postJson("/atualizacoes/materializar", {comparison_rows: Object.values(UI.comparison.rowsById || {})});
   UPDATE_QUEUE.queue=result?.queue||UPDATE_QUEUE.queue;
   renderUpdateJobs(result?.jobs || []);
+}
+
+let updateRuntimeRefreshInFlight = false;
+async function refreshUpdateRuntime() {
+  if (updateRuntimeRefreshInFlight) return;
+  updateRuntimeRefreshInFlight = true;
+  try {
+    const result = await getJson("/atualizacoes/jobs");
+    UPDATE_QUEUE.queue = result?.queue || UPDATE_QUEUE.queue;
+    renderUpdateJobs(result?.jobs || []);
+  } finally {
+    updateRuntimeRefreshInFlight = false;
+  }
 }
 
 function startUpdateQueuePolling(){if(UPDATE_QUEUE.poll)return;UPDATE_QUEUE.poll=setInterval(async()=>{try{const result=await getJson("/atualizacoes/jobs");UPDATE_QUEUE.queue=result?.queue||UPDATE_QUEUE.queue;renderUpdateJobs(result?.jobs||[]);if(!["running"].includes(UPDATE_QUEUE.queue?.status)){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}}catch(_error){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}},2000);}
@@ -6139,6 +6148,26 @@ async function refreshStorePricing() {
   } finally {
     preview.setAttribute("aria-busy", "false");
   }
+}
+
+async function selectAndRefreshUpdateQueue(name) {
+  const selectedName = normalizeText(name, "default");
+  UPDATE_QUEUE.jobs = [];
+  UPDATE_QUEUE.queuePage = 1;
+  UPDATE_QUEUE.selected.clear();
+  if (byId("updates_queue_search")) byId("updates_queue_search").value = "";
+  if (byId("updates_queue_status_filter")) byId("updates_queue_status_filter").value = "";
+  const wrap = byId("updates_queue_jobs");
+  if (wrap) wrap.innerHTML = '<div class="notice"><span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando lista ativa…</span></span></div>';
+  const selected = await postJson("/atualizacoes/filas/selecionar", {name: selectedName});
+  UPDATE_QUEUE.queue = selected?.queue || UPDATE_QUEUE.queue;
+  const current = await getJson("/atualizacoes/jobs");
+  UPDATE_QUEUE.queue = current?.queue || UPDATE_QUEUE.queue;
+  let jobs = Array.isArray(current?.jobs) ? current.jobs : [];
+  const details = Array.isArray(selected?.details?.items) ? selected.details.items : [];
+  const known = new Set(jobs.map(job => job.job_id));
+  jobs = jobs.concat(details.filter(job => !known.has(job.job_id)).map(job => ({...job, queue_name:selectedName})));
+  renderUpdateJobs(jobs);
 }
 
 function manualTime(value) {
@@ -6390,7 +6419,7 @@ function bindMainTabs() {
   byId("updates_queue_start")?.addEventListener("click",async()=>{const path=UPDATE_QUEUE.queue?.status==="paused"?"/atualizacoes/fila/continuar":"/atualizacoes/fila/iniciar";await postJson(path,{});await refreshUpdateJobs();startUpdateQueuePolling();});
   byId("updates_queue_pause")?.addEventListener("click",async()=>{await postJson("/atualizacoes/fila/pausar",{});await refreshUpdateJobs();});
   byId("updates_queue_cancel")?.addEventListener("click",async()=>{if(!confirm("Cancelar todos os jobs que ainda não iniciaram?"))return;await postJson("/atualizacoes/fila/cancelar-pendentes",{});await refreshUpdateJobs();});
-  byId("updates_queue_select")?.addEventListener("change",async event=>{const result=await postJson("/atualizacoes/filas/selecionar",{name:event.target.value});UPDATE_QUEUE.queue=result.queue;await refreshUpdateJobs();});
+  byId("updates_queue_select")?.addEventListener("change",async event=>{await selectAndRefreshUpdateQueue(event.target.value);});
   byId("updates_queue_search")?.addEventListener("input",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_status_filter")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
@@ -6436,6 +6465,11 @@ function bindMainTabs() {
       await Promise.all([refreshStorePricing(), refreshWordPressManualMonitor()]);
     });
   }
+  window.setInterval(() => {
+    if (!byId("tab_panel_atualizacoes")?.classList.contains("hidden")) {
+      refreshUpdateRuntime().catch(() => {});
+    }
+  }, 5000);
   window.setInterval(() => {
     if (!byId("tab_panel_loja")?.classList.contains("hidden")) refreshWordPressManualMonitor();
   }, 5000);

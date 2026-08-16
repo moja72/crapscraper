@@ -2,8 +2,7 @@
   "use strict";
 
   const STYLE_ID = "crapscraper-unified-search-style";
-  const PAGE_SIZES = [5, 10];
-  const DEFAULT_PAGE_SIZE = 5;
+  const DEFAULT_PAGE_SIZE = 25;
   const byId = id => document.getElementById(id);
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
 
@@ -279,23 +278,12 @@
   }
 
   function normalizePageSizeSelect(select) {
-    if (!select || select.tagName !== "SELECT") return;
-    const numeric = [...select.options].every(option => /^\d+$/.test(normalize(option.value)));
-    if (!numeric) return;
-
-    if ([...select.options].map(option => Number(option.value)).join(",") !== PAGE_SIZES.join(",")) {
-      select.replaceChildren(...PAGE_SIZES.map(size => {
-        const option = document.createElement("option");
-        option.value = String(size);
-        option.textContent = String(size);
-        return option;
-      }));
-    }
-
-    if (!select.dataset.csDefaultApplied) {
-      select.value = String(DEFAULT_PAGE_SIZE);
-      select.dataset.csDefaultApplied = "1";
-    }
+    if (!select || select.tagName !== "INPUT") return;
+    select.type = "number";
+    select.min = "1";
+    select.step = "1";
+    select.inputMode = "numeric";
+    if (!Number.isFinite(Number.parseInt(select.value,10)) || Number.parseInt(select.value,10) < 1) select.value = String(DEFAULT_PAGE_SIZE);
   }
 
   function normalizePageSize(root, id) {

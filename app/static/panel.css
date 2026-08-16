@@ -1063,6 +1063,8 @@ pre {
   gap: 16px;
 }
 
+.listing-page-size-input { width:88px; min-height:36px; padding:6px 9px; text-align:right; font-variant-numeric:tabular-nums; }
+
 .wp-manual-monitor { display:grid; gap:16px; }
 .wp-manual-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
 .wp-manual-grid > div { display:grid; gap:5px; min-width:0; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--bg-elev-1); }

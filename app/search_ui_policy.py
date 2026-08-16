@@ -33,21 +33,6 @@ _PAGE_SIZE_SELECT_IDS = (
 
 _JS_REPLACEMENTS = (
     (
-        "const LISTING_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];",
-        "const LISTING_PAGE_SIZE_OPTIONS = [5, 10];",
-    ),
-    (
-        "const LISTING_DEFAULT_PAGE_SIZE = 25;",
-        "const LISTING_DEFAULT_PAGE_SIZE = 5;",
-    ),
-    ("plugintemaManagePageSize: 25,", "plugintemaManagePageSize: 5,"),
-    ("      pageSize: 100,", "      pageSize: 5,"),
-    ("      pageSize: 25,", "      pageSize: 5,"),
-    (
-        'toInt(byId("comparison_page_size")?.value, 100)',
-        'toInt(byId("comparison_page_size")?.value, 5)',
-    ),
-    (
         'return name.toLowerCase() === "default" ? "Principal" : name;',
         'return name.toLowerCase() === "default" ? "Padrão" : name;',
     ),
@@ -165,9 +150,9 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
     )
 
     def repl(match: re.Match[str]) -> str:
-        opening, _options, closing = match.groups()
-        options = '<option value="5" selected>5</option><option value="10">10</option>'
-        return opening + options + closing
+        return (f'<input id="{select_id}" class="listing-page-size-input" type="number" '
+                'min="1" step="1" value="25" inputmode="numeric" '
+                'aria-label="Itens por página">')
 
     return pattern.sub(repl, html, count=1)
 
