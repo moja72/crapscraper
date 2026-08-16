@@ -6146,19 +6146,30 @@ function updateStoreSubmitState() {
   if (button) button.disabled = byId("store_confirmation")?.value !== "ALTERAR PRECOS";
 }
 
-async function waitForStorePriceJob(resultNode) {
+async function waitForStorePriceJob(jobId, resultNode) {
+  const startedAt = Date.now();
+  const maxWaitMs = 60 * 60 * 1000;
   while (true) {
-    const status = await getJson(`${UI.endpoints.storePricing || "/loja/precos"}/status`);
+    if (Date.now() - startedAt > maxWaitMs) {
+      throw new Error("A atualização excedeu 60 minutos. Verifique a conexão com o WooCommerce e tente novamente.");
+    }
+    const status = await getJsonWithTimeout(`${UI.endpoints.storePricing || "/loja/precos"}/status?job_id=${encodeURIComponent(jobId)}`, 15000);
+    if (status.job_id !== jobId || status.status === "idle") {
+      throw new Error("O servidor perdeu o acompanhamento desta atualização. Recarregue a página e tente novamente.");
+    }
     const completed = Number(status.completed || 0);
     const total = Number(status.total || 0);
     const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
     if (resultNode) {
       resultNode.classList.remove("hidden");
-      resultNode.innerHTML = `<strong>${escapeHtml(status.message || "Processando alteração de preços…")}</strong>${total > 0 ? `<br><progress max="100" value="${percent}">${percent}%</progress> <span>${percent}%</span>` : ""}`;
+      resultNode.className = "store-progress";
+      resultNode.setAttribute("aria-busy", "true");
+      const phaseLabel = status.phase === "updating" ? "Aplicando novos preços" : "Lendo dados dos produtos";
+      resultNode.innerHTML = `<div class="store-progress-phase">${escapeHtml(phaseLabel)}</div><div class="store-progress-copy"><strong>${escapeHtml(status.message || "Processando alteração de preços…")}</strong><span>${percent}%</span></div><div class="store-progress-track" role="progressbar" aria-label="Progresso da atualização de preços" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="transform:scaleX(${percent / 100})"></span></div><div class="small">${completed} de ${total} produtos concluídos nesta etapa</div>`;
     }
     if (status.status === "completed") return status;
     if (status.status === "error") throw Object.assign(new Error(status.message || "A alteração de preços falhou."), { responseData: status });
-    await new Promise(resolve => window.setTimeout(resolve, 1000));
+    await new Promise(resolve => window.setTimeout(resolve, 750));
   }
 }
 
@@ -6176,15 +6187,15 @@ async function submitStorePricing(event) {
   if (button) { button.disabled = true; button.textContent = "Aplicando preços..."; }
   if (resultNode) { resultNode.classList.add("hidden"); resultNode.textContent = ""; }
   try {
-    await postJson(UI.endpoints.storePricing || "/loja/precos", payload);
-    const result = await waitForStorePriceJob(resultNode);
-    if (resultNode) { resultNode.classList.remove("hidden"); resultNode.textContent = result.message; }
+    const started = await postJson(UI.endpoints.storePricing || "/loja/precos", payload);
+    const result = await waitForStorePriceJob(started.job_id, resultNode);
+    if (resultNode) { resultNode.className = "notice is-success"; resultNode.removeAttribute("aria-busy"); resultNode.textContent = result.message; }
     form.elements.confirmation.value = "";
     notify(result.message, "ok");
     await refreshStorePricing();
   } catch (error) {
     const detail = error?.responseData?.message || error?.message || String(error);
-    if (resultNode) { resultNode.classList.remove("hidden"); resultNode.innerHTML = `<strong>Atualização incompleta.</strong><br>${escapeHtml(detail)}`; }
+    if (resultNode) { resultNode.className = "notice is-danger"; resultNode.removeAttribute("aria-busy"); resultNode.innerHTML = `<strong>Atualização incompleta.</strong><br>${escapeHtml(detail)}<br><span class="small">Revise a conexão ou atualize o catálogo antes de tentar novamente.</span>`; }
     notify(detail, "error");
   } finally {
     if (button) { button.textContent = "Aplicar preços em lote"; }

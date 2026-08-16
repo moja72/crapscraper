@@ -130,7 +130,9 @@ def _persist_queue_spreadsheets() -> None:
     directory.mkdir(parents=True, exist_ok=True)
     queues = dict(_QUEUE_CONTROL.get("queues") or {})
     queues.setdefault("default", {})
-    headers = ["queue_name", "position", "job_id", "woocommerce_id", "product", "state", "queued_at", "updated_at", "completed_at", "last_completed_step"]
+    headers = ["queue_name", "position", "job_id", "woocommerce_id", "product", "state",
+               "source", "previous_version", "new_version", "requested_at", "queued_at",
+               "updated_at", "completed_at", "result", "last_completed_step"]
     for name in queues:
         target = directory / f"{_queue_slug(name)}.csv"
         temporary = target.with_suffix(".csv.tmp")
@@ -139,7 +141,16 @@ def _persist_queue_spreadsheets() -> None:
             writer = csv.DictWriter(stream, fieldnames=headers)
             writer.writeheader()
             for job in rows:
-                writer.writerow({"queue_name": name, "position": job.queue_position, "job_id": job.job_id, "woocommerce_id": job.woo_product_id, "product": job.name, "state": job.state.value, "queued_at": job.queued_at, "updated_at": job.updated_at, "completed_at": job.completed_at, "last_completed_step": job.last_completed_step})
+                writer.writerow({"queue_name": name, "position": job.queue_position, "job_id": job.job_id,
+                                 "woocommerce_id": job.woo_product_id, "product": job.name,
+                                 "state": job.state.value, "source": getattr(job, "source_name", ""),
+                                 "previous_version": job.plugintema_version,
+                                 "new_version": job.effective_source_version or job.approved_source_version,
+                                 "requested_at": getattr(job, "manual_requested_at", ""),
+                                 "queued_at": job.queued_at, "updated_at": job.updated_at,
+                                 "completed_at": job.completed_at,
+                                 "result": job.execution_error or (job.diagnostics[-1] if job.diagnostics else ""),
+                                 "last_completed_step": job.last_completed_step})
         temporary.replace(target)
 
 def _normalize_queue_control() -> None:
@@ -211,6 +222,9 @@ def job_public(job: OperationalJob) -> dict[str, Any]:
             "queue_position": job.queue_position, "queued_at": job.queued_at,
             "queue_name": getattr(job, "queue_name", "default"),
             "attempts": job.attempts, "canceled_at": job.canceled_at,
+            "source_name": getattr(job, "source_name", ""),
+            "initiated_by": getattr(job, "initiated_by", ""),
+            "manual_requested_at": getattr(job, "manual_requested_at", ""),
             "cleanup_plan": build_cleanup_plan(job, plan),
             "execution_enabled": settings.UPDATE_EXECUTION_ENABLED,
             "execution_allowed_product_ids": sorted(settings.UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS),
@@ -315,6 +329,38 @@ def persist_job(job: OperationalJob) -> None:
         _JOBS[job.job_id] = job
         _persist()
 
+def register_manual_job(job: OperationalJob) -> dict[str, Any]:
+    """Registra um job externo na lista Manual sem trocar a fila ativa."""
+    from app.operations.models import utc_now_iso
+    with _LOCK:
+        _normalize_queue_control()
+        now = utc_now_iso()
+        queues = _QUEUE_CONTROL["queues"]
+        queues.setdefault("Manual", {"created_at": now, "updated_at": now})
+        queues["Manual"]["updated_at"] = now
+        last = max(
+            (item.queue_position for item in _JOBS.values()
+             if getattr(item, "queue_name", "") == "Manual"), default=0,
+        )
+        job.queue_name = "Manual"
+        job.queue_position = last + 1
+        job.queued_at = now
+        _JOBS[job.job_id] = job
+        _persist()
+        return job_public(job)
+
+def get_active_manual_job(product_id: int) -> OperationalJob | None:
+    terminal = {JobState.COMPLETED, JobState.FAILED, JobState.ERROR, JobState.BLOCKED,
+                JobState.ROLLED_BACK, JobState.ROLLBACK_REQUIRED, JobState.CANCELED,
+                JobState.INTERRUPTED}
+    with _LOCK:
+        candidates = [
+            normalize_operational_job(job) for job in _JOBS.values()
+            if job.woo_product_id == int(product_id)
+            and getattr(job, "queue_name", "") == "Manual" and job.state not in terminal
+        ]
+        return max(candidates, key=lambda item: item.created_at) if candidates else None
+
 def queue_snapshot() -> dict[str, Any]:
     with _LOCK:
         _normalize_queue_control()
@@ -355,7 +401,11 @@ def update_queue_details(name: str) -> dict[str, Any]:
                 "source_version": job.effective_source_version or job.ultrapack_version,
                 "queued_at": job.queued_at, "updated_at": job.updated_at,
                 "completed_at": job.completed_at, "last_completed_step": job.last_completed_step,
-                "execution_error": job.execution_error,
+                "execution_error": job.execution_error, "source": getattr(job, "source_name", ""),
+                "previous_version": job.plugintema_version,
+                "new_version": job.effective_source_version or job.approved_source_version,
+                "requested_at": getattr(job, "manual_requested_at", ""),
+                "result": job.execution_error or (job.diagnostics[-1] if job.diagnostics else ""),
             })
         metadata = next((item for item in list_update_queues() if item["name"] == normalized), {"name": normalized, "total": len(items)})
         return {"queue": metadata, "items": items}

@@ -91,7 +91,7 @@ def _selected_products(woo: Any, kinds: Iterable[str]) -> list[Mapping[str, Any]
 
 
 def read_store_price_reference_products(
-    imports_dir: Path, kinds: Iterable[str] = ("plugin", "theme"), *, limit_per_kind: int = 3,
+    imports_dir: Path, kinds: Iterable[str] = ("plugin", "theme"), *, limit_per_kind: int | None = 3,
 ) -> list[dict[str, Any]]:
     """Lê poucos IDs representativos dos catálogos locais, sem consultar todo o WooCommerce."""
     requested = tuple(dict.fromkeys(str(kind).strip().lower() for kind in kinds))
@@ -109,7 +109,8 @@ def read_store_price_reference_products(
                 if product_id in seen_ids:
                     continue
                 kind = next((item for item in selected if categories_match_catalog_kind(categories, item)), "")
-                if not kind or len(selected[kind]) >= max(1, limit_per_kind):
+                limit = max(1, limit_per_kind) if limit_per_kind is not None else None
+                if not kind or (limit is not None and len(selected[kind]) >= limit):
                     continue
                 selected[kind].append({
                     "id": product_id,
@@ -117,7 +118,7 @@ def read_store_price_reference_products(
                     "categories": [{"name": category} for category in categories],
                 })
                 seen_ids.add(product_id)
-                if selected and all(len(items) >= max(1, limit_per_kind) for items in selected.values()):
+                if limit is not None and selected and all(len(items) >= limit for items in selected.values()):
                     return [product for items in selected.values() for product in items]
     return [product for items in selected.values() for product in items]
 
@@ -125,12 +126,12 @@ def read_store_price_reference_products(
 def build_store_pricing_snapshot(
     woo: Any, kinds: Iterable[str] = ("plugin", "theme"), *,
     products: Iterable[Mapping[str, Any]] | None = None,
-    progress: Callable[[str, int, int], None] | None = None,
+    progress: Callable[[str, int, int, str], None] | None = None,
 ) -> dict[str, Any]:
     requested_kinds = tuple(dict.fromkeys(str(kind).strip().lower() for kind in kinds))
     selected_products = list(products) if products is not None else _selected_products(woo, requested_kinds)
     if progress:
-        progress("reading", 0, len(selected_products))
+        progress("reading", 0, len(selected_products), "")
     variations: list[dict[str, Any]] = []
     unmatched = 0
     distribution: dict[str, Counter[tuple[str, str]]] = {
@@ -162,7 +163,8 @@ def build_store_pricing_snapshot(
         for completed, future in enumerate(as_completed(futures), start=1):
             loaded.append(future.result())
             if progress:
-                progress("reading", completed, len(selected_products))
+                product = loaded[-1][0]
+                progress("reading", completed, len(selected_products), str(product.get("name", "")))
 
     for product, product_variations in loaded:
         product_kind = next(
@@ -224,7 +226,8 @@ def build_store_pricing_snapshot(
 
 def apply_store_prices(
     woo: Any, payload: Mapping[str, Any], *,
-    progress: Callable[[str, int, int], None] | None = None,
+    progress: Callable[[str, int, int, str], None] | None = None,
+    products: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if str(payload.get("confirmation", "") or "").strip() != "ALTERAR PRECOS":
         raise ValueError('Digite "ALTERAR PRECOS" para confirmar.')
@@ -232,10 +235,16 @@ def apply_store_prices(
     if not isinstance(kinds, list):
         raise ValueError("Seleção de produtos inválida.")
     prices = normalize_prices(payload)
-    snapshot = build_store_pricing_snapshot(woo, kinds, progress=progress)
+    snapshot = build_store_pricing_snapshot(woo, kinds, progress=progress, products=products)
+    if not snapshot["product_count"]:
+        raise ValueError("Nenhum produto foi encontrado no catálogo local. Atualize o catálogo de Plugins e Temas e tente novamente.")
+    if not snapshot["variations"]:
+        raise ValueError("Nenhuma variação anual ou vitalícia foi encontrada nos produtos selecionados.")
     grouped: dict[int, list[dict[str, Any]]] = {}
+    product_names: dict[int, str] = {}
     for variation in snapshot["variations"]:
         period = variation["period"]
+        product_names[variation["product_id"]] = variation["product_name"]
         grouped.setdefault(variation["product_id"], []).append({
             "id": variation["variation_id"],
             "regular_price": prices[f"{period}_regular"],
@@ -252,17 +261,35 @@ def apply_store_prices(
             return product_id, 0, str(error)
 
     if progress:
-        progress("updating", 0, len(grouped))
-    workers = min(12, max(1, len(grouped)))
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="store-price-writes") as executor:
-        futures = [executor.submit(update_product, item) for item in grouped.items()]
-        for completed, future in enumerate(as_completed(futures), start=1):
-            product_id, count, message = future.result()
-            updated += count
-            if message:
-                errors.append({"product_id": product_id, "message": message})
+        progress("updating", 0, len(grouped), "")
+    # Quatro escritas simultâneas reduzem bastante o tempo total sem disparar
+    # dezenas de requisições concorrentes contra o WooCommerce. O processamento
+    # é dividido em blocos para a interface sempre identificar o lote atual.
+    items = list(grouped.items())
+    completed = 0
+    write_workers = min(4, max(1, len(items)))
+    with ThreadPoolExecutor(max_workers=write_workers, thread_name_prefix="store-price-writes") as executor:
+        for offset in range(0, len(items), write_workers):
+            batch = items[offset:offset + write_workers]
+            batch_names = [product_names.get(item[0]) or f"Produto #{item[0]}" for item in batch]
+            current_label = ", ".join(batch_names[:3])
+            if len(batch_names) > 3:
+                current_label += f" e mais {len(batch_names) - 3}"
             if progress:
-                progress("updating", completed, len(grouped))
+                progress("updating", completed, len(items), current_label)
+            future_names = {
+                executor.submit(update_product, item): product_names.get(item[0]) or f"Produto #{item[0]}"
+                for item in batch
+            }
+            for future in as_completed(future_names):
+                product_name = future_names[future]
+                product_id, count, message = future.result()
+                completed += 1
+                updated += count
+                if message:
+                    errors.append({"product_id": product_id, "product_name": product_name, "message": message})
+                if progress:
+                    progress("updating", completed, len(items), product_name)
     return {
         "ok": not errors,
         "message": (

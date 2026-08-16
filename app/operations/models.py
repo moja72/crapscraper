@@ -76,6 +76,9 @@ class OperationalJob:
     queued_at: str = ""
     attempts: int = 0
     canceled_at: str = ""
+    source_name: str = ""
+    initiated_by: str = ""
+    manual_requested_at: str = ""
 
     def __post_init__(self) -> None:
         normalize_operational_job(self)
@@ -102,7 +105,8 @@ def normalize_operational_job(job: OperationalJob) -> OperationalJob:
     if not hasattr(job, "execution_history"):
         job.execution_history = []
     for name, default in (("queue_position", 0), ("queue_name", "default"), ("queued_at", ""),
-                          ("attempts", 0), ("canceled_at", "")):
+                          ("attempts", 0), ("canceled_at", ""), ("source_name", ""),
+                          ("initiated_by", ""), ("manual_requested_at", "")):
         if not hasattr(job, name):
             setattr(job, name, default)
     return job
@@ -140,6 +144,8 @@ def record_execution_outcome(
         "plan_id": plan_id,
         "result": str(result),
         "last_completed_step": job.last_completed_step,
+        "source_name": str(getattr(job, "source_name", "") or ""),
+        "initiated_by": str(getattr(job, "initiated_by", "") or ""),
         "recorded_at": utc_now_iso(),
     })
     return True

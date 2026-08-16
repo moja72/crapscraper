@@ -73,6 +73,16 @@ class StorePricingTests(unittest.TestCase):
             rows = read_store_price_reference_products(Path(directory), ("plugin", "theme"), limit_per_kind=1)
         self.assertEqual({row["id"] for row in rows}, {10, 20})
 
+    def test_reference_products_can_read_complete_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plugintema-selection.csv"
+            path.write_text(
+                "ID,Nome,Categorias\n10,Plugin A,Plugins\n11,Plugin B,Plugins\n12,Plugin C,Plugins\n13,Plugin D,Plugins\n",
+                encoding="utf-8",
+            )
+            rows = read_store_price_reference_products(Path(directory), ("plugin",), limit_per_kind=None)
+        self.assertEqual({row["id"] for row in rows}, {10, 11, 12, 13})
+
     def test_prices_accept_brazilian_format_and_validate_promotion(self):
         prices = normalize_prices({
             "annual_regular": "R$ 79,90", "annual_sale": "59,90",
@@ -93,13 +103,14 @@ class StorePricingTests(unittest.TestCase):
             "kinds": ["plugin", "theme"], "confirmation": "ALTERAR PRECOS",
             "annual_regular": "80", "annual_sale": "60",
             "lifetime_regular": "150", "lifetime_sale": "130",
-        }, progress=lambda phase, completed, total: progress.append((phase, completed, total)))
+        }, progress=lambda phase, completed, total, *_detail: progress.append((phase, completed, total)))
         self.assertTrue(result["ok"])
         self.assertEqual(result["updated_variation_count"], 3)
         self.assertEqual({item["id"] for _, rows in woo.updates for item in rows}, {101, 102, 201})
         self.assertTrue(all(set(item) == {"id", "regular_price", "sale_price"} for _, rows in woo.updates for item in rows))
         self.assertIn(("reading", 2, 2), progress)
         self.assertIn(("updating", 2, 2), progress)
+        self.assertEqual({product_id for product_id, _rows in woo.updates}, {10, 20})
 
     def test_panel_has_store_tab_on_opposite_edge(self):
         from pathlib import Path
@@ -117,11 +128,15 @@ class StorePricingTests(unittest.TestCase):
         from app.web import PTThreadingHTTPServer
 
         self.assertFalse(PTThreadingHTTPServer.allow_reuse_address)
+        launcher = (Path(__file__).resolve().parents[1] / "autoscraper.bat").read_text(encoding="utf-8")
+        self.assertIn("http://127.0.0.1:8765/health", launcher)
+        self.assertIn("Abrindo o painel existente", launcher)
 
     def test_store_prices_are_loaded_automatically_without_manual_button(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1]
         web = (root / "app" / "web.py").read_text(encoding="utf-8")
+        css = (root / "app" / "static" / "panel.css").read_text(encoding="utf-8")
         js = (root / "app" / "static" / "panel.js").read_text(encoding="utf-8")
         route = web.split('if path == "/loja/precos":', 1)[1].split(
             'if path == "/plugintema/catalogo/baixar":', 1
@@ -138,6 +153,11 @@ class StorePricingTests(unittest.TestCase):
         self.assertIn("_start_store_price_job", web)
         self.assertIn("waitForStorePriceJob", js)
         self.assertIn('status.status === "completed"', js)
+        self.assertIn("limit_per_kind=None", web)
+        self.assertIn("started.job_id", js)
+        self.assertIn("store-progress-track", css)
+        self.assertIn("60 * 60 * 1000", js)
+        self.assertIn("write_workers = min(4", (root / "app" / "store_pricing.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

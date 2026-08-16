@@ -1168,6 +1168,17 @@ pre {
   max-width: 560px;
 }
 
+.store-progress { display:grid; gap:10px; padding:14px 16px; border:1px solid rgba(52,211,153,.35); border-radius:12px; background:rgba(52,211,153,.07); }
+.store-progress-copy { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.store-progress-phase { color:var(--text-muted); font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+.store-progress-copy span { color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
+.store-progress-track { height:10px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.1); }
+.store-progress-track > span { display:block; width:100%; height:100%; border-radius:inherit; background:var(--success); transform-origin:left center; transition:transform 250ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .store-progress-track > span { transition:none; }
+}
+
 @media (max-width: 640px) {
   .store-hero,
   .store-form-actions {
