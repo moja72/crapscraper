@@ -3275,7 +3275,10 @@ def render_panel_page(
 
 class PTThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # No Windows, SO_REUSEADDR permite que duas instâncias escutem a mesma
+    # porta e distribuam requisições entre versões diferentes do painel.
+    # A porta exclusiva garante que uma segunda inicialização falhe claramente.
+    allow_reuse_address = False
 
 
 def _normalize_action_result(result: Any) -> dict[str, Any]:
