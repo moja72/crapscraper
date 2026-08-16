@@ -4,6 +4,7 @@
   const DEBOUNCE_MS = 700;
   const SCAN_DELAY_MS = 50;
   const FALLBACK_SCAN_MS = 500;
+  const DEFAULT_PAGE_SIZE = 5;
   const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const timers = new WeakMap();
 
@@ -18,6 +19,17 @@
     ["catalog_preview_page", "catalogPreview"],
   ]);
 
+  const PAGE_SIZE_IDS = [
+    "catalogos_page_size",
+    "comparison_page_size",
+    "plugintema_manage_page_size",
+    "updates_page_size",
+    "updates_queue_page_size",
+    "updates_history_page_size",
+    "update_list_preview_page_size",
+    "catalog_preview_page_size",
+  ];
+
   function clampPage(value, total, fallback) {
     const parsed = Number.parseInt(String(value ?? ""), 10);
     if (!Number.isFinite(parsed)) return fallback;
@@ -26,14 +38,8 @@
 
   function parseLabel(label) {
     if (!label) return null;
-
-    // Quando o render nativo recria o texto "Página X de Y", ele pode manter
-    // datasets antigos. Por isso o texto visível tem prioridade sempre que existir.
     const match = normalize(label.textContent).match(/P[aá]gina\s+(\d+)\s+de\s+(\d+)/i);
-    if (match) {
-      return { current: Number(match[1]), total: Number(match[2]) };
-    }
-
+    if (match) return { current: Number(match[1]), total: Number(match[2]) };
     const current = Number(label.dataset.csCurrent || 0);
     const total = Number(label.dataset.csTotal || 0);
     if (current > 0 && total > 0) return { current, total };
@@ -51,7 +57,6 @@
     const { prev, next } = paginationButtons(label);
     const direction = target > current ? "next" : "prev";
     let remaining = Math.abs(target - current);
-
     const step = () => {
       if (remaining <= 0) return;
       const liveLabel = label.id ? document.getElementById(label.id) : label;
@@ -62,7 +67,6 @@
       remaining -= 1;
       if (remaining > 0) window.setTimeout(step, 55);
     };
-
     step();
   }
 
@@ -98,6 +102,7 @@
 
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
+      event.preventDefault();
       const oldTimer = timers.get(input);
       if (oldTimer) window.clearTimeout(oldTimer);
       goToPage(label, input);
@@ -106,7 +111,6 @@
 
   function makeEditable(label) {
     if (!label) return;
-
     const existing = label.querySelector("input[data-cs-page-input]");
     if (existing) {
       bindInput(label, existing);
@@ -123,6 +127,40 @@
     bindInput(label, label.querySelector("input[data-cs-page-input]"));
   }
 
+  function ensureFiveOption(select) {
+    if (!select || select.tagName !== "SELECT") return false;
+    const numericOptions = [...select.options].filter(option => /^\d+$/.test(normalize(option.value)));
+    if (!numericOptions.length || numericOptions.length !== select.options.length) return false;
+
+    if (![...select.options].some(option => Number(option.value) === DEFAULT_PAGE_SIZE)) {
+      const option = document.createElement("option");
+      option.value = String(DEFAULT_PAGE_SIZE);
+      option.textContent = String(DEFAULT_PAGE_SIZE);
+      select.appendChild(option);
+    }
+    [...select.options]
+      .sort((a, b) => Number(a.value) - Number(b.value))
+      .forEach(option => select.appendChild(option));
+    return true;
+  }
+
+  function enforceDefaultPageSize(select) {
+    if (!ensureFiveOption(select)) return;
+    if (select.dataset.csFiveDefaultApplied === "1") return;
+    select.dataset.csFiveDefaultApplied = "1";
+    if (String(select.value) === String(DEFAULT_PAGE_SIZE)) return;
+    select.value = String(DEFAULT_PAGE_SIZE);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function scanPageSizes() {
+    PAGE_SIZE_IDS.forEach(id => enforceDefaultPageSize(document.getElementById(id)));
+    document.querySelectorAll("select").forEach(select => {
+      const nearby = normalize(select.closest("label,.listing-page-size,.cs-page-size-wrap")?.textContent);
+      if (/itens por página|linhas por página/i.test(nearby)) enforceDefaultPageSize(select);
+    });
+  }
+
   function scanKnownLabels() {
     KNOWN_SETTERS.forEach((_setter, id) => {
       const label = document.getElementById(id);
@@ -131,7 +169,8 @@
   }
 
   function scanGenericPagination() {
-    document.querySelectorAll(".listing-pagination").forEach((row) => {
+    const rows = document.querySelectorAll(".listing-pagination,.pagination,[class*='pagination']");
+    rows.forEach((row) => {
       const candidates = [...row.querySelectorAll("span,div,strong,b")];
       const label = candidates.find((node) =>
         node.querySelector("input[data-cs-page-input]") ||
@@ -139,9 +178,14 @@
       );
       if (label) makeEditable(label);
     });
+
+    document.querySelectorAll("span[id],div[id]").forEach(node => {
+      if (/page|pagina/i.test(node.id) && /^P[aá]gina\s+\d+\s+de\s+\d+$/i.test(normalize(node.textContent))) makeEditable(node);
+    });
   }
 
   function scan() {
+    scanPageSizes();
     document.querySelectorAll("input[data-cs-page-input]").forEach((input) => {
       const label = input.closest(".cs-page-jump") || input.parentElement;
       bindInput(label, input);
@@ -150,9 +194,6 @@
     scanGenericPagination();
   }
 
-  // Throttle, não debounce: a interface atualiza status/logs frequentemente.
-  // O debounce antigo podia ser adiado indefinidamente e a paginação permanecia
-  // como texto simples. Uma vez agendado, o scan sempre executa.
   let scanTimer = null;
   function scheduleScan() {
     if (scanTimer !== null) return;
@@ -169,14 +210,9 @@
       subtree: true,
       characterData: true,
     });
-
-    // Fallback leve para componentes recriados por renders assíncronos/polling.
     window.setInterval(scan, FALLBACK_SCAN_MS);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", start, { once: true });
-  } else {
-    start();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+  else start();
 })();
