@@ -14,19 +14,17 @@
       gap:14px!important;
       width:100%!important;
       max-width:none!important;
-      flex:1 1 100%!important;
     }
-    .catalogos-top-controls-row > .field{
-      min-width:0!important;
-      width:100%!important;
-      max-width:none!important;
-    }
-    .catalogos-top-controls-row .catalogos-refresh-field .row{
-      width:100%!important;
-    }
-    .catalogos-top-controls-row .catalogos-refresh-field button{
-      width:100%!important;
-      min-height:46px!important;
+    .catalogos-top-controls-row > .field{min-width:0!important;width:100%!important;max-width:none!important}
+    .catalogos-top-controls-row .catalogos-refresh-field .row{width:100%!important}
+    .catalogos-top-controls-row .catalogos-refresh-field button{width:100%!important;min-height:46px!important}
+
+    .catalogos-context-search-runtime{
+      margin-top:14px!important;
+      padding:14px!important;
+      border:1px solid var(--line)!important;
+      border-radius:14px!important;
+      background:var(--bg-elev-1)!important;
     }
 
     .catalogo-summary-card .catalogo-card-actions{
@@ -54,18 +52,25 @@
       gap:4px!important;
       white-space:nowrap!important;
     }
-
     .catalogo-summary-card .catalogo-availability{
       display:flex!important;
       align-items:center!important;
+      flex-wrap:nowrap!important;
       gap:10px!important;
       min-height:34px!important;
+    }
+    .catalogo-summary-card .catalogo-availability-icon{
+      display:inline-flex!important;
+      align-items:center!important;
+      justify-content:center!important;
+      min-width:22px!important;
+      min-height:22px!important;
+      cursor:help!important;
     }
     .catalogo-summary-card .catalogo-availability-icon.is-unavailable{
       opacity:.12!important;
       filter:grayscale(1) saturate(0)!important;
     }
-
     .catalogo-card-actions .catalogo-download-button{
       display:inline-flex!important;
       align-items:center!important;
@@ -82,19 +87,32 @@
     }
 
     @media(max-width:760px){
-      .catalogos-top-controls-row{
-        grid-template-columns:1fr!important;
-      }
-      .catalogo-summary-card .catalogo-status-row{
-        flex-wrap:wrap!important;
-        height:auto!important;
-        min-height:24px!important;
-      }
+      .catalogos-top-controls-row{grid-template-columns:1fr!important}
+      .catalogo-summary-card .catalogo-status-row{flex-wrap:wrap!important;height:auto!important;min-height:24px!important}
     }
   `;
   document.head.appendChild(style);
 
   const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+  function moveContextSearch() {
+    const search = document.getElementById("catalogos_search");
+    const field = search?.closest(".field");
+    if (!field || field.dataset.catalogContextMoved === "1") return;
+
+    const toolbar = document.querySelector(".catalogos-table-toolbar");
+    if (!toolbar) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "catalogos-context-search-runtime cs-search-system";
+    wrapper.appendChild(field);
+    toolbar.insertAdjacentElement("afterend", wrapper);
+    field.dataset.catalogContextMoved = "1";
+
+    const label = field.querySelector("label");
+    if (label) label.textContent = "Buscar nos contextos";
+    search.placeholder = "Catálogo, site, tipo ou conta";
+  }
 
   function ensureTopControlsRow() {
     const select = document.getElementById("catalogos_filter_slot");
@@ -106,14 +124,7 @@
     const container = selectField.closest(".form-grid") || selectField.parentElement;
     if (!container) return;
     if (actionField.parentElement !== container) container.appendChild(actionField);
-
     container.classList.add("catalogos-top-controls-row");
-    container.style.setProperty("display", "grid", "important");
-    container.style.setProperty("grid-template-columns", "minmax(0,1fr) minmax(0,1fr)", "important");
-    container.style.setProperty("align-items", "end", "important");
-    container.style.setProperty("gap", "14px", "important");
-    container.style.setProperty("width", "100%", "important");
-    container.style.setProperty("max-width", "none", "important");
   }
 
   function slotNameFromCard(card) {
@@ -126,9 +137,29 @@
     const aria = String(loadButton?.getAttribute("aria-label") || "");
     const fromAria = aria.replace(/^Carregar catálogo\s+/i, "").trim();
     if (fromAria) return fromAria;
+    if (card?.querySelector(".catalogo-default-button:disabled")) return "default";
     const heading = card?.querySelector(".section-title,h3,h4,strong");
     const visible = text(heading?.textContent);
-    return /^Padrão$/i.test(visible) ? "default" : visible;
+    return /^(?:Padrão|Principal)$/i.test(visible) ? "default" : visible;
+  }
+
+  function removeLegacyStatusNodes(small, details) {
+    let node = small.firstChild;
+    while (node && node !== details) {
+      const next = node.nextSibling;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const cleaned = String(node.textContent || "")
+          .replace(/🟢\s*Atual/gi, "")
+          .replace(/⭐\s*Catálogo padrão/gi, "");
+        if (!text(cleaned)) node.remove();
+        else node.textContent = cleaned;
+      } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") {
+        node.remove();
+      } else if (node.classList?.contains("catalogo-status-row")) {
+        node.remove();
+      }
+      node = next;
+    }
   }
 
   function normalizeStatusRow(card) {
@@ -136,28 +167,13 @@
     const details = small?.querySelector(".catalogo-context-accordion");
     if (!small || !details) return;
 
-    let row = small.querySelector(":scope > .catalogo-status-row");
-    if (row) return;
+    const raw = text(small.textContent);
+    const isCurrent = /(?:^|\s)Atual(?:\s|$)/i.test(raw) || !!card.querySelector(".catalogo-load-button:disabled");
+    const isDefault = /Catálogo padrão/i.test(raw) || !!card.querySelector(".catalogo-default-button:disabled");
 
-    let isCurrent = false;
-    let isDefault = false;
-    const removable = [];
-    let node = small.firstChild;
-    while (node && node !== details) {
-      const next = node.nextSibling;
-      const value = text(node.textContent);
-      if (/^(?:🟢\s*)?Atual$/i.test(value)) isCurrent = true;
-      if (/^(?:⭐\s*)?Catálogo padrão$/i.test(value)) isDefault = true;
-      if (node.nodeType === Node.TEXT_NODE && (isCurrent || isDefault)) removable.push(node);
-      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") removable.push(node);
-      node = next;
-    }
+    removeLegacyStatusNodes(small, details);
 
-    if (!isCurrent) isCurrent = !!card.querySelector(".catalogo-load-button:disabled");
-    if (!isDefault) isDefault = !!card.querySelector(".catalogo-default-button:disabled");
-    removable.forEach(item => item.remove());
-
-    row = document.createElement("span");
+    const row = document.createElement("span");
     row.className = "catalogo-status-row";
     row.setAttribute("aria-label", "Status do catálogo");
     row.innerHTML = `${isCurrent ? '<span class="catalogo-status-item">🟢 Atual</span>' : ""}${isDefault ? '<span class="catalogo-status-item">⭐ Catálogo padrão</span>' : ""}`;
@@ -168,15 +184,20 @@
   function normalizeAvailability(card) {
     const container = card?.querySelector(".catalogo-availability");
     if (!container) return;
-    const labels = [...container.querySelectorAll(".catalogo-availability-icon")]
-      .map(node => text(node.getAttribute("aria-label") || node.dataset.tooltip).toLowerCase());
+
+    const existing = [...container.querySelectorAll(".catalogo-availability-icon")];
     const raw = text(container.textContent).toLowerCase();
-    const hasCatalog = labels.some(label => label.includes("catálogo")) || raw.includes("📄");
-    const hasState = labels.some(label => label.includes("estado")) || raw.includes("📝");
-    const hasLog = labels.some(label => label.includes("log")) || raw.includes("📋");
+    const availableByLabel = (needle) => existing.some(node => {
+      const label = text(node.getAttribute("aria-label") || node.getAttribute("title") || node.dataset.tooltip).toLowerCase();
+      return label.includes(needle) && node.getAttribute("aria-disabled") !== "true" && !node.classList.contains("is-unavailable");
+    });
+    const hasCatalog = existing.length ? availableByLabel("catálogo") : raw.includes("📄");
+    const hasState = existing.length ? availableByLabel("estado") : raw.includes("📝");
+    const hasLog = existing.length ? availableByLabel("log") : raw.includes("📋");
+
     const items = [["📄","Catálogo",hasCatalog],["📝","Estado",hasState],["📋","Log",hasLog]];
     container.innerHTML = items.map(([icon,label,available]) =>
-      `<span class="catalogo-availability-icon${available ? "" : " is-unavailable"}" tabindex="0" role="img" aria-label="${label}" aria-disabled="${available ? "false" : "true"}" data-tooltip="${label}">${icon}</span>`
+      `<span class="catalogo-availability-icon${available ? "" : " is-unavailable"}" tabindex="0" role="img" aria-label="${label}" aria-disabled="${available ? "false" : "true"}" title="${label}">${icon}</span>`
     ).join("");
   }
 
@@ -229,7 +250,7 @@
   function ensureDownloadButton(card) {
     const actions = card?.querySelector(".catalogo-card-actions");
     if (!actions || actions.querySelector(".catalogo-download-button")) return;
-    const slotName = slotNameFromCard(card) || (card.querySelector(".catalogo-default-button:disabled") ? "default" : "");
+    const slotName = slotNameFromCard(card);
     if (!slotName) return;
 
     const button = document.createElement("button");
@@ -244,8 +265,21 @@
     else actions.prepend(button);
   }
 
+  function normalizeUpdatePreparation() {
+    const title = document.getElementById("updates_working_title");
+    if (title && /Aguardando\s*\/\s*prepara/i.test(text(title.textContent))) title.textContent = "Preparação";
+
+    const typeFilter = document.getElementById("updates_type_filter");
+    typeFilter?.closest(".field,label")?.remove();
+
+    const diagnostic = document.getElementById("updates_environment_toggle");
+    if (diagnostic && /diagnóstico/i.test(text(diagnostic.textContent))) diagnostic.remove();
+  }
+
   function refine() {
+    moveContextSearch();
     ensureTopControlsRow();
+    normalizeUpdatePreparation();
     document.querySelectorAll(".catalogo-summary-card").forEach(card => {
       normalizeStatusRow(card);
       normalizeAvailability(card);
@@ -256,9 +290,10 @@
   const run = () => window.requestAnimationFrame(refine);
   run();
   [100,300,800,1600].forEach(delay => window.setTimeout(refine, delay));
+
   let timer = null;
   new MutationObserver(() => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(refine, 60);
+    timer = window.setTimeout(refine, 50);
   }).observe(document.body, {childList:true, subtree:true});
 })();
