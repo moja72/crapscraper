@@ -110,6 +110,11 @@ class StorePricingTests(unittest.TestCase):
         self.assertIn("flex: 1 1 auto", css)
         self.assertIn('"loja"]', js)
 
+    def test_panel_server_does_not_allow_duplicate_instances_on_same_port(self):
+        from app.web import PTThreadingHTTPServer
+
+        self.assertFalse(PTThreadingHTTPServer.allow_reuse_address)
+
     def test_store_prices_are_loaded_automatically_without_manual_button(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1]
