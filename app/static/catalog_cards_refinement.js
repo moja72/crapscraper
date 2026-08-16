@@ -7,21 +7,27 @@
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    /* Modal Catálogos: filtro e ação na mesma linha. */
-    .form-grid:has(#catalogos_filter_slot){
-      grid-template-columns:minmax(0,1fr) minmax(260px,1fr)!important;
+    /* Modal Catálogos: filtro e ação lado a lado, sem depender apenas de :has(). */
+    .catalogos-top-controls-row{
+      display:grid!important;
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
       align-items:end!important;
       gap:14px!important;
-    }
-    .form-grid:has(#catalogos_filter_slot) .catalogos-refresh-field .row{
       width:100%!important;
     }
-    .form-grid:has(#catalogos_filter_slot) .catalogos-refresh-field button{
+    .catalogos-top-controls-row > .field{
+      min-width:0!important;
+      width:100%!important;
+    }
+    .catalogos-top-controls-row .catalogos-refresh-field .row{
+      width:100%!important;
+    }
+    .catalogos-top-controls-row .catalogos-refresh-field button{
       width:100%!important;
       min-height:46px!important;
     }
 
-    /* Cards: status sempre ocupa uma linha e nunca quebra no desktop. */
+    /* Cards: status sempre ocupa exatamente uma linha no desktop. */
     .catalogo-summary-card .catalogo-status-row{
       display:flex!important;
       align-items:center!important;
@@ -35,10 +41,17 @@
     .catalogo-summary-card .catalogo-status-item{
       display:inline-flex!important;
       align-items:center!important;
+      gap:4px!important;
       white-space:nowrap!important;
     }
 
-    /* Atalhos inferiores: indisponível fica claramente apagado. */
+    /* Atalhos inferiores: os três ficam sempre presentes. */
+    .catalogo-summary-card .catalogo-availability{
+      display:flex!important;
+      align-items:center!important;
+      gap:10px!important;
+      min-height:34px!important;
+    }
     .catalogo-summary-card .catalogo-availability-icon.is-unavailable{
       opacity:.12!important;
       filter:grayscale(1) saturate(0)!important;
@@ -55,13 +68,14 @@
     #updates_queue_checkpoint{
       display:flex!important;
       align-items:center!important;
+      align-self:center!important;
       min-height:48px!important;
       margin:0!important;
       line-height:1.35!important;
     }
 
     @media(max-width:760px){
-      .form-grid:has(#catalogos_filter_slot){
+      .catalogos-top-controls-row{
         grid-template-columns:1fr!important;
       }
       .catalogo-summary-card .catalogo-status-row{
@@ -75,6 +89,24 @@
 
   const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
+  function ensureTopControlsRow() {
+    const select = document.getElementById("catalogos_filter_slot");
+    if (!select) return;
+    const selectField = select.closest(".field");
+    const container = selectField?.parentElement;
+    if (!selectField || !container) return;
+
+    const actionField = container.querySelector(".catalogos-refresh-field")
+      || [...container.querySelectorAll(":scope > .field")].find(field => /Ações/i.test(text(field.querySelector("label")?.textContent)));
+    if (!actionField) return;
+
+    container.classList.add("catalogos-top-controls-row");
+    container.style.setProperty("display", "grid", "important");
+    container.style.setProperty("grid-template-columns", "minmax(0,1fr) minmax(0,1fr)", "important");
+    container.style.setProperty("align-items", "end", "important");
+    container.style.setProperty("gap", "14px", "important");
+  }
+
   function slotNameFromCard(card) {
     const loadButton = card?.querySelector(".catalogo-load-button");
     const source = String(loadButton?.getAttribute("onclick") || "");
@@ -83,20 +115,70 @@
       try { return String(JSON.parse(match[1]) || "").trim(); } catch (_) {}
     }
     const aria = String(loadButton?.getAttribute("aria-label") || "");
-    return aria.replace(/^Carregar catálogo\s+/i, "").trim();
+    const fromAria = aria.replace(/^Carregar catálogo\s+/i, "").trim();
+    if (fromAria) return fromAria;
+    const heading = card?.querySelector("strong,.section-title,h3,h4");
+    const visible = text(heading?.textContent);
+    return /^Padrão$/i.test(visible) ? "default" : visible;
   }
 
-  function ensureStatusPlaceholder(card) {
+  function normalizeStatusRow(card) {
     const small = card?.querySelector(".small");
     const details = small?.querySelector(".catalogo-context-accordion");
     if (!small || !details) return;
-    let row = small.querySelector(".catalogo-status-row");
-    if (!row) {
-      row = document.createElement("span");
-      row.className = "catalogo-status-row";
-      row.setAttribute("aria-hidden", "true");
-      small.insertBefore(row, details);
+
+    const already = small.querySelector(":scope > .catalogo-status-row");
+    if (already) return;
+
+    let isCurrent = false;
+    let isDefault = false;
+    const removable = [];
+    let node = small.firstChild;
+    while (node && node !== details) {
+      const next = node.nextSibling;
+      const value = text(node.textContent);
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (/^(?:🟢\s*)?Atual$/i.test(value)) {
+          isCurrent = true;
+          removable.push(node);
+          if (next?.nodeType === Node.ELEMENT_NODE && next.tagName === "BR") removable.push(next);
+        } else if (/^(?:⭐\s*)?Catálogo padrão$/i.test(value)) {
+          isDefault = true;
+          removable.push(node);
+          if (next?.nodeType === Node.ELEMENT_NODE && next.tagName === "BR") removable.push(next);
+        }
+      }
+      node = next;
     }
+
+    removable.forEach(item => item.remove());
+    const row = document.createElement("span");
+    row.className = "catalogo-status-row";
+    row.setAttribute("aria-label", "Status do catálogo");
+    row.innerHTML = `${isCurrent ? '<span class="catalogo-status-item">🟢 Atual</span>' : ""}${isDefault ? '<span class="catalogo-status-item">⭐ Catálogo padrão</span>' : ""}`;
+    if (!isCurrent && !isDefault) row.setAttribute("aria-hidden", "true");
+    small.insertBefore(row, details);
+  }
+
+  function normalizeAvailability(card) {
+    const container = card?.querySelector(".catalogo-availability");
+    if (!container) return;
+
+    const labels = [...container.querySelectorAll(".catalogo-availability-icon")]
+      .map(node => text(node.getAttribute("aria-label") || node.dataset.tooltip).toLowerCase());
+    const raw = text(container.textContent).toLowerCase();
+    const hasCatalog = labels.some(label => label.includes("catálogo")) || raw.includes("📄");
+    const hasState = labels.some(label => label.includes("estado")) || raw.includes("📝");
+    const hasLog = labels.some(label => label.includes("log")) || raw.includes("📋");
+
+    const items = [
+      ["📄", "Catálogo", hasCatalog],
+      ["📝", "Estado", hasState],
+      ["📋", "Log", hasLog],
+    ];
+    container.innerHTML = items.map(([icon, label, available]) =>
+      `<span class="catalogo-availability-icon${available ? "" : " is-unavailable"}" tabindex="0" role="img" aria-label="${label}" aria-disabled="${available ? "false" : "true"}" data-tooltip="${label}">${icon}</span>`
+    ).join("");
   }
 
   function filenameFromResponse(response, fallback) {
@@ -118,10 +200,10 @@
       const response = await fetch("/catalogos/data", {cache:"no-store"});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      const rows = Array.isArray(payload?.catalogos) ? payload.catalogos : [];
+      const rows = Array.isArray(payload?.catalogos) ? payload.catalogos : Array.isArray(payload?.rows) ? payload.rows : [];
       const downloads = rows.filter(row => {
         const rowSlot = text(row?.slot_name || row?.catalogo_nome);
-        return rowSlot === slotName && row?.csv_exists && row?.download_csv_url;
+        return rowSlot === slotName && row?.download_csv_url;
       });
       if (!downloads.length) {
         window.alert("Nenhum arquivo de catálogo disponível para este catálogo.");
@@ -163,21 +245,29 @@
     button.textContent = "⬇️";
     button.addEventListener("click", () => downloadCatalogContexts(slotName, button));
     const view = actions.querySelector(".catalogo-view-button");
-    if (view?.nextSibling) actions.insertBefore(button, view.nextSibling);
+    const rename = actions.querySelector(".catalogo-rename-button");
+    if (rename) actions.insertBefore(button, rename);
+    else if (view?.nextSibling) actions.insertBefore(button, view.nextSibling);
     else actions.appendChild(button);
   }
 
   function refine() {
+    ensureTopControlsRow();
     document.querySelectorAll(".catalogo-summary-card").forEach(card => {
-      ensureStatusPlaceholder(card);
+      normalizeStatusRow(card);
+      normalizeAvailability(card);
       ensureDownloadButton(card);
     });
   }
 
-  refine();
+  const run = () => window.requestAnimationFrame(refine);
+  run();
+  window.setTimeout(refine, 200);
+  window.setTimeout(refine, 800);
+
   let timer = null;
   new MutationObserver(() => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(refine, 50);
+    timer = window.setTimeout(refine, 60);
   }).observe(document.body, {childList:true, subtree:true});
 })();
