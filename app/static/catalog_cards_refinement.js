@@ -7,17 +7,19 @@
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    /* Modal Catálogos: filtro e ação lado a lado, sem depender apenas de :has(). */
     .catalogos-top-controls-row{
       display:grid!important;
       grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
       align-items:end!important;
       gap:14px!important;
       width:100%!important;
+      max-width:none!important;
+      flex:1 1 100%!important;
     }
     .catalogos-top-controls-row > .field{
       min-width:0!important;
       width:100%!important;
+      max-width:none!important;
     }
     .catalogos-top-controls-row .catalogos-refresh-field .row{
       width:100%!important;
@@ -27,7 +29,15 @@
       min-height:46px!important;
     }
 
-    /* Cards: status sempre ocupa exatamente uma linha no desktop. */
+    .catalogo-summary-card .catalogo-card-actions{
+      display:flex!important;
+      align-items:center!important;
+      justify-content:flex-end!important;
+      flex-wrap:nowrap!important;
+      gap:8px!important;
+      overflow:visible!important;
+      max-width:none!important;
+    }
     .catalogo-summary-card .catalogo-status-row{
       display:flex!important;
       align-items:center!important;
@@ -45,7 +55,6 @@
       white-space:nowrap!important;
     }
 
-    /* Atalhos inferiores: os três ficam sempre presentes. */
     .catalogo-summary-card .catalogo-availability{
       display:flex!important;
       align-items:center!important;
@@ -57,14 +66,12 @@
       filter:grayscale(1) saturate(0)!important;
     }
 
-    /* Botão de download no grupo superior de ícones. */
     .catalogo-card-actions .catalogo-download-button{
       display:inline-flex!important;
       align-items:center!important;
       justify-content:center!important;
     }
 
-    /* Fila de atualização: checkpoint centralizado verticalmente com o select. */
     #updates_queue_checkpoint{
       display:flex!important;
       align-items:center!important;
@@ -91,20 +98,22 @@
 
   function ensureTopControlsRow() {
     const select = document.getElementById("catalogos_filter_slot");
-    if (!select) return;
-    const selectField = select.closest(".field");
-    const container = selectField?.parentElement;
-    if (!selectField || !container) return;
+    const selectField = select?.closest(".field");
+    const actionField = document.querySelector(".catalogos-refresh-field")
+      || [...document.querySelectorAll(".field")].find(field => /^Ações$/i.test(text(field.querySelector("label")?.textContent)) && field.querySelector("#catalogos_refresh_btn,button"));
+    if (!selectField || !actionField) return;
 
-    const actionField = container.querySelector(".catalogos-refresh-field")
-      || [...container.querySelectorAll(":scope > .field")].find(field => /Ações/i.test(text(field.querySelector("label")?.textContent)));
-    if (!actionField) return;
+    const container = selectField.closest(".form-grid") || selectField.parentElement;
+    if (!container) return;
+    if (actionField.parentElement !== container) container.appendChild(actionField);
 
     container.classList.add("catalogos-top-controls-row");
     container.style.setProperty("display", "grid", "important");
     container.style.setProperty("grid-template-columns", "minmax(0,1fr) minmax(0,1fr)", "important");
     container.style.setProperty("align-items", "end", "important");
     container.style.setProperty("gap", "14px", "important");
+    container.style.setProperty("width", "100%", "important");
+    container.style.setProperty("max-width", "none", "important");
   }
 
   function slotNameFromCard(card) {
@@ -117,7 +126,7 @@
     const aria = String(loadButton?.getAttribute("aria-label") || "");
     const fromAria = aria.replace(/^Carregar catálogo\s+/i, "").trim();
     if (fromAria) return fromAria;
-    const heading = card?.querySelector("strong,.section-title,h3,h4");
+    const heading = card?.querySelector(".section-title,h3,h4,strong");
     const visible = text(heading?.textContent);
     return /^Padrão$/i.test(visible) ? "default" : visible;
   }
@@ -127,8 +136,8 @@
     const details = small?.querySelector(".catalogo-context-accordion");
     if (!small || !details) return;
 
-    const already = small.querySelector(":scope > .catalogo-status-row");
-    if (already) return;
+    let row = small.querySelector(":scope > .catalogo-status-row");
+    if (row) return;
 
     let isCurrent = false;
     let isDefault = false;
@@ -137,22 +146,18 @@
     while (node && node !== details) {
       const next = node.nextSibling;
       const value = text(node.textContent);
-      if (node.nodeType === Node.TEXT_NODE) {
-        if (/^(?:🟢\s*)?Atual$/i.test(value)) {
-          isCurrent = true;
-          removable.push(node);
-          if (next?.nodeType === Node.ELEMENT_NODE && next.tagName === "BR") removable.push(next);
-        } else if (/^(?:⭐\s*)?Catálogo padrão$/i.test(value)) {
-          isDefault = true;
-          removable.push(node);
-          if (next?.nodeType === Node.ELEMENT_NODE && next.tagName === "BR") removable.push(next);
-        }
-      }
+      if (/^(?:🟢\s*)?Atual$/i.test(value)) isCurrent = true;
+      if (/^(?:⭐\s*)?Catálogo padrão$/i.test(value)) isDefault = true;
+      if (node.nodeType === Node.TEXT_NODE && (isCurrent || isDefault)) removable.push(node);
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") removable.push(node);
       node = next;
     }
 
+    if (!isCurrent) isCurrent = !!card.querySelector(".catalogo-load-button:disabled");
+    if (!isDefault) isDefault = !!card.querySelector(".catalogo-default-button:disabled");
     removable.forEach(item => item.remove());
-    const row = document.createElement("span");
+
+    row = document.createElement("span");
     row.className = "catalogo-status-row";
     row.setAttribute("aria-label", "Status do catálogo");
     row.innerHTML = `${isCurrent ? '<span class="catalogo-status-item">🟢 Atual</span>' : ""}${isDefault ? '<span class="catalogo-status-item">⭐ Catálogo padrão</span>' : ""}`;
@@ -163,20 +168,14 @@
   function normalizeAvailability(card) {
     const container = card?.querySelector(".catalogo-availability");
     if (!container) return;
-
     const labels = [...container.querySelectorAll(".catalogo-availability-icon")]
       .map(node => text(node.getAttribute("aria-label") || node.dataset.tooltip).toLowerCase());
     const raw = text(container.textContent).toLowerCase();
     const hasCatalog = labels.some(label => label.includes("catálogo")) || raw.includes("📄");
     const hasState = labels.some(label => label.includes("estado")) || raw.includes("📝");
     const hasLog = labels.some(label => label.includes("log")) || raw.includes("📋");
-
-    const items = [
-      ["📄", "Catálogo", hasCatalog],
-      ["📝", "Estado", hasState],
-      ["📋", "Log", hasLog],
-    ];
-    container.innerHTML = items.map(([icon, label, available]) =>
+    const items = [["📄","Catálogo",hasCatalog],["📝","Estado",hasState],["📋","Log",hasLog]];
+    container.innerHTML = items.map(([icon,label,available]) =>
       `<span class="catalogo-availability-icon${available ? "" : " is-unavailable"}" tabindex="0" role="img" aria-label="${label}" aria-disabled="${available ? "false" : "true"}" data-tooltip="${label}">${icon}</span>`
     ).join("");
   }
@@ -184,9 +183,7 @@
   function filenameFromResponse(response, fallback) {
     const disposition = String(response.headers.get("content-disposition") || "");
     let match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-    if (match) {
-      try { return decodeURIComponent(match[1].replace(/["']/g, "")); } catch (_) {}
-    }
+    if (match) { try { return decodeURIComponent(match[1].replace(/["']/g, "")); } catch (_) {} }
     match = disposition.match(/filename=["']?([^;"']+)/i);
     return match ? match[1].trim() : fallback;
   }
@@ -201,10 +198,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       const rows = Array.isArray(payload?.catalogos) ? payload.catalogos : Array.isArray(payload?.rows) ? payload.rows : [];
-      const downloads = rows.filter(row => {
-        const rowSlot = text(row?.slot_name || row?.catalogo_nome);
-        return rowSlot === slotName && row?.download_csv_url;
-      });
+      const downloads = rows.filter(row => text(row?.slot_name || row?.catalogo_nome) === slotName && row?.download_csv_url);
       if (!downloads.length) {
         window.alert("Nenhum arquivo de catálogo disponível para este catálogo.");
         return;
@@ -235,8 +229,9 @@
   function ensureDownloadButton(card) {
     const actions = card?.querySelector(".catalogo-card-actions");
     if (!actions || actions.querySelector(".catalogo-download-button")) return;
-    const slotName = slotNameFromCard(card);
+    const slotName = slotNameFromCard(card) || (card.querySelector(".catalogo-default-button:disabled") ? "default" : "");
     if (!slotName) return;
+
     const button = document.createElement("button");
     button.className = "catalogo-icon-button catalogo-download-button";
     button.type = "button";
@@ -245,10 +240,8 @@
     button.textContent = "⬇️";
     button.addEventListener("click", () => downloadCatalogContexts(slotName, button));
     const view = actions.querySelector(".catalogo-view-button");
-    const rename = actions.querySelector(".catalogo-rename-button");
-    if (rename) actions.insertBefore(button, rename);
-    else if (view?.nextSibling) actions.insertBefore(button, view.nextSibling);
-    else actions.appendChild(button);
+    if (view) view.insertAdjacentElement("afterend", button);
+    else actions.prepend(button);
   }
 
   function refine() {
@@ -262,9 +255,7 @@
 
   const run = () => window.requestAnimationFrame(refine);
   run();
-  window.setTimeout(refine, 200);
-  window.setTimeout(refine, 800);
-
+  [100,300,800,1600].forEach(delay => window.setTimeout(refine, delay));
   let timer = null;
   new MutationObserver(() => {
     window.clearTimeout(timer);
