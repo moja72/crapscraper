@@ -10,6 +10,8 @@
   const MAX_VISIBLE_MS = 9000;
   let shownAt = 0;
   let hideTimer = null;
+  let catalogMetadataPromise = null;
+  let catalogMetadataAt = 0;
 
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -34,6 +36,7 @@
     }
     .cs-update-sk-line{height:14px}.cs-update-sk-pill{height:34px;border-radius:999px}.cs-update-sk-button{height:44px;border-radius:10px}.cs-update-sk-block{height:72px;border-radius:12px}
     .w-12{width:12%}.w-18{width:18%}.w-24{width:24%}.w-32{width:32%}.w-45{width:45%}.w-60{width:60%}.w-75{width:75%}.w-100{width:100%}
+    #updates_queue_checkpoint{display:flex!important;align-items:center!important;min-height:46px;line-height:1.35;}
     @keyframes csUpdateSpin{to{transform:rotate(360deg)}}
     @keyframes csUpdateSweep{100%{transform:translateX(100%)}}
     @media (prefers-reduced-motion:reduce){.cs-update-loading-spinner,.cs-update-sk-line::after,.cs-update-sk-pill::after,.cs-update-sk-button::after,.cs-update-sk-block::after{animation:none!important}}
@@ -42,6 +45,114 @@
 
   function panel(){ return document.getElementById(PANEL_ID); }
   function txt(node){ return String(node?.textContent || "").replace(/\s+/g," ").trim(); }
+  function normalize(value){ return String(value ?? "").replace(/\s+/g," ").trim(); }
+
+  function formatCount(value){
+    const number = Number(String(value ?? "").replace(/\D/g, ""));
+    return Number.isFinite(number) ? number.toLocaleString("pt-BR") : "0";
+  }
+
+  function formatDateBR(value){
+    const raw = normalize(value);
+    if(!raw) return "";
+    if(/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}$/.test(raw)) return raw;
+    const date = new Date(raw);
+    if(Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString("pt-BR", {
+      day:"2-digit", month:"2-digit", year:"numeric",
+      hour:"2-digit", minute:"2-digit", hour12:false
+    }).replace(",", "");
+  }
+
+  function catalogKey(slot, site, type, account){
+    return [slot,site,type,account].map(value => normalize(value).toLowerCase()).join("|");
+  }
+
+  async function loadCatalogMetadata(){
+    const now = Date.now();
+    if(catalogMetadataPromise && now - catalogMetadataAt < 30000) return catalogMetadataPromise;
+    catalogMetadataAt = now;
+    catalogMetadataPromise = Promise.all([
+      fetch("/catalogos/data", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      fetch("/comparacao/fontes", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+    ]).then(([catalogs, sources]) => {
+      const rows = Array.isArray(catalogs?.catalogos) ? catalogs.catalogos : (Array.isArray(catalogs?.rows) ? catalogs.rows : []);
+      const saved = new Map();
+      rows.forEach(row => {
+        saved.set(catalogKey(row.slot_name || row.catalogo_nome, row.site_key, row.item_type_key, row.account_key), row);
+      });
+      const imported = new Map();
+      (Array.isArray(sources?.imported_catalogs) ? sources.imported_catalogs : []).forEach(item => imported.set(normalize(item.id), item));
+      return {saved, imported};
+    });
+    return catalogMetadataPromise;
+  }
+
+  async function formatComparisonCatalogSelectors(){
+    const source = document.getElementById("comparison_source_catalog");
+    const target = document.getElementById("comparison_target_catalog");
+    if(!source && !target) return;
+    const metadata = await loadCatalogMetadata();
+
+    if(source){
+      Array.from(source.options || []).forEach(option => {
+        const value = normalize(option.value);
+        if(!value || !value.startsWith("saved|")) return;
+        const parts = value.split("|");
+        const slot = parts[1] || "";
+        const site = parts[2] || "";
+        const type = parts[3] || "";
+        const account = parts[4] || "";
+        const row = metadata.saved.get(catalogKey(slot,site,type,account));
+        const displaySlot = slot.toLowerCase() === "default" ? "Padrão" : slot;
+        const date = normalize(row?.updated_at);
+        const count = row?.items_count ?? (option.textContent.match(/\((\d+)\s+itens\)/i)?.[1] || 0);
+        const label = `${displaySlot} • ${site} • ${type} • ${account}${date ? ` | ${date}` : ""} | ${formatCount(count)} itens`;
+        if(option.textContent !== label) option.textContent = label;
+      });
+    }
+
+    if(target){
+      Array.from(target.options || []).forEach(option => {
+        const value = normalize(option.value);
+        if(!value) return;
+        const item = metadata.imported.get(value);
+        if(item){
+          const rawName = normalize(item.label).replace(/\s+atualizados em\s+.*$/i, "").replace(/\s*\([^)]*itens\)\s*$/i, "");
+          const name = rawName || normalize(item.filename).replace(/^plugintema-/i, "").replace(/\.csv$/i, "");
+          const date = formatDateBR(item.updated_at);
+          const label = `${name}${date ? ` | ${date}` : ""} | ${formatCount(item.items_count)} itens`;
+          if(option.textContent !== label) option.textContent = label;
+          return;
+        }
+        const current = normalize(option.textContent);
+        const match = current.match(/^(.*?)\s+atualizados em\s+(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2})\s+\((\d+)\s+itens\)$/i);
+        if(match){
+          const label = `${match[1]} | ${match[2]} | ${formatCount(match[3])} itens`;
+          if(option.textContent !== label) option.textContent = label;
+        }
+      });
+    }
+  }
+
+  function formatQueueCheckpoint(){
+    const checkpoint = document.getElementById("updates_queue_checkpoint");
+    if(!checkpoint) return;
+    const current = normalize(checkpoint.textContent);
+    const iso = current.match(/Última conclusão:\s*([^·]+?)(?:\s*·|$)/i)?.[1]?.trim();
+    if(!iso) return;
+    const date = formatDateBR(iso);
+    const select = document.getElementById("updates_queue_select");
+    const selectedText = normalize(select?.selectedOptions?.[0]?.textContent);
+    const total = selectedText.match(/\(\s*\d+\s*\/\s*(\d+)\s*\)/)?.[1];
+    const label = `${date}${total ? ` | ${formatCount(total)} itens` : ""}`;
+    if(label && checkpoint.textContent !== label) checkpoint.textContent = label;
+  }
+
+  function applyDisplayFormatting(){
+    formatQueueCheckpoint();
+    formatComparisonCatalogSelectors().catch(() => {});
+  }
 
   function readCache(){
     try{
@@ -116,9 +227,12 @@
   }
 
   function reconcile(){
-    const root = panel(); if(!root) return;
-    if(isInitialLoading()) buildOverlay();
-    else hideOverlay();
+    const root = panel();
+    if(root){
+      if(isInitialLoading()) buildOverlay();
+      else hideOverlay();
+    }
+    applyDisplayFormatting();
   }
 
   function bindTab(){
@@ -126,14 +240,20 @@
       const target = event.target.closest?.("[data-tab],button,a");
       if(!target) return;
       const label = txt(target).toLowerCase();
-      if(label === "atualizar" || target.getAttribute("data-tab") === "atualizacoes"){
+      if(label === "atualizar" || label === "comparar" || target.getAttribute("data-tab") === "atualizacoes"){
         window.setTimeout(reconcile, 0);
+        window.setTimeout(applyDisplayFormatting, 250);
       }
+    });
+    document.addEventListener("change", event => {
+      if(event.target?.id === "updates_queue_select") window.setTimeout(formatQueueCheckpoint, 0);
     });
   }
 
   bindTab();
   reconcile();
+  window.setTimeout(applyDisplayFormatting, 250);
+  window.setTimeout(applyDisplayFormatting, 900);
   const observer = new MutationObserver(() => window.setTimeout(reconcile, 40));
   observer.observe(document.body,{childList:true,subtree:true,characterData:true});
 })();
