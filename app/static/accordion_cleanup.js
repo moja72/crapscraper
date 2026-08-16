@@ -30,6 +30,7 @@
     }
 
     /* Ambiente: o resumo aparece somente no cabeçalho da sanfona. */
+    #updates_environment_summary,
     .standard-update-environment-inline-meta{
       display:none!important;
     }
@@ -64,6 +65,9 @@
   }
 
   function hideEnvironmentDuplicateMeta() {
+    const summary = document.getElementById("updates_environment_summary");
+    if (summary) summary.classList.add("standard-update-environment-inline-meta");
+
     const card = getEnvironmentCard();
     if (!card) return;
 
