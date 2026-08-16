@@ -20,7 +20,7 @@ class ComparisonUiContractTests(unittest.TestCase):
         css = (ROOT / "app" / "static" / "panel.css").read_text(encoding="utf-8")
         self.assertIn('class="tabs-nav main-tabs-nav" role="tablist"', web)
         main_tabs = web.split('class="tabs-nav main-tabs-nav"', 1)[1].split('class="page-head-sticky"', 1)[0]
-        self.assertEqual(main_tabs.count('role="tab"'), 4)
+        self.assertEqual(main_tabs.count('role="tab"'), 5)
         self.assertIn('button.setAttribute("aria-selected", active ? "true" : "false")', js)
         self.assertIn(".main-tabs-nav .tab-btn.is-active", css)
         self.assertIn("background: transparent", css)

@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "crapscraper-update-lists-manager-ui";
-  const PAGE_SIZES = [5, 10, 25, 50, 100, 250];
+  const PAGE_SIZES = [5, 10];
   const state = {
     selectedName: "",
     items: [],

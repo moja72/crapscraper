@@ -34,7 +34,7 @@ _PAGE_SIZE_SELECT_IDS = (
 _JS_REPLACEMENTS = (
     (
         "const LISTING_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];",
-        "const LISTING_PAGE_SIZE_OPTIONS = [5, 10, 25, 50, 100, 250];",
+        "const LISTING_PAGE_SIZE_OPTIONS = [5, 10];",
     ),
     (
         "const LISTING_DEFAULT_PAGE_SIZE = 25;",
@@ -59,14 +59,6 @@ _JS_REPLACEMENTS = (
     (
         'notify(result?.message || "Slot default alterado.");',
         'notify(result?.message || "Catálogo padrão alterado.");',
-    ),
-    (
-        '<button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>',
-        '<button class="btn-success btn-sm" type="button" data-catalog-action="select">📂 Selecionar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="download">⬇️ Baixar</button>\n        <button class="btn-secondary btn-sm" type="button" data-catalog-action="rename">✏️ Renomear</button>',
-    ),
-    (
-        '} else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
-        '} else if (button.dataset.catalogAction === "download") {\n      await loadPluginTemaManagedCatalog(catalogId);\n      downloadPluginTemaManagedCatalog();\n    } else if (button.dataset.catalogAction === "rename") {\n      await renamePluginTemaManagedCatalog(catalogId);',
     ),
     (
         '<div class="small">Woo #${escapeHtml(job.woo_product_id)} · ${escapeHtml(job.plugintema_version || "-")} → ${escapeHtml(job.effective_source_version || job.ultrapack_version || "-")}</div><div class="small">Relacionamento: ${escapeHtml(updateRelationshipLabel(job.relationship))}</div>',
@@ -173,13 +165,8 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
     )
 
     def repl(match: re.Match[str]) -> str:
-        opening, options, closing = match.groups()
-        options = re.sub(r"\s+selected(?=\s|>)", "", options, flags=re.IGNORECASE)
-        option_five = re.compile(r'(<option\b[^>]*\bvalue=["\']5["\'][^>]*)(>)', re.IGNORECASE)
-        if option_five.search(options):
-            options = option_five.sub(r"\1 selected\2", options, count=1)
-        else:
-            options = '<option value="5" selected>5</option>' + options
+        opening, _options, closing = match.groups()
+        options = '<option value="5" selected>5</option><option value="10">10</option>'
         return opening + options + closing
 
     return pattern.sub(repl, html, count=1)

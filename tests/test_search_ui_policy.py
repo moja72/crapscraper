@@ -21,20 +21,20 @@ def test_search_ui_policy_injects_unified_script():
     assert "_patch_catalog_context_search" in policy
     assert "_patch_plugin_tema_toolbar_actions" in policy
     assert "const LISTING_DEFAULT_PAGE_SIZE = 5;" in policy
-    assert "[5, 10, 25, 50, 100, 250]" in policy
+    assert "[5, 10]" in policy
     assert "window.__crapscraperPagination" in policy
     assert 'id="updates_working_title">Preparação</div>' in policy
     assert 'class="catalogos-context-search cs-search-system"' in policy
     assert 'for="catalogos_search">Buscar nos contextos</label>' in policy
     assert 'placeholder="Catálogo, site, tipo ou conta"' in policy
-    assert 'data-catalog-action="download">⬇️ Baixar</button>' in policy
-    assert 'button.dataset.catalogAction === "download"' in policy
+    assert 'data-catalog-action="download">⬇️ Baixar</button>' not in policy
+    assert 'button.dataset.catalogAction === "download"' not in policy
     assert "plugintema_manage_(?:download|delete)" in policy
     assert '"default" ? "Padrão"' in policy
     assert "⭐ Padrão atual" in policy
     assert "como catálogo padrão" in policy
 
-    assert "PAGE_SIZES = [5, 10, 25, 50, 100, 250]" in script
+    assert "PAGE_SIZES = [5, 10]" in script
     assert "DEFAULT_PAGE_SIZE = 5" in script
     assert "cs-page-jump" in script
     assert "listing-pagination" in script

@@ -181,6 +181,18 @@ def _build_readonly_woocommerce_client() -> Any:
     return WooCommerceClient(base, key, secret)
 
 
+def _build_store_woocommerce_client() -> Any:
+    """Cliente de Loja com falha rápida para nunca prender a interface."""
+    client = _build_readonly_woocommerce_client()
+    return type(client)(
+        client.base_url,
+        client.username,
+        client.password,
+        timeout=12.0,
+        retries=0,
+    )
+
+
 def _update_prerequisites(*, check_ssh_connection: bool = False, app: Any = None) -> dict[str, Any]:
     """Diagnostico sem segredos; rede SSH somente quando explicitamente solicitada."""
     result = prerequisite_status()
@@ -623,7 +635,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         >
         <div class="page-brand-content">
           <div class="page-brand-title-row"><h1>__HEADER_TITLE__</h1><img class="page-brand-title-image" src="/emoji.webp" alt="" onerror="this.hidden=true"></div>
-          <div class="subtitle">Coletar • Comparar • Atualizar • Adicionar</div>
+          <div class="subtitle">Coletar • Comparar • Atualizar • Adicionar • Loja</div>
         </div>
       </div>
     </div>
@@ -658,6 +670,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         data-tab-target="adicoes"
         id="tab_btn_adicoes">
   Adicionar
+</button>
+<span class="main-tabs-spacer" aria-hidden="true"></span>
+<button type="button"
+        class="tab-btn tab-btn-store"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab_panel_loja"
+        data-tab-target="loja"
+        id="tab_btn_loja">
+  Loja
 </button>
     </div>
 
@@ -903,10 +925,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         <div class="form-grid catalogos-actions-grid">
           <div class="field">
-            <label for="catalogos_search">Buscar catálogos e contextos</label>
-            <input id="catalogos_search" type="search" placeholder="Nome, site, tipo ou conta">
-          </div>
-          <div class="field">
             <label for="catalogos_filter_slot">Catálogo</label>
             <select id="catalogos_filter_slot"><option value="">Todos</option></select>
           </div>
@@ -923,6 +941,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="catalogos-table-toolbar">
           <div><div class="section-title catalogos-context-title">Contextos dos catálogos</div><span class="badge" id="catalogos_context_count">0 contextos</span></div>
           <button class="btn-danger" id="catalogos_remove_zero_btn" type="button" disabled>Remover contextos zerados</button>
+        </div>
+
+        <div class="catalogos-context-search cs-search-system" style="margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--bg-elev-1);">
+          <div class="field">
+            <label for="catalogos_search">Buscar nos contextos</label>
+            <input id="catalogos_search" type="search" placeholder="Catálogo, site, tipo ou conta">
+          </div>
         </div>
 
         <div class="table-wrap" style="margin-top:14px;">
@@ -946,12 +971,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         <div class="listing-meta-row catalogos-listing-meta">
           <div class="small" id="catalogos_result_meta">Mostrando 0 de 0 itens</div>
-          <div class="listing-page-size"><label for="catalogos_page_size" class="small">Itens por página</label><select id="catalogos_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+          <div class="listing-page-size"><label for="catalogos_page_size" class="small">Itens por página</label><select id="catalogos_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
         </div>
 
         <div class="listing-pagination catalogos-pagination">
           <button class="btn-secondary" id="catalogos_prev_page" type="button">← Anterior</button>
-          <span class="badge" id="catalogos_page_label">Página 1 de 1</span>
+          <span class="badge cs-page-jump" id="catalogos_page_label">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span>
           <button class="btn-secondary" id="catalogos_next_page" type="button">Próxima →</button>
         </div>
 
@@ -1792,13 +1817,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="small" id="comparison_result_meta">-</div>
           <div class="listing-page-size">
             <label for="comparison_page_size" class="small">Itens por página</label>
-            <select id="comparison_page_size"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option></select>
+            <select id="comparison_page_size"><option value="5" selected>5</option><option value="10">10</option></select>
           </div>
         </div>
 
         <div class="listing-pagination comparison-pagination">
           <button type="button" class="btn-secondary" id="comparison_prev_btn">← Anterior</button>
-          <span class="badge" id="comparison_page_label">Página 1 de 1</span>
+          <span class="badge cs-page-jump" id="comparison_page_label">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span>
           <button type="button" class="btn-secondary" id="comparison_next_btn">Próxima →</button>
         </div>
 
@@ -1876,8 +1901,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="small">Selecione, renomeie ou apague um catálogo. As contagens usam as categorias dos produtos WooCommerce.</div>
     <div class="plugintema-catalog-cards" id="plugintema_manage_catalog_cards" aria-live="polite"></div>
     <div class="form-grid plugintema-manage-filters"><div class="field"><label for="plugintema_manage_catalog">Cat&aacute;logo</label><select id="plugintema_manage_catalog"></select></div><div class="field"><label for="plugintema_manage_search">Pesquisar no cat&aacute;logo</label><input id="plugintema_manage_search" type="search" placeholder="Nome, ID, categoria ou versão"></div><div class="field"><label for="plugintema_manage_type">Tipo</label><select id="plugintema_manage_type"><option value="">Todos</option><option value="plugin">Plugins</option><option value="theme">Temas</option><option value="template">Templates</option></select></div><div class="field"><label for="plugintema_manage_status">Status</label><select id="plugintema_manage_status"><option value="">Todos</option><option value="publish">Publicado</option><option value="draft">Rascunho</option><option value="private">Privado</option></select></div></div>
-    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Itens por página</label><select id="plugintema_manage_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
-    <div class="listing-pagination plugintema-manage-pagination"><button class="btn-secondary btn-sm" id="plugintema_manage_prev" type="button">← Anterior</button><span class="badge" id="plugintema_manage_page_status">Página 1 de 1</span><button class="btn-secondary btn-sm" id="plugintema_manage_next" type="button">Próxima →</button></div>
+    <div class="listing-meta-row plugintema-manage-toolbar"><div class="small" id="plugintema_manage_range">Mostrando 0 produtos.</div><div class="listing-page-size"><label for="plugintema_manage_page_size" class="small">Itens por página</label><select id="plugintema_manage_page_size"><option value="5" selected>5</option><option value="10">10</option></select><button class="btn-secondary btn-sm" id="plugintema_manage_download" type="button">⬇️ Baixar catálogo</button><button class="btn-danger btn-sm" id="plugintema_manage_delete" type="button">🗑️ Apagar catálogo</button></div></div>
+    <div class="listing-pagination plugintema-manage-pagination"><button class="btn-secondary btn-sm" id="plugintema_manage_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="plugintema_manage_page_status">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary btn-sm" id="plugintema_manage_next" type="button">Próxima →</button></div>
     <div class="table-wrap"><table class="catalogos-table plugintema-manage-table"><thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Vers&atilde;o</th><th>Categorias</th><th>Status</th></tr></thead><tbody id="plugintema_manage_rows"><tr><td colspan="6">Selecione um cat&aacute;logo.</td></tr></tbody></table></div>
   </div>
 </div>
@@ -1899,8 +1924,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <div class="card updates-card-section updates-environment-card" aria-labelledby="updates_environment_title">
-      <div class="updates-section-heading"><div><div class="section-title" id="updates_environment_title">Ambiente</div><div id="updates_environment_summary" class="small">Verificando pré-requisitos...</div></div><div class="row"><button class="btn-secondary" type="button" id="updates_environment_toggle" aria-expanded="false">Ver diagnóstico</button><button class="btn-secondary" type="button" id="updates_prerequisites_btn">Verificar</button></div></div>
-      <div id="updates_environment_details" class="hidden">
+      <div class="updates-section-heading"><div><div class="section-title" id="updates_environment_title">Ambiente</div><div id="updates_environment_summary" class="small">Verificando pré-requisitos...</div></div><div class="row"><button class="btn-secondary" type="button" id="updates_prerequisites_btn">Verificar</button></div></div>
+      <div id="updates_environment_details">
         <div id="updates_environment_chips" class="updates-environment-chips" aria-live="polite"></div>
         <div class="plugintheme-session-diagnostic">
           <div><strong>Sessão PluginTheme</strong><div id="plugintheme_cookie_status" class="small" role="status">Cookies necessários: verificando...</div><div id="plugintheme_session_message" class="small" role="status"></div></div>
@@ -1910,18 +1935,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <div class="card updates-card-section updates-working-card" aria-labelledby="updates_working_title">
-    <div class="section-title" id="updates_working_title">Aguardando / preparação</div>
+    <div class="section-title" id="updates_working_title">Preparação</div>
     <div class="hidden updates-conditional-controls" id="updates_working_controls">
     <div class="updates-subtitle" id="updates_filters_title">Busca e filtros</div>
     <div class="updates-filters" aria-label="Filtros da fila">
       <label>Status<select id="updates_status_filter"><option value="">Todos</option><option value="approved">Aprovado</option><option value="pending">Pendente</option><option value="validating">Validando</option><option value="downloading">Baixando</option><option value="staging">Preparando staging</option><option value="prepared">Preparado</option><option value="planned">Planejado</option><option value="plan_ready">Plano pronto</option><option value="installing">Instalando</option><option value="filesystem_validated">Sistema de arquivos validado</option><option value="updating_wordpress">Atualizando WordPress</option><option value="validating_wordpress">Validando WordPress</option><option value="validated">Validado</option><option value="dry_run_ready">Simulação pronta</option><option value="executing">Executando</option><option value="completed">Concluído</option><option value="blocked">Bloqueado</option><option value="failed">Falhou</option><option value="error">Erro</option><option value="interrupted">Interrompido</option><option value="rollback_required">Rollback necessário</option><option value="rolling_back">Executando rollback</option><option value="rolled_back">Rollback concluído</option></select></label>
-      <label>Tipo<select id="updates_type_filter"><option value="">Todos</option><option value="update">Atualização</option><option value="new_product">Novo produto</option></select></label>
       <label>Busca<input id="updates_search_filter" type="search" placeholder="Nome ou WooCommerce ID"></label>
       <label>Versão<select id="updates_version_filter"><option value="">Todas</option><option value="update">Somente com atualização</option><option value="advanced">Fonte avançou</option><option value="equal">Igual à comparação</option></select></label>
       <label>Relacionamento<select id="updates_relationship_filter"><option value="">Todos</option><option value="safe_auto">Vinculação automática</option><option value="manual_confirmed">Vinculação manual confirmada</option><option value="candidate">Candidato</option><option value="manual_rejected">Vinculação manual rejeitada</option><option value="confirmed_not_in_source">Confirmado como ausente no Ultrapack</option><option value="pending_review">Revisão pendente</option><option value="other">Outros</option></select></label>
       <button class="btn-secondary" type="button" id="updates_clear_filters">Limpar filtros</button>
-    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><select id="updates_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div></div>
-    <div class="listing-pagination"><button class="btn-secondary" type="button" id="updates_prev_page">← Anterior</button><span class="badge" id="updates_page_label">Página 1 de 1</span><button class="btn-secondary" type="button" id="updates_next_page">Próxima →</button></div>
+    </div><div class="listing-meta-row"><strong id="updates_found_count">0 itens encontrados</strong><div class="listing-page-size"><label for="updates_page_size">Itens por página</label><select id="updates_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div></div>
+    <div class="listing-pagination"><button class="btn-secondary" type="button" id="updates_prev_page">← Anterior</button><span class="badge cs-page-jump" id="updates_page_label">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" type="button" id="updates_next_page">Próxima →</button></div>
     <div class="updates-subtitle" id="updates_bulk_title">Operações em lote</div><div class="updates-bulkbar">
       <strong id="updates_selected_count">0 selecionados</strong>
       <button class="btn-secondary" type="button" id="updates_select_page">Selecionar página</button>
@@ -1943,10 +1967,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="updates-list-controls">
           <label>Buscar na fila<input id="updates_queue_search" type="search" placeholder="Nome ou WooCommerce ID"></label>
           <label>Estado<select id="updates_queue_status_filter"><option value="">Todos</option><option value="executing">Executando</option><option value="queued">Aguardando execução</option></select></label>
-          <label>Itens por página<select id="updates_queue_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label>
+          <label>Itens por página<select id="updates_queue_page_size"><option value="5" selected>5</option><option value="10">10</option></select></label>
           <strong id="updates_queue_found_count">0 itens</strong>
         </div>
-        <div class="listing-pagination"><button class="btn-secondary" id="updates_queue_prev" type="button">← Anterior</button><span class="badge" id="updates_queue_page">Página 1 de 1</span><button class="btn-secondary" id="updates_queue_next" type="button">Próxima →</button></div>
+        <div class="listing-pagination"><button class="btn-secondary" id="updates_queue_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="updates_queue_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="updates_queue_next" type="button">Próxima →</button></div>
       </div>
       <div id="updates_queue_jobs"></div>
   </div>
@@ -1958,9 +1982,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="updates-history-tabs" role="tablist" aria-label="Tipo de histórico"><button class="updates-history-tab is-active" id="updates_history_completed" role="tab" aria-selected="true" type="button">Concluídos</button><button class="updates-history-tab" id="updates_history_errors" role="tab" aria-selected="false" type="button">Erros</button></div>
       <div class="listing-meta-row updates-history-listing-meta">
         <div class="small" id="updates_history_result_meta">Mostrando 0 de 0 itens</div>
-        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><select id="updates_history_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><select id="updates_history_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
       </div>
-      <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">← Anterior</button><span class="badge" id="updates_history_page">Página 1 de 1</span><button class="btn-secondary" id="updates_history_next" type="button">Próxima →</button></div>
+      <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="updates_history_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="updates_history_next" type="button">Próxima →</button></div>
       </div>
       <div class="updates-history-panel" id="updates_history" role="tabpanel" aria-live="polite"></div>
     </details>
@@ -1999,9 +2023,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="table-wrap"><table class="catalogos-table update-list-preview-table"><thead><tr><th>Posição</th><th>Woo ID</th><th>Produto</th><th>Estado</th><th>Versões</th><th>Atualização</th><th>Última etapa</th></tr></thead><tbody id="update_list_preview_rows"><tr><td colspan="7">Carregando...</td></tr></tbody></table></div>
     <div class="listing-meta-row update-list-preview-listing-meta">
       <div class="small" id="update_list_preview_result_meta">Mostrando 0 de 0 itens</div>
-      <div class="listing-page-size"><label for="update_list_preview_page_size" class="small">Itens por página</label><select id="update_list_preview_page_size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></div>
+      <div class="listing-page-size"><label for="update_list_preview_page_size" class="small">Itens por página</label><select id="update_list_preview_page_size"><option value="5" selected>5</option><option value="10">10</option></select></div>
     </div>
-    <div class="listing-pagination"><button class="btn-secondary" id="update_list_preview_prev" type="button">← Anterior</button><span class="badge" id="update_list_preview_page">Página 1 de 1</span><button class="btn-secondary" id="update_list_preview_next" type="button">Próxima →</button></div>
+    <div class="listing-pagination"><button class="btn-secondary" id="update_list_preview_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="update_list_preview_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="update_list_preview_next" type="button">Próxima →</button></div>
   </div>
 </div>
 
@@ -2016,6 +2040,47 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="row"><button class="btn-danger" id="update_execute_confirm" type="button" disabled>Executar atualização</button><button class="btn-secondary" type="button" data-update-modal-close>Cancelar</button></div>
   </div>
 </div>
+
+<section class="tab-panel hidden store-panel" id="tab_panel_loja" aria-labelledby="store_title">
+  <div class="card store-hero">
+    <div>
+      <div class="section-title" id="store_title">Preços da loja</div>
+      <div class="small">Aplique os mesmos preços a todos os plugins e/ou temas publicados. Apenas as variações anual e vitalícia serão alteradas.</div>
+    </div>
+    <button class="btn-secondary" type="button" id="store_refresh_btn">Atualizar prévia</button>
+  </div>
+  <form class="card store-pricing-form" id="store_pricing_form" novalidate>
+    <fieldset class="store-scope">
+      <legend>Produtos incluídos</legend>
+      <label><input type="checkbox" name="store_kind" value="plugin" checked> Plugins</label>
+      <label><input type="checkbox" name="store_kind" value="theme" checked> Temas</label>
+    </fieldset>
+    <div class="store-price-grid">
+      <fieldset class="store-price-card">
+        <legend>Versão anual</legend>
+        <label for="store_annual_regular">Valor original (R$)</label>
+        <input id="store_annual_regular" name="annual_regular" inputmode="decimal" autocomplete="off" placeholder="Ex.: 79,90" required>
+        <label for="store_annual_sale">Valor promocional (R$)</label>
+        <input id="store_annual_sale" name="annual_sale" inputmode="decimal" autocomplete="off" placeholder="Vazio remove a promoção">
+      </fieldset>
+      <fieldset class="store-price-card">
+        <legend>Versão vitalícia</legend>
+        <label for="store_lifetime_regular">Valor original (R$)</label>
+        <input id="store_lifetime_regular" name="lifetime_regular" inputmode="decimal" autocomplete="off" placeholder="Ex.: 149,90" required>
+        <label for="store_lifetime_sale">Valor promocional (R$)</label>
+        <input id="store_lifetime_sale" name="lifetime_sale" inputmode="decimal" autocomplete="off" placeholder="Vazio remove a promoção">
+      </fieldset>
+    </div>
+    <div class="store-preview" id="store_preview" aria-live="polite" aria-busy="false">Abra a aba ou clique em “Atualizar prévia” para conferir o alcance da alteração.</div>
+    <div class="store-confirmation">
+      <label for="store_confirmation">Confirmação obrigatória</label>
+      <div class="small">Digite <strong>ALTERAR PRECOS</strong> para liberar a atualização em lote.</div>
+      <input id="store_confirmation" name="confirmation" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="store-form-actions"><button class="btn-success" id="store_apply_btn" type="submit" disabled>Aplicar preços em lote</button></div>
+    <div class="notice hidden" id="store_result" role="status" aria-live="polite"></div>
+  </form>
+</section>
 
 <section
   class="tab-panel hidden"
@@ -2518,7 +2583,8 @@ def _build_run_endpoints(run_id: str | None) -> dict[str, str]:
 "plugintemaCatalogOptions": "/plugintema/catalogo/opcoes",
 "plugintemaProductSearch": "/plugintema/catalogo/pesquisar",
 "plugintemaCatalogManage": "/plugintema/catalogo/gerenciar",
-"plugintemaCatalogDownload": "/plugintema/catalogo/baixar",
+        "plugintemaCatalogDownload": "/plugintema/catalogo/baixar",
+        "storePricing": "/loja/precos",
 "comparisonProducts": "/comparacao/produtos",
 "comparisonRelationshipSave": "/comparacao/vinculo/salvar",
 }
@@ -2867,15 +2933,17 @@ def _build_comparison_sources_payload() -> dict[str, Any]:
                 "id": catalog_id,
                 "kind": "saved",
                 "label": (
-                    f"[Salvo] {slot_name} • {site_key} • "
-                    f"{item_type_key} • {account_key} "
-                    f"({items_count} itens)"
+                    f"{'Padrão' if slot_name.lower() == 'default' else slot_name}  "
+                    f"{site_key}  {item_type_key}  {account_key} | "
+                    f"{_normalize_spaces(row.get('updated_at')) or 'Data não registrada'} | "
+                    f"{items_count:,} itens".replace(",", ".")
                 ),
                 "slot_name": slot_name,
                 "site_key": site_key,
                 "item_type_key": item_type_key,
                 "account_key": account_key,
                 "items_count": items_count,
+                "updated_at": _normalize_spaces(row.get("updated_at")),
             }
         )
 
@@ -2898,7 +2966,7 @@ def _build_comparison_sources_payload() -> dict[str, Any]:
                 if custom_name:
                     mode_label = custom_name
             generated_at = datetime.fromtimestamp(csv_path.stat().st_mtime).strftime("%d/%m/%Y %H:%M")
-            friendly_label = f"{mode_label} atualizados em {generated_at}"
+            friendly_label = mode_label.upper()
         items_count = plugin_count = theme_count = template_count = 0
         if csv_path.name.startswith("plugintema-"):
             with suppress(Exception):
@@ -2913,7 +2981,10 @@ def _build_comparison_sources_payload() -> dict[str, Any]:
                         theme_count += 1
                     elif categories_match_catalog_kind(categories, "plugin"):
                         plugin_count += 1
-            friendly_label = f"{friendly_label} ({items_count} itens)"
+            friendly_label = (
+                f"{friendly_label} | {generated_at} | "
+                f"{items_count:,} itens".replace(",", ".")
+            )
         imported_catalogs.append(
             {
                 "id": f"imported|{csv_path.name}",
@@ -3159,7 +3230,15 @@ def render_panel_page(
 
     if include_inline_assets:
         styles_block = f"<style>{INLINE_FALLBACK_CSS}</style>"
-        script_block = f"<script>{INLINE_FALLBACK_JS}</script>"
+        extras = []
+        for extra_name in ("catalog_cards_refinement.js", "pagination_autojump.js"):
+            try:
+                extra_source = (settings.APP_DIR / "static" / extra_name).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            safe_source = extra_source.replace("</script>", "<\\/script>")
+            extras.append(f"<script>{safe_source}</script>")
+        script_block = f"<script>{INLINE_FALLBACK_JS}</script>" + "".join(extras)
     else:
         if styles_href == "/panel.css":
             styles_href = f"{styles_href}?v={_panel_asset_version('css')}"
@@ -3171,6 +3250,8 @@ def render_panel_page(
         )
         script_block = (
             f'<script src="{escape(script_src, quote=True)}"></script>'
+            '<script src="/catalog_cards_refinement.js"></script>'
+            '<script src="/pagination_autojump.js"></script>'
         )
 
     boot_json = json.dumps(
@@ -3912,6 +3993,26 @@ def make_handler(
                     self._send_json(build_error_payload(error), code=500)
                 return True
 
+            if path == "/loja/precos":
+                query = parse_qs(urlsplit(self.path).query or "")
+                kinds = [value for value in query.get("tipo", []) if value in {"plugin", "theme"}]
+                try:
+                    selected = kinds or ["plugin", "theme"]
+                    self._send_json({
+                        "ok": True,
+                        "deferred": True,
+                        "kinds": selected,
+                        "message": (
+                            "Pronto para aplicar. A leitura completa do WooCommerce "
+                            "será feita somente após a confirmação."
+                        ),
+                    })
+                except ValueError as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=400)
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
             if path == "/plugintema/catalogo/baixar":
                 query = parse_qs(urlsplit(self.path).query or "")
                 catalog_id = str((query.get("catalog_id") or [""])[0] or "").strip()
@@ -4010,6 +4111,14 @@ def make_handler(
                 self._serve_asset("js")
                 return True
 
+            if path in {"/catalog_cards_refinement.js", "/pagination_autojump.js"}:
+                asset_path = settings.APP_DIR / "static" / path.lstrip("/")
+                if not asset_path.is_file():
+                    self._send_empty(code=404)
+                else:
+                    self._send_text(asset_path.read_text(encoding="utf-8"), content_type="application/javascript; charset=utf-8")
+                return True
+
             if path == "/mascote.webp":
                 mascot_path = settings.DATA_DIR / "crapscrapper mascote.webp"
 
@@ -4045,6 +4154,17 @@ def make_handler(
             return False
 
         def _route_post(self, path: str, payload: dict[str, Any]) -> bool:
+            if path == "/loja/precos":
+                try:
+                    from app.store_pricing import apply_store_prices
+                    result = apply_store_prices(_build_store_woocommerce_client(), payload)
+                    self._send_json(result, code=200 if result.get("ok") else 502)
+                except ValueError as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=400)
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
             if path == "/plugintema/catalogo/gerar":
                 try:
                     self._send_json(

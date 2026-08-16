@@ -163,7 +163,7 @@
     }
     .updates-history-tab.is-active{
       z-index:3!important;
-      background:var(--bg-elev-1)!important;
+      background:#141415!important;
       color:var(--text)!important;
       border-color:var(--line-strong)!important;
       border-bottom:none!important;
