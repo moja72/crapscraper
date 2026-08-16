@@ -455,11 +455,13 @@
       card.dataset.updateAccordionKind = kind;
       card.classList.add("standard-update-accordion-card");
 
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "standard-update-accordion-toggle";
-      toggle.innerHTML = `<span class="standard-update-accordion-toggle-copy"><span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">${title}</span></span><span class="standard-update-accordion-meta"></span>`;
-      card.insertBefore(toggle, card.firstChild);
+      const toggle = card.querySelector(":scope > .standard-update-accordion-toggle") || document.createElement("button");
+      if (!toggle.parentElement) {
+        toggle.type = "button";
+        toggle.className = "standard-update-accordion-toggle";
+        toggle.innerHTML = `<span class="standard-update-accordion-toggle-copy"><span class="standard-update-accordion-chevron" aria-hidden="true">▸</span><span class="standard-update-accordion-title">${title}</span></span><span class="standard-update-accordion-meta"></span>`;
+        card.insertBefore(toggle, card.firstChild);
+      }
 
       const originalTitle = directTitle(card, kind === "preparation" ? /^(Preparação|Aguardando\s*\/\s*preparação)$/i : new RegExp(`^${title}$`, "i"));
       originalTitle?.classList.add("standard-update-original-title");
@@ -480,7 +482,7 @@
 
   function standardizeUpdateSections() {
     const environmentButton = document.getElementById("updates_environment_toggle");
-    const environmentCard = environmentButton?.closest(".card") || document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="environment"]');
+    const environmentCard = environmentButton?.closest(".card") || document.querySelector('#tab_panel_atualizacoes .card[data-update-accordion-kind="environment"]') || document.getElementById("updates_environment_details")?.closest(".card");
     if (environmentCard) {
       environmentButton?.remove();
       const diagnosticDetails = environmentCard.querySelector("#updates_environment_details");

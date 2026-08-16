@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import re
+import csv
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 
-from app.plugintema_catalog import product_matches_catalog_kind
+from app.plugintema_catalog import categories_match_catalog_kind, product_matches_catalog_kind
 
 
 PRICE_FIELDS = ("annual_regular", "annual_sale", "lifetime_regular", "lifetime_sale")
@@ -88,12 +90,58 @@ def _selected_products(woo: Any, kinds: Iterable[str]) -> list[Mapping[str, Any]
     return products
 
 
-def build_store_pricing_snapshot(woo: Any, kinds: Iterable[str] = ("plugin", "theme")) -> dict[str, Any]:
-    products = _selected_products(woo, kinds)
+def read_store_price_reference_products(
+    imports_dir: Path, kinds: Iterable[str] = ("plugin", "theme"), *, limit_per_kind: int = 3,
+) -> list[dict[str, Any]]:
+    """Lê poucos IDs representativos dos catálogos locais, sem consultar todo o WooCommerce."""
+    requested = tuple(dict.fromkeys(str(kind).strip().lower() for kind in kinds))
+    selected = {kind: [] for kind in requested if kind in {"plugin", "theme"}}
+    seen_ids: set[int] = set()
+    paths = sorted(Path(imports_dir).glob("plugintema-*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in paths:
+        with path.open("r", encoding="utf-8-sig", newline="") as stream:
+            for row in csv.DictReader(stream):
+                categories = [item.strip() for item in str(row.get("Categorias", "")).split(",") if item.strip()]
+                try:
+                    product_id = int(str(row.get("ID", "")).strip())
+                except ValueError:
+                    continue
+                if product_id in seen_ids:
+                    continue
+                kind = next((item for item in selected if categories_match_catalog_kind(categories, item)), "")
+                if not kind or len(selected[kind]) >= max(1, limit_per_kind):
+                    continue
+                selected[kind].append({
+                    "id": product_id,
+                    "name": str(row.get("Nome", "") or ""),
+                    "categories": [{"name": category} for category in categories],
+                })
+                seen_ids.add(product_id)
+                if selected and all(len(items) >= max(1, limit_per_kind) for items in selected.values()):
+                    return [product for items in selected.values() for product in items]
+    return [product for items in selected.values() for product in items]
+
+
+def build_store_pricing_snapshot(
+    woo: Any, kinds: Iterable[str] = ("plugin", "theme"), *,
+    products: Iterable[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    requested_kinds = tuple(dict.fromkeys(str(kind).strip().lower() for kind in kinds))
+    selected_products = list(products) if products is not None else _selected_products(woo, requested_kinds)
     variations: list[dict[str, Any]] = []
     unmatched = 0
     distribution: dict[str, Counter[tuple[str, str]]] = {
         "annual": Counter(), "lifetime": Counter()
+    }
+    by_kind: dict[str, dict[str, Any]] = {
+        kind: {
+            "product_ids": set(),
+            "variation_count": 0,
+            "unmatched_variation_count": 0,
+            "distribution": {"annual": Counter(), "lifetime": Counter()},
+        }
+        for kind in requested_kinds
+        if kind in {"plugin", "theme"}
     }
     def load_variations(product: Mapping[str, Any]) -> tuple[Mapping[str, Any], list[Mapping[str, Any]]]:
         return product, list(woo.list_variations(
@@ -104,30 +152,58 @@ def build_store_pricing_snapshot(woo: Any, kinds: Iterable[str] = ("plugin", "th
 
     # A API do WooCommerce exige uma rota por produto. Execute essas leituras em
     # paralelo para que a prévia não cresça linearmente com o catálogo.
-    workers = min(12, max(1, len(products)))
+    workers = min(12, max(1, len(selected_products)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="store-prices") as executor:
         loaded = [
             future.result()
-            for future in as_completed(executor.submit(load_variations, product) for product in products)
+            for future in as_completed(executor.submit(load_variations, product) for product in selected_products)
         ]
 
     for product, product_variations in loaded:
+        product_kind = next(
+            (kind for kind in requested_kinds if product_matches_catalog_kind(product, kind)),
+            "",
+        )
+        kind_summary = by_kind.get(product_kind)
+        if kind_summary is not None:
+            kind_summary["product_ids"].add(int(product["id"]))
         for variation in product_variations:
             period = variation_period(variation)
             if not period:
                 unmatched += 1
+                if kind_summary is not None:
+                    kind_summary["unmatched_variation_count"] += 1
                 continue
             regular = str(variation.get("regular_price", "") or "")
             sale = str(variation.get("sale_price", "") or "")
             distribution[period][(regular, sale)] += 1
+            if kind_summary is not None:
+                kind_summary["variation_count"] += 1
+                kind_summary["distribution"][period][(regular, sale)] += 1
             variations.append({
                 "product_id": int(product["id"]), "product_name": str(product.get("name", "")),
                 "variation_id": int(variation["id"]), "period": period,
                 "regular_price": regular, "sale_price": sale,
+                "kind": product_kind,
             })
+    serialized_by_kind = {
+        kind: {
+            "product_count": len(summary["product_ids"]),
+            "variation_count": summary["variation_count"],
+            "unmatched_variation_count": summary["unmatched_variation_count"],
+            "distribution": {
+                period: [
+                    {"regular_price": pair[0], "sale_price": pair[1], "count": count}
+                    for pair, count in values.most_common(8)
+                ]
+                for period, values in summary["distribution"].items()
+            },
+        }
+        for kind, summary in by_kind.items()
+    }
     return {
         "ok": True,
-        "product_count": len(products),
+        "product_count": len(selected_products),
         "variation_count": len(variations),
         "unmatched_variation_count": unmatched,
         "distribution": {
@@ -136,6 +212,7 @@ def build_store_pricing_snapshot(woo: Any, kinds: Iterable[str] = ("plugin", "th
                 for pair, count in values.most_common(8)
             ] for period, values in distribution.items()
         },
+        "by_kind": serialized_by_kind,
         "variations": variations,
     }
 

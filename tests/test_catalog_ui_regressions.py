@@ -39,7 +39,9 @@ class CatalogUiRegressionTests(unittest.TestCase):
     assert 'id="updates_type_filter"' not in panel
     assert 'id="updates_environment_toggle"' not in panel
     assert 'id="updates_environment_details"' in panel
-    assert 'id="updates_environment_details" class="hidden"' not in panel
+    assert 'updates-environment-card standard-update-accordion-card is-collapsed' in panel
+    assert 'data-update-accordion-kind="environment"' in panel
+    assert 'class="standard-update-accordion-toggle" type="button" aria-expanded="false"' in panel
 
 
   def test_every_page_size_defaults_to_five_and_page_is_editable(self):

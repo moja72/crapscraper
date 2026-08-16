@@ -1155,6 +1155,13 @@ pre {
   line-height: 1.5;
 }
 
+.store-kind-price-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:12px; }
+.store-kind-prices { display:grid; gap:14px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--bg-elev-1); }
+.store-kind-prices-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.store-kind-prices-head > strong { font-size:18px; }
+.store-kind-prices-head > span,.store-readonly-note { color:var(--text-muted); font-size:12px; }
+.store-readonly-note { font-weight:700; }
+
 .store-confirmation {
   display: grid;
   gap: 6px;
@@ -1173,6 +1180,7 @@ pre {
   .store-preview-kpis {
     grid-template-columns: 1fr;
   }
+  .store-kind-price-grid { grid-template-columns:1fr; }
 }
 
 .runs-grid {
@@ -2794,3 +2802,6 @@ body:not([data-active-tab="principal"]) .page-head-sticky{display:none!important
 .listing-pagination .cs-page-jump input { width:58px; min-width:58px; padding:6px 8px; text-align:center; font:inherit; font-variant-numeric:tabular-nums; }
 .comparison-filter-grid, .plugintema-manage-filters, .updates-list-controls, .updates-history-filter-group, .update-list-preview-toolbar { gap:12px; }
 @media (max-width:700px) { .listing-meta-row { flex-direction:column; align-items:stretch; } .listing-page-size { width:100%; justify-content:space-between; } .listing-pagination > button { flex:1 1 120px; } }
+
+/* Ambiente já nasce fechado; o refinement apenas conecta a interação da sanfona. */
+.standard-update-accordion-card.is-collapsed > :not(.standard-update-accordion-toggle) { display:none!important; }

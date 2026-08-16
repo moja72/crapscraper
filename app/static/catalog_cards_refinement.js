@@ -285,7 +285,6 @@
 
     const diagnostic = document.getElementById("updates_environment_toggle");
     if (diagnostic && /diagnóstico/i.test(text(diagnostic.textContent))) diagnostic.remove();
-    document.getElementById("updates_environment_details")?.classList.remove("hidden");
   }
 
   function refine() {
