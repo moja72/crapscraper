@@ -186,11 +186,14 @@
     if (!container) return;
 
     const existing = [...container.querySelectorAll(".catalogo-availability-icon")];
-    const labels = existing.map(node => text(node.getAttribute("aria-label") || node.getAttribute("title") || node.dataset.tooltip).toLowerCase());
     const raw = text(container.textContent).toLowerCase();
-    const hasCatalog = labels.some(label => label.includes("catálogo")) || raw.includes("📄");
-    const hasState = labels.some(label => label.includes("estado")) || raw.includes("📝");
-    const hasLog = labels.some(label => label.includes("log")) || raw.includes("📋");
+    const availableByLabel = (needle) => existing.some(node => {
+      const label = text(node.getAttribute("aria-label") || node.getAttribute("title") || node.dataset.tooltip).toLowerCase();
+      return label.includes(needle) && node.getAttribute("aria-disabled") !== "true" && !node.classList.contains("is-unavailable");
+    });
+    const hasCatalog = existing.length ? availableByLabel("catálogo") : raw.includes("📄");
+    const hasState = existing.length ? availableByLabel("estado") : raw.includes("📝");
+    const hasLog = existing.length ? availableByLabel("log") : raw.includes("📋");
 
     const items = [["📄","Catálogo",hasCatalog],["📝","Estado",hasState],["📋","Log",hasLog]];
     container.innerHTML = items.map(([icon,label,available]) =>
