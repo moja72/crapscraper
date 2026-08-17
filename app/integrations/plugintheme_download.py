@@ -33,6 +33,41 @@ class PluginThemeDownloader(UltrapackDownloader):
         return False
 
     @staticmethod
+    def _credit_failure(payload: object) -> bool:
+        """Reconhece respostas da API que indicam ausência de crédito/saldo de download."""
+        credit_terms = ("credit", "credito", "crédito", "credits", "creditos", "créditos", "balance", "saldo")
+        negative_terms = (
+            "insufficient", "not enough", "no credit", "no credits", "sem credito", "sem crédito",
+            "sem creditos", "sem créditos", "saldo insuficiente", "esgotado", "esgotados", "exhausted",
+        )
+
+        def walk(value: object) -> bool:
+            if isinstance(value, dict):
+                for raw_key, nested in value.items():
+                    key = str(raw_key or "").strip().lower()
+                    key_is_credit = any(term in key for term in credit_terms)
+                    if key_is_credit:
+                        if nested is False:
+                            return True
+                        if isinstance(nested, (int, float)) and not isinstance(nested, bool) and nested <= 0:
+                            return True
+                        nested_text = str(nested or "").strip().lower()
+                        if nested_text in {"0", "0.0", "false", "none", "null"}:
+                            return True
+                        if any(term in nested_text for term in negative_terms):
+                            return True
+                    if walk(nested):
+                        return True
+                joined = " ".join(str(item) for item in value.values() if item is not None).lower()
+                return any(term in joined for term in credit_terms) and any(term in joined for term in negative_terms)
+            if isinstance(value, (list, tuple, set)):
+                return any(walk(item) for item in value)
+            text = str(value or "").strip().lower()
+            return any(term in text for term in credit_terms) and any(term in text for term in negative_terms)
+
+        return walk(payload)
+
+    @staticmethod
     def product_data(product_url: str, html: str) -> dict[str, str]:
         slug = Path(urlparse(product_url).path.rstrip("/")).name
         # O payload RSC do Next.js contém JSON escapado dentro do HTML.
@@ -64,20 +99,30 @@ class PluginThemeDownloader(UltrapackDownloader):
         check = self._get(f"{self.API_BASE}/downloads/{product_id}/check-access")
         try:
             access = check.json()
+            raw_access = access
             if isinstance(access.get("data"), dict):
                 access = access["data"]
         except Exception:
             raise PluginThemeDownloadError("Resposta inválida ao verificar acesso no PluginTheme") from None
         allowed = self.access_allowed(access)
         if not allowed:
+            if self._credit_failure(raw_access):
+                raise PluginThemeDownloadError(
+                    "Créditos de download insuficientes no PluginTheme. Adicione créditos à conta e tente novamente."
+                )
             raise PluginThemeDownloadError("Sessão do PluginTheme expirada ou sem acesso ao produto")
         metadata_response = self._get(f"{self.API_BASE}/downloads/{product_id}/file")
         try:
             metadata = metadata_response.json()
+            raw_metadata = metadata
             if isinstance(metadata.get("data"), dict):
                 metadata = metadata["data"]
         except Exception:
             raise PluginThemeDownloadError("Resposta inválida ao solicitar o arquivo no PluginTheme") from None
+        if self._credit_failure(raw_metadata):
+            raise PluginThemeDownloadError(
+                "Créditos de download insuficientes no PluginTheme. Adicione créditos à conta e tente novamente."
+            )
         download_url = str(metadata.get("downloadUrl") or metadata.get("url") or "").strip()
         if not download_url:
             raise PluginThemeDownloadError("PluginTheme não retornou uma URL de download")
