@@ -6261,21 +6261,38 @@ async function saveStorePackPrice(button) {
   } finally { button.disabled=false; button.textContent="Salvar preços"; }
 }
 
+function renderMissingDescriptionProducts(root, products, examined) {
+  root.innerHTML=products.length?`<div class="store-quality-count"><strong>${products.length}</strong> produto(s) sem breve descrição entre <strong>${Number(examined||0)}</strong> verificados</div><table class="store-data-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Categorias</th><th>Acesso</th></tr></thead><tbody>${products.map(product=>`<tr><td><strong>${escapeHtml(product.product_name||"")}</strong><span class="small">WooCommerce #${Number(product.product_id||0)}</span></td><td>${escapeHtml(product.product_type||"—")}</td><td>${escapeHtml((product.categories||[]).join(", ")||"—")}</td><td>${product.permalink?`<a class="btn-secondary btn-sm" href="${escapeHtml(product.permalink)}" target="_blank" rel="noopener noreferrer">Abrir produto</a>`:"—"}</td></tr>`).join("")}</tbody></table>`:`<div class="notice is-success">Varredura concluída: nenhum produto sem breve descrição foi encontrado entre ${Number(examined||0)} produtos publicados.</div>`;
+}
+
 async function refreshMissingDescriptions(event) {
   event?.preventDefault?.();
-  const root=byId("store_missing_descriptions");
+  const root=byId("store_missing_descriptions"),button=qs('button[type="submit"]',byId("store_missing_description_form"));
   if(!root)return;
   const query=normalizeText(byId("store_missing_description_search")?.value);
+  const endpoint=UI.endpoints.storeMissingDescriptions||"/loja/produtos/sem-breve-descricao";
   root.setAttribute("aria-busy","true");
-  root.innerHTML='<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Verificando breves descrições…</span></span>';
+  if(button){button.disabled=true;button.textContent="Verificando…";}
+  root.innerHTML='<div class="store-scan-progress"><div class="store-progress-phase">Varrendo todo o banco de produtos publicados</div><div class="store-progress-copy"><strong>Iniciando consulta ao WooCommerce…</strong><span>0 verificados</span></div><div class="store-progress-track is-indeterminate" role="progressbar" aria-label="Varredura das breves descrições"><span></span></div><div class="small">O filtro por nome ou ID será aplicado depois da verificação completa.</div></div>';
   try {
-    const endpoint=UI.endpoints.storeMissingDescriptions||"/loja/produtos/sem-breve-descricao";
-    const data=await getJsonWithTimeout(`${endpoint}?busca=${encodeURIComponent(query)}`,120000);
-    const products=Array.isArray(data.products)?data.products:[];
-    root.innerHTML=products.length?`<div class="store-quality-count"><strong>${products.length}</strong> produto(s) sem breve descrição</div><table class="store-data-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Categorias</th><th>Acesso</th></tr></thead><tbody>${products.map(product=>`<tr><td><strong>${escapeHtml(product.product_name||"")}</strong><span class="small">WooCommerce #${Number(product.product_id||0)}</span></td><td>${escapeHtml(product.product_type||"—")}</td><td>${escapeHtml((product.categories||[]).join(", ")||"—")}</td><td>${product.permalink?`<a class="btn-secondary btn-sm" href="${escapeHtml(product.permalink)}" target="_blank" rel="noopener noreferrer">Abrir produto</a>`:"—"}</td></tr>`).join("")}</tbody></table>`:'<div class="notice is-success">Nenhum produto sem breve descrição foi encontrado com esse filtro.</div>';
+    const started=await postJson(endpoint,{query});
+    while(true){
+      const data=await getJsonWithTimeout(`${endpoint}?job_id=${encodeURIComponent(started.job_id)}`,15000);
+      if(data.job_id!==started.job_id)throw new Error("O servidor perdeu o acompanhamento desta varredura.");
+      if(data.status==="error")throw new Error(data.message||"Falha ao verificar as descrições.");
+      if(data.status==="completed"){
+        renderMissingDescriptionProducts(root,Array.isArray(data.products)?data.products:[],data.examined);
+        break;
+      }
+      root.innerHTML=`<div class="store-scan-progress"><div class="store-progress-phase">Varrendo todo o banco de produtos publicados</div><div class="store-progress-copy"><strong>${escapeHtml(data.message||"Consultando produtos…")}</strong><span>${Number(data.examined||0)} verificados</span></div><div class="store-progress-track is-indeterminate" role="progressbar" aria-label="Varredura das breves descrições"><span></span></div><div class="store-scan-kpis"><span>Página <strong>${Number(data.page||0)}</strong></span><span>Sem descrição no filtro <strong>${Number(data.found||0)}</strong></span><span>Produto atual <strong>${escapeHtml(data.current_product||"—")}</strong></span></div></div>`;
+      await new Promise(resolve=>window.setTimeout(resolve,600));
+    }
   } catch(error) {
     root.innerHTML=`<div class="updates-error" role="alert"><strong>Não foi possível verificar as descrições.</strong><br>${escapeHtml(error?.message||String(error))}</div>`;
-  } finally { root.setAttribute("aria-busy","false"); }
+  } finally {
+    root.setAttribute("aria-busy","false");
+    if(button){button.disabled=false;button.textContent="Buscar sem breve descrição";}
+  }
 }
 
 async function selectAndRefreshUpdateQueue(name) {

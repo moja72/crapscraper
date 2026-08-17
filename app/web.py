@@ -60,6 +60,11 @@ _STORE_PRICE_LOCK = threading.RLock()
 _STORE_PRICE_JOB: dict[str, Any] = {
     "job_id": "", "status": "idle", "phase": "", "completed": 0, "total": 0, "message": "",
 }
+_STORE_DESCRIPTION_LOCK = threading.RLock()
+_STORE_DESCRIPTION_JOB: dict[str, Any] = {
+    "job_id": "", "status": "idle", "page": 0, "examined": 0, "found": 0,
+    "current_product": "", "message": "",
+}
 
 
 def _store_price_job_snapshot() -> dict[str, Any]:
@@ -123,6 +128,52 @@ def _start_store_price_job(payload: Mapping[str, Any]) -> dict[str, Any]:
 
     threading.Thread(target=run, name="store-price-update", daemon=True).start()
     return _store_price_job_snapshot()
+
+
+def _store_description_job_snapshot() -> dict[str, Any]:
+    with _STORE_DESCRIPTION_LOCK:
+        return dict(_STORE_DESCRIPTION_JOB)
+
+
+def _start_store_description_job(payload: Mapping[str, Any]) -> dict[str, Any]:
+    from app.store_pricing import products_without_short_description
+    query = str(payload.get("query", "") or "").strip()
+    job_id = uuid4().hex
+    with _STORE_DESCRIPTION_LOCK:
+        if _STORE_DESCRIPTION_JOB.get("status") == "running":
+            raise ValueError("Já existe uma verificação de descrições em andamento.")
+        _STORE_DESCRIPTION_JOB.update({
+            "job_id": job_id, "status": "running", "page": 0, "examined": 0,
+            "found": 0, "current_product": "", "query": query, "products": [],
+            "message": "Iniciando varredura completa dos produtos publicados…",
+        })
+
+    def progress(page: int, examined: int, found: int, current_product: str) -> None:
+        with _STORE_DESCRIPTION_LOCK:
+            _STORE_DESCRIPTION_JOB.update({
+                "page": page, "examined": examined, "found": found,
+                "current_product": current_product,
+                "message": f"Página {page}: {examined} produtos verificados; {found} sem breve descrição.",
+            })
+
+    def run() -> None:
+        try:
+            products = products_without_short_description(
+                _build_store_woocommerce_client(), query, progress=progress,
+            )
+            with _STORE_DESCRIPTION_LOCK:
+                _STORE_DESCRIPTION_JOB.update({
+                    "status": "completed", "products": products, "found": len(products),
+                    "message": f"Varredura concluída: {_STORE_DESCRIPTION_JOB.get('examined', 0)} produtos verificados.",
+                })
+        except Exception as error:
+            with _STORE_DESCRIPTION_LOCK:
+                _STORE_DESCRIPTION_JOB.update({
+                    "status": "error", "message": str(error), "error": str(error),
+                })
+
+    threading.Thread(target=run, name="store-description-scan", daemon=True).start()
+    return _store_description_job_snapshot()
 
 
 def _run_update_queue() -> None:
@@ -4344,16 +4395,7 @@ def make_handler(
                 return True
 
             if path == "/loja/produtos/sem-breve-descricao":
-                query = parse_qs(urlsplit(self.path).query or "")
-                search = str((query.get("busca") or [""])[0] or "").strip()
-                try:
-                    from app.store_pricing import products_without_short_description
-                    products = products_without_short_description(
-                        _build_store_woocommerce_client(), search,
-                    )
-                    self._send_json({"ok": True, "products": products, "total": len(products)})
-                except Exception as error:
-                    self._send_json(build_error_payload(error), code=500)
+                self._send_json({"ok": True, **_store_description_job_snapshot()})
                 return True
 
             if path == "/plugintema/catalogo/baixar":
@@ -4497,6 +4539,15 @@ def make_handler(
             return False
 
         def _route_post(self, path: str, payload: dict[str, Any]) -> bool:
+            if path == "/loja/produtos/sem-breve-descricao":
+                try:
+                    self._send_json({"ok": True, "started": True, **_start_store_description_job(payload)}, code=202)
+                except ValueError as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=400)
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
             if path == "/loja/pacotes/precos":
                 try:
                     from app.store_pricing import update_store_pack_price

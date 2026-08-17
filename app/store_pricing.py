@@ -124,27 +124,40 @@ def update_store_pack_price(woo: Any, payload: Mapping[str, Any]) -> dict[str, A
     }
 
 
-def products_without_short_description(woo: Any, query: str = "") -> list[dict[str, Any]]:
+def products_without_short_description(
+    woo: Any, query: str = "", *,
+    progress: Callable[[int, int, int, str], None] | None = None,
+) -> list[dict[str, Any]]:
     folded_query = _fold(query)
-    rows = _paged_products(
-        woo, status="publish", _fields="id,name,type,categories,short_description,permalink",
-        **({"search": query.strip()} if query.strip() else {}),
-    )
     missing = []
-    for product in rows:
-        short = html.unescape(re.sub(r"<[^>]+>", " ", str(product.get("short_description", "") or "")))
-        if _fold(short):
-            continue
-        searchable = _fold(" ".join((str(product.get("id", "")), str(product.get("name", "")))))
-        if folded_query and folded_query not in searchable:
-            continue
-        missing.append({
-            "product_id": int(product.get("id") or 0),
-            "product_name": str(product.get("name", "") or ""),
-            "product_type": str(product.get("type", "") or ""),
-            "categories": [str(item.get("name", "") or "") for item in product.get("categories", []) or [] if isinstance(item, Mapping)],
-            "permalink": str(product.get("permalink", "") or ""),
-        })
+    page, examined = 1, 0
+    while True:
+        batch = list(woo.list_products(
+            page=page, per_page=100, status="publish",
+            _fields="id,name,type,categories,short_description,permalink",
+        ) or [])
+        for product in batch:
+            if not isinstance(product, Mapping):
+                continue
+            examined += 1
+            short = html.unescape(re.sub(r"<[^>]+>", " ", str(product.get("short_description", "") or "")))
+            if _fold(short):
+                continue
+            searchable = _fold(" ".join((str(product.get("id", "")), str(product.get("name", "")))))
+            if folded_query and folded_query not in searchable:
+                continue
+            missing.append({
+                "product_id": int(product.get("id") or 0),
+                "product_name": str(product.get("name", "") or ""),
+                "product_type": str(product.get("type", "") or ""),
+                "categories": [str(item.get("name", "") or "") for item in product.get("categories", []) or [] if isinstance(item, Mapping)],
+                "permalink": str(product.get("permalink", "") or ""),
+            })
+        if progress:
+            progress(page, examined, len(missing), str(batch[-1].get("name", "")) if batch else "")
+        if len(batch) < 100:
+            break
+        page += 1
     return missing
 
 

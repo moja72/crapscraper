@@ -69,14 +69,21 @@ class StorePricingTests(unittest.TestCase):
 
     def test_missing_short_description_filters_any_published_product(self):
         class DescriptionWoo:
+            def __init__(self): self.calls = []
             def list_products(self, **filters):
+                self.calls.append(filters)
                 if filters.get("page", 1) > 1: return []
                 return [
                     {"id": 1, "name": "Elementor", "type": "variable", "categories": [{"name": "Plugin"}], "short_description": "<p>&nbsp;</p>", "permalink": "https://example/1"},
                     {"id": 2, "name": "Tema pronto", "type": "variable", "categories": [{"name": "Tema"}], "short_description": "Descrição existente"},
                 ]
-        rows = products_without_short_description(DescriptionWoo(), "Elementor")
+        woo, progress = DescriptionWoo(), []
+        rows = products_without_short_description(
+            woo, "Elementor", progress=lambda *values: progress.append(values),
+        )
         self.assertEqual([row["product_id"] for row in rows], [1])
+        self.assertTrue(all("search" not in call for call in woo.calls))
+        self.assertEqual(progress[-1][:3], (1, 2, 1))
 
     def test_period_recognizes_portuguese_and_english(self):
         self.assertEqual(variation_period({"attributes": [{"option": "Plano anual"}]}), "annual")
@@ -201,7 +208,8 @@ class StorePricingTests(unittest.TestCase):
         js = (root / "app" / "static" / "panel.js").read_text(encoding="utf-8")
         for token in ('/loja/pacotes/precos', '/loja/produtos/sem-breve-descricao',
                       'data-store-pack-regular', 'data-store-pack-sale', 'store-last-price',
-                      'Buscar sem breve descrição'):
+                      'Buscar sem breve descrição', '_start_store_description_job',
+                      'Varrendo todo o banco de produtos publicados', 'data.examined'):
             self.assertIn(token, web + js)
         self.assertIn("update_product_prices", (root / "app" / "integrations" / "woocommerce.py").read_text(encoding="utf-8"))
 
