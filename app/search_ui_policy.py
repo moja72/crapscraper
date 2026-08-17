@@ -151,7 +151,7 @@ def _patch_page_size_select(html: str, select_id: str) -> str:
 
     def repl(match: re.Match[str]) -> str:
         return (f'<input id="{select_id}" class="listing-page-size-input" type="number" '
-                'min="1" step="1" value="25" inputmode="numeric" '
+                'min="1" step="1" value="5" inputmode="numeric" '
                 'aria-label="Itens por página">')
 
     return pattern.sub(repl, html, count=1)

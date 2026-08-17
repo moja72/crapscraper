@@ -21,7 +21,7 @@ def test_search_ui_policy_injects_unified_script():
     assert "_patch_catalog_context_search" in policy
     assert "_patch_plugin_tema_toolbar_actions" in policy
     assert 'class="listing-page-size-input" type="number"' in policy
-    assert 'min="1" step="1" value="25"' in policy
+    assert 'min="1" step="1" value="5"' in policy
     assert "window.__crapscraperPagination" in policy
     assert 'id="updates_working_title">Preparação</div>' in policy
     assert 'class="catalogos-context-search cs-search-system"' in policy
@@ -34,7 +34,7 @@ def test_search_ui_policy_injects_unified_script():
     assert "⭐ Padrão atual" in policy
     assert "como catálogo padrão" in policy
 
-    assert "DEFAULT_PAGE_SIZE = 25" in script
+    assert "DEFAULT_PAGE_SIZE = 5" in script
     assert 'select.type = "number"' in script
     assert "cs-page-jump" in script
     assert "listing-pagination" in script

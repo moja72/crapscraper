@@ -28,7 +28,7 @@ class UpdateQueueUiTests(unittest.TestCase):
         page_size = self.web.split('id="updates_page_size"', 1)[1][:180]
         self.assertIn('type="number"', page_size)
         self.assertIn('min="1"', page_size)
-        self.assertIn('value="25"', page_size)
+        self.assertIn('value="5"', page_size)
         self.assertIn("Math.min(parsed, LISTING_MAX_PAGE_SIZE)", self.js)
 
     def test_batch_is_sequential_and_failure_does_not_abort_loop(self):

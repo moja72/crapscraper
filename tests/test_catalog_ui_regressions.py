@@ -55,8 +55,10 @@ class CatalogUiRegressionTests(unittest.TestCase):
         field = WEB.split(f'id="{input_id}"', 1)[1][:180]
         assert 'type="number"' in field
         assert 'min="1"' in field
-        assert 'value="25"' in field
-    assert "const LISTING_DEFAULT_PAGE_SIZE = 25" in JS
+        assert 'value="5"' in field
+    assert "const LISTING_DEFAULT_PAGE_SIZE = 5" in JS
+    assert "width:58px!important" in CSS
+    assert "flex-wrap:nowrap!important" in CSS
     assert "parsed < 1" in JS
     assert "LISTING_PAGE_SIZE_OPTIONS.includes" not in JS
     assert "const DEBOUNCE_MS = 700" in PAGINATION

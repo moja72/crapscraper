@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "crapscraper-unified-search-style";
-  const DEFAULT_PAGE_SIZE = 25;
+  const DEFAULT_PAGE_SIZE = 5;
   const byId = id => document.getElementById(id);
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
 
@@ -117,12 +117,15 @@
       font-weight:400!important;
     }
     .cs-search-system .listing-page-size select,
-    .cs-search-system .cs-page-size-wrap select{
-      width:92px!important;
-      min-width:92px!important;
-      height:42px!important;
-      min-height:42px!important;
-      padding:0 30px 0 12px!important;
+    .cs-search-system .cs-page-size-wrap select,
+    .cs-search-system .listing-page-size input,
+    .cs-search-system .cs-page-size-wrap input{
+      width:58px!important;
+      min-width:58px!important;
+      max-width:58px!important;
+      height:32px!important;
+      min-height:32px!important;
+      padding:4px 6px!important;
     }
 
     /* Paginação única: anterior | página editável | próxima. */

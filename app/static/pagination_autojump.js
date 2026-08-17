@@ -6,7 +6,7 @@
   const DEBOUNCE_MS = 700;
   const SCAN_DELAY_MS = 50;
   const FALLBACK_SCAN_MS = 500;
-  const DEFAULT_PAGE_SIZE = 25;
+  const DEFAULT_PAGE_SIZE = 5;
   const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const timers = new WeakMap();
 

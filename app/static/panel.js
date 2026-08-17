@@ -70,7 +70,7 @@
 
   const POLL_INTERVAL_MS = Math.max(500, Number(BOOT.poll_interval_ms || 1200));
 
-  const LISTING_DEFAULT_PAGE_SIZE = 25;
+  const LISTING_DEFAULT_PAGE_SIZE = 5;
   const LISTING_MAX_PAGE_SIZE = 10000;
 
   function normalizeListingPageSize(value, fallback = LISTING_DEFAULT_PAGE_SIZE) {
@@ -114,13 +114,13 @@
     plugintemaSelectedProducts: new Map(),
     plugintemaManageRows: [],
     plugintemaManagePage: 1,
-    plugintemaManagePageSize: 25,
+    plugintemaManagePageSize: 5,
     comparison: {
       loaded: false,
       loading: false,
       sourcesLoaded: false,
       page: 1,
-      pageSize: 25,
+      pageSize: 5,
       totalPages: 1,
       status: "all",
       query: "",
@@ -150,7 +150,7 @@
       downloadUrl: "",
       title: "Prévia",
       page: 1,
-      pageSize: 25,
+      pageSize: 5,
     },
   };
 
@@ -2689,7 +2689,7 @@ function resetCatalogPreview(message = "Selecione uma prévia na tabela.") {
     downloadUrl: "",
     title: "Prévia",
     page: 1,
-    pageSize: 25,
+    pageSize: 5,
   };
 
   const searchNode = byId("catalogos_preview_search");
@@ -3017,7 +3017,7 @@ async function showCatalogoCsvPreview(url) {
     downloadUrl: targetUrl,
     title: "catálogo",
     page: 1,
-    pageSize: 25,
+    pageSize: 5,
   };
 
   setCatalogPreviewHeader("Prévia de Catálogo", targetUrl);

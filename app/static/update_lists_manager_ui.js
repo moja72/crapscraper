@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "crapscraper-update-lists-manager-ui";
-  const DEFAULT_PAGE_SIZE = 25;
+  const DEFAULT_PAGE_SIZE = 5;
   const state = {
     selectedName: "",
     items: [],
@@ -134,16 +134,17 @@
       white-space:nowrap!important;
       font-size:13px!important;
     }
-    .update-lists-preview-page-size select{
-      width:92px!important;
-      min-width:92px!important;
-      height:42px!important;
-      min-height:42px!important;
+    .update-lists-preview-page-size input{
+      width:58px!important;
+      min-width:58px!important;
+      max-width:58px!important;
+      height:32px!important;
+      min-height:32px!important;
       border:1px solid #292931!important;
       border-radius:10px!important;
       background:#09090b!important;
       color:#fff!important;
-      padding:0 30px 0 12px!important;
+      padding:4px 6px!important;
     }
     .update-lists-preview-pagination{
       display:grid!important;
