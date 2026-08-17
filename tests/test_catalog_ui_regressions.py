@@ -23,6 +23,10 @@ class CatalogUiRegressionTests(unittest.TestCase):
     assert 'title="${label}"' in JS
     assert 'button.textContent = "⬇️"' in CARDS
     assert 'button.title = "Baixar catálogo"' in CARDS
+    assert 'class="catalogo-icon-button catalogo-download-button"' in JS
+    assert 'onclick=\'downloadCatalogoSlot(' in JS
+    assert "downloads[index].download_csv_url" in JS
+    assert 'fetch(downloads[index].download_csv_url, {cache: "no-store"})' in JS
 
 
   def test_catalog_controls_and_context_search_order(self):

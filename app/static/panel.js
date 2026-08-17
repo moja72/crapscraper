@@ -3175,6 +3175,7 @@ function buildCatalogosCardsHtml(rows, currentSlot, defaultSlot, selectedFilter 
       <div class="card catalogo-summary-card" style="min-width:280px; flex:1 1 280px;">
         <div class="catalogo-card-actions">
           <button class="catalogo-icon-button catalogo-view-button ${isContextFilterActive ? "is-active" : ""}" type="button" aria-pressed="${isContextFilterActive}" title="${isContextFilterActive ? "Mostrar todos os catálogos" : `Ver somente os contextos de ${escapeHtml(slotName)}`}" aria-label="${isContextFilterActive ? "Mostrar todos os catálogos" : `Ver contextos do catálogo ${escapeHtml(slotName)}`}" onclick='showCatalogoContexts(${JSON.stringify(slotName)})'>👁️</button>
+          <button class="catalogo-icon-button catalogo-download-button" type="button" title="Baixar catálogo" aria-label="Baixar catálogo ${escapeHtml(slotDisplayName)}" onclick='downloadCatalogoSlot(${JSON.stringify(slotName)}, this).catch(error => notify(error?.message || String(error), "error"))' ${entry.has_csv ? "" : "disabled"}>⬇️</button>
           ${isPrincipal ? "" : `<button class="catalogo-icon-button catalogo-rename-button" type="button" title="Renomear catálogo ${escapeHtml(slotDisplayName)}" aria-label="Renomear catálogo ${escapeHtml(slotDisplayName)}" onclick='openCatalogRenameModal(${JSON.stringify(slotName)})'><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>`}
           <button class="catalogo-icon-button catalogo-load-button" type="button" title="Carregar catálogo ${escapeHtml(slotName)}" aria-label="Carregar catálogo ${escapeHtml(slotName)}" onclick='loadCatalogo(${JSON.stringify(slotName)})' ${isCurrent ? "disabled" : ""}>📂</button>
           <button class="catalogo-icon-button catalogo-default-button" type="button" title="Definir ${escapeHtml(slotName)} como catálogo default" aria-label="Definir ${escapeHtml(slotName)} como catálogo default" onclick='defineDefaultCatalogo(${JSON.stringify(slotName)})' ${isDefault ? "disabled" : ""}>⭐</button>
@@ -3197,6 +3198,41 @@ function buildCatalogosCardsHtml(rows, currentSlot, defaultSlot, selectedFilter 
       </div>
     `;
   }).join("");
+}
+
+function catalogDownloadFilename(response, fallback) {
+  const disposition = String(response.headers.get("content-disposition") || "");
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded) { try { return decodeURIComponent(encoded[1].replace(/["']/g, "")); } catch (_error) {} }
+  const plain = disposition.match(/filename=["']?([^;"']+)/i);
+  return plain ? plain[1].trim() : fallback;
+}
+
+async function downloadCatalogoSlot(slotName, button = null) {
+  const normalized = normalizeText(slotName);
+  const downloads = (UI.catalogRows || []).filter(row =>
+    normalizeText(row?.slot_name || row?.catalogo_nome) === normalized && row?.download_csv_url
+  );
+  if (!downloads.length) throw new Error("Este catálogo ainda não possui arquivo disponível para download.");
+  const original = button?.textContent || "⬇️";
+  if (button) { button.disabled = true; button.textContent = "…"; }
+  try {
+    for (let index = 0; index < downloads.length; index += 1) {
+      const response = await fetch(downloads[index].download_csv_url, {cache: "no-store"});
+      if (!response.ok) throw new Error(`Falha ao baixar catálogo (HTTP ${response.status}).`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = catalogDownloadFilename(response, `${normalized}${downloads.length > 1 ? `-${index + 1}` : ""}.csv`);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }
+  } finally {
+    if (button) { button.disabled = false; button.textContent = original; }
+  }
 }
 
 function setCatalogosLoading(loading) {
