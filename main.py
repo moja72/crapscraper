@@ -39,8 +39,12 @@ load_windows_user_environment()
 # importados e restaurem jobs. Um job só continua como completed quando há prova
 # persistida de plano, SHA do ZIP e confirmação de pt_versao.
 from app.operations.runtime_repair import repair_update_runtime
+from app.operations.transient_recovery import recover_interrupted_preparations
 
 repair_update_runtime()
+# Estados de preparação não podem continuar ativos depois de um reinício. Eles
+# retornam para Aprovado, preservando staging/SHA para uma preparação segura.
+recover_interrupted_preparations()
 
 
 from app.app import ScraperApp
@@ -52,6 +56,7 @@ from app.session_validation_policy import install_session_validation_policy
 from app.update_flow_fix_policy import install_update_flow_fix_policy
 from app.store_management_policy import install_store_management_policy
 from app.staging_reuse_policy import install_staging_reuse_policy
+from app.update_operational_ui_policy import install_update_operational_ui_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -79,6 +84,8 @@ install_update_flow_fix_policy()
 install_store_management_policy()
 # Reaproveita ZIP de staging somente quando SHA e versão persistidos continuam válidos.
 install_staging_reuse_policy()
+# Exibe todos os estados reais da lista, resumo operacional e indicação de ZIP local.
+install_update_operational_ui_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
