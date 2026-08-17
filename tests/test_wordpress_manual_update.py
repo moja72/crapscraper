@@ -108,6 +108,12 @@ class WordPressManualUpdateTests(unittest.TestCase):
         self.assertIn("top:20px", css)
         self.assertIn("right:20px", css)
         self.assertIn("prefers-reduced-motion", css)
+        for interaction in ("data-cs-drag-handle", "data-cs-minimize", "Arraste para mover"):
+            self.assertIn(interaction, php)
+        for behavior in ("localStorage", "setPointerCapture", "is-minimized", "ArrowLeft", "event.key === 'Home'"):
+            self.assertIn(behavior, js)
+        self.assertIn(".cs-frontend-panel.is-minimized", css)
+        self.assertIn("touch-action:none", css)
         runtime = (root / "app/operations/runtime.py").read_text(encoding="utf-8")
         for field in ("source", "previous_version", "new_version", "requested_at", "result"):
             self.assertIn(f'"{field}"', runtime)

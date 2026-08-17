@@ -2,13 +2,13 @@
 /**
  * Plugin Name: CrapScraper Manual Update
  * Description: Fila atualizações seguras de Plugin, Tema e Template para o CrapScraper local.
- * Version: 2.2.0
+ * Version: 2.3.0
  */
 defined('ABSPATH') || exit;
 
 final class CrapScraper_Manual_Update {
     const NONCE_ACTION = 'crapscraper_manual_update';
-    const DB_VERSION = '2.2.0';
+    const DB_VERSION = '2.3.0';
 
     public static function init() {
         self::ensure_table();
@@ -69,7 +69,12 @@ final class CrapScraper_Manual_Update {
         if (!self::authorized() || !self::eligible($product_id)) return;
         $frontend = 'frontend' === $context;
         echo '<aside id="crapscraper-manual" class="cs-manual ' . ($frontend ? 'cs-frontend-panel' : 'cs-admin-panel') . '" data-context="' . esc_attr($context) . '" data-product-id="' . esc_attr($product_id) . '" aria-label="Atualização CrapScraper">';
-        if ($frontend) echo '<div class="cs-panel-title">Atualização do produto</div>';
+        if ($frontend) {
+            echo '<div class="cs-panel-head" data-cs-drag-handle tabindex="0" role="group" aria-label="Mover painel de atualização; use as setas do teclado">';
+            echo '<div><div class="cs-panel-title">Atualização do produto</div><span class="cs-move-hint">Arraste para mover</span></div>';
+            echo '<button type="button" class="cs-minimize" data-cs-minimize aria-label="Minimizar painel" aria-expanded="true" title="Minimizar painel"><span aria-hidden="true">−</span></button>';
+            echo '</div>';
+        }
         echo '<p class="cs-intro">O pedido será processado pelo CrapScraper assim que ele estiver aberto no PC.</p>';
         echo '<button type="button" class="button button-primary" id="crapscraper-manual-button">Verificar e atualizar</button>';
         echo '<div class="cs-loading-space" aria-live="polite">';

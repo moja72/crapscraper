@@ -8,6 +8,78 @@
   const source = root.querySelector('[data-cs-source]');
   const version = root.querySelector('[data-cs-version]');
   const productId = root.dataset.productId;
+  const dragHandle = root.querySelector('[data-cs-drag-handle]');
+  const minimize = root.querySelector('[data-cs-minimize]');
+  const storageKey = 'crapscraper-manual-panel-v1';
+  let panelState = { x: null, y: null, minimized: false };
+
+  const persistPanel = () => {
+    try { window.localStorage.setItem(storageKey, JSON.stringify(panelState)); } catch (_error) {}
+  };
+  const clampPanel = (x, y) => {
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - root.offsetWidth - margin);
+    const maxY = Math.max(margin, window.innerHeight - root.offsetHeight - margin);
+    return { x: Math.min(Math.max(margin, x), maxX), y: Math.min(Math.max(margin, y), maxY) };
+  };
+  const placePanel = (x, y, save = true) => {
+    if (root.dataset.context !== 'frontend' || window.innerWidth <= 782) return;
+    const next = clampPanel(Number(x) || 8, Number(y) || 8);
+    root.style.left = `${next.x}px`;
+    root.style.top = `${next.y}px`;
+    root.style.right = 'auto';
+    panelState.x = next.x; panelState.y = next.y;
+    if (save) persistPanel();
+  };
+  const setMinimized = (value, save = true) => {
+    panelState.minimized = Boolean(value);
+    root.classList.toggle('is-minimized', panelState.minimized);
+    if (minimize) {
+      minimize.setAttribute('aria-expanded', String(!panelState.minimized));
+      minimize.setAttribute('aria-label', panelState.minimized ? 'Expandir painel' : 'Minimizar painel');
+      minimize.title = panelState.minimized ? 'Expandir painel' : 'Minimizar painel';
+      minimize.querySelector('span').textContent = panelState.minimized ? '+' : '−';
+    }
+    if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x, panelState.y, false);
+    if (save) persistPanel();
+  };
+
+  if (root.dataset.context === 'frontend') {
+    try { panelState = { ...panelState, ...JSON.parse(window.localStorage.getItem(storageKey) || '{}') }; } catch (_error) {}
+    setMinimized(panelState.minimized, false);
+    if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x, panelState.y, false);
+    minimize?.addEventListener('click', () => setMinimized(!panelState.minimized));
+    dragHandle?.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('[data-cs-minimize]') || window.innerWidth <= 782) return;
+      const rect = root.getBoundingClientRect();
+      const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
+      root.classList.add('is-dragging');
+      dragHandle.setPointerCapture?.(event.pointerId);
+      const move = (nextEvent) => { nextEvent.preventDefault(); placePanel(nextEvent.clientX - offsetX, nextEvent.clientY - offsetY, false); };
+      const finish = () => {
+        root.classList.remove('is-dragging');
+        dragHandle.removeEventListener('pointermove', move);
+        dragHandle.removeEventListener('pointerup', finish);
+        dragHandle.removeEventListener('pointercancel', finish);
+        persistPanel();
+      };
+      dragHandle.addEventListener('pointermove', move);
+      dragHandle.addEventListener('pointerup', finish);
+      dragHandle.addEventListener('pointercancel', finish);
+    });
+    dragHandle?.addEventListener('keydown', (event) => {
+      const deltas = {ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};
+      if (event.key === 'Home') { event.preventDefault(); root.style.left=''; root.style.top=''; root.style.right=''; panelState.x=null; panelState.y=null; persistPanel(); return; }
+      if (!deltas[event.key]) return;
+      event.preventDefault();
+      const rect=root.getBoundingClientRect(),delta=deltas[event.key];
+      placePanel(rect.left+delta[0],rect.top+delta[1]);
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth <= 782) { root.style.left=''; root.style.top=''; root.style.right=''; return; }
+      if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x,panelState.y,false);
+    });
+  }
 
   const request = async (action, values = {}) => {
     const body = new URLSearchParams({ action, nonce: CrapScraperManual.nonce, product_id: productId, ...values });
