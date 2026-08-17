@@ -98,6 +98,7 @@ class UpdatePreparationService:
     def _prepare(self, job: OperationalJob) -> UpdatePreview:
         if job.decision != "approve_update" or job.queue_type != "update":
             raise ValueError("Job nao aprovado para atualizacao")
+        job.execution_error = ""
         job.set_state(JobState.VALIDATING)
         self.logger(f"🚀 Preparando atualização: {job.name}")
         self.logger(f"🔎 Consultando WooCommerce #{job.woo_product_id}")
@@ -243,10 +244,13 @@ class UpdatePreparationService:
             "Preview preparado" if preview_ready else f"Preparação bloqueada: {first_failure}",
         )
         if job.state == JobState.PREPARED:
+            job.execution_error = ""
             job.prepared_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             job.current_sha256 = str(physical.get("sha256") or "")
             job.new_sha256 = str(artifact.get("sha256") or "")
             job.local_staging_path = str(artifact.get("path") or "")
+        else:
+            job.execution_error = first_failure or "Preparação bloqueada. Abra os detalhes para revisar as validações."
         self.logger("🛑 Preparação concluída. Nenhuma atualização executada.")
         return UpdatePreview(
             job_id=job.job_id, state=job.state.value,
