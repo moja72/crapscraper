@@ -52,8 +52,6 @@ from app.update_operational_ui_policy import install_update_operational_ui_polic
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
-from app.local_staging_inventory_policy import install_local_staging_inventory_policy
-from app.local_staging_ui_policy import install_local_staging_ui_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -75,11 +73,9 @@ install_store_category_table_policy()
 # Packs: expõe e edita as variações Anual/Vitalícia quando elas existem no WooCommerce.
 install_store_pack_variation_policy()
 install_store_pack_variation_ui_policy()
-# Atualizações: mantém reaproveitamento seguro e também inventaria os ZIPs existentes no disco.
+# Atualizações: fluxo normal, sem inventário/UI de ZIPs locais.
 install_staging_reuse_policy()
 install_update_operational_ui_policy()
-install_local_staging_inventory_policy()
-install_local_staging_ui_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
