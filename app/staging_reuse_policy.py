@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import suppress
 from pathlib import Path
-import re
 from typing import Any, Callable
 
 from app.integrations.ultrapack_download import UltrapackDownloader
@@ -33,11 +32,6 @@ def _previous_artifact(job: Any) -> tuple[str, str, str]:
             or ""
         ).strip()
 
-    version = version or str(
-        getattr(job, "approved_source_version", "")
-        or getattr(job, "ultrapack_version", "")
-        or ""
-    ).strip()
     return path, sha256, version
 
 
@@ -54,81 +48,12 @@ def _candidate_paths(staging_dir: str | Path, persisted_path: str) -> list[Path]
     return candidates
 
 
-def _version_tokens(version: str) -> tuple[str, ...]:
-    normalized = str(version or "").strip().lower().lstrip("v")
-    if not normalized:
-        return ()
-    compact = re.sub(r"[^0-9a-z]+", "", normalized)
-    dashed = re.sub(r"[^0-9a-z]+", "-", normalized).strip("-")
-    dotted = re.sub(r"[^0-9a-z]+", ".", normalized).strip(".")
-    return tuple(dict.fromkeys(token for token in (normalized, compact, dashed, dotted) if token))
-
-
-def _choose_recovery_candidate(candidates: list[Path], expected_version: str) -> Path | None:
-    """Escolhe somente candidato inequívoco dentro da pasta exata do job."""
-    valid: list[Path] = []
-    for candidate in candidates:
-        try:
-            UltrapackDownloader.validate_zip(candidate, source_url="staging-recovery-probe")
-        except Exception:
-            continue
-        valid.append(candidate)
-    if len(valid) == 1:
-        return valid[0]
-    if len(valid) <= 1:
-        return None
-    tokens = _version_tokens(expected_version)
-    matching = [
-        candidate for candidate in valid
-        if any(token in candidate.stem.lower().replace("_", "-") for token in tokens)
-    ]
-    return matching[0] if len(matching) == 1 else None
-
-
 def _patched_prepare(self: Any, job: Any):
-    """Reusa artefato persistido ou recupera com segurança o ZIP da pasta exata do job."""
+    """Reusa somente artefato com prova persistida de SHA e versão."""
     original_download = self.downloader.download
-    original_inspect = self.downloader.inspect_product
     persisted_path, expected_sha, expected_version = _previous_artifact(job)
-    job_dir = Path(self.staging_root) / str(getattr(job, "job_id", "") or "")
-    candidates = _candidate_paths(job_dir, persisted_path)
-    recovery_candidate: Path | None = None
-    recovered_artifact: Any = None
-
-    # Recuperação de legado: o arquivo existe no diretório UUID correto, porém
-    # versões antigas do runtime não persistiram local_staging_path/new_sha256.
-    if (not expected_sha or not persisted_path) and expected_version:
-        recovery_candidate = _choose_recovery_candidate(candidates, expected_version)
-        if recovery_candidate is not None:
-            try:
-                recovered_artifact = UltrapackDownloader.validate_zip(
-                    recovery_candidate, source_url="staging-recovery"
-                )
-                self.logger(
-                    f"♻ ZIP local legado recuperado: {recovery_candidate.name} · "
-                    f"SHA-256 {recovered_artifact.sha256[:12]}…"
-                )
-            except Exception as error:
-                self.logger(f"⚠ ZIP local legado inválido: {error}")
-                recovery_candidate = None
-                recovered_artifact = None
-
-    # No modo de recuperação o download já aconteceu no passado. A versão usada
-    # é a versão aprovada/efetiva persistida no próprio job; a preparação ainda
-    # revalida WooCommerce, vínculo, ZIP atual, estado do produto e plano.
-    if recovery_candidate is not None and recovered_artifact is not None:
-        def inspect_from_recovered_job(url: str):
-            self.logger(
-                f"♻ Fonte reaproveitada do job: versão {expected_version}; "
-                "nenhum novo download será solicitado."
-            )
-            return url, expected_version
-        self.downloader.inspect_product = inspect_from_recovered_job
 
     def download_with_reuse(url: str, staging_dir: str | Path):
-        if recovery_candidate is not None and recovered_artifact is not None:
-            return recovered_artifact, expected_version
-
         if expected_sha and expected_version:
             for candidate in _candidate_paths(staging_dir, persisted_path):
                 try:
@@ -158,21 +83,9 @@ def _patched_prepare(self: Any, job: Any):
 
     self.downloader.download = download_with_reuse
     try:
-        result = _BASE_PREPARE(self, job)  # type: ignore[misc]
-        # O _prepare base grava local_staging_path/new_sha256 quando o preview fica
-        # preparado. Persistimos o job imediatamente para que a evidência sobreviva
-        # a reinícios antes mesmo da geração do plano.
-        if recovery_candidate is not None and recovered_artifact is not None:
-            with suppress(Exception):
-                from app.operations.runtime import persist_job
-                job.local_staging_path = str(recovery_candidate)
-                job.new_sha256 = str(recovered_artifact.sha256 or "")
-                job.effective_source_version = expected_version
-                persist_job(job)
-        return result
+        return _BASE_PREPARE(self, job)  # type: ignore[misc]
     finally:
         self.downloader.download = original_download
-        self.downloader.inspect_product = original_inspect
 
 
 def install_staging_reuse_policy() -> None:
