@@ -119,6 +119,35 @@ class WooCommerceClient(ReadOnlyHttpClient):
             raise IntegrationError("WooCommerce retornou resposta inválida ao atualizar preços")
         return [item for item in decoded.get("update", []) or [] if isinstance(item, Mapping)]
 
+    def update_product_prices(
+        self, product_id: int, regular_price: str, sale_price: str, *, authorized: bool = False
+    ) -> Mapping[str, Any]:
+        """Escrita estreita: altera somente os dois preços do produto informado."""
+        if not authorized:
+            raise IntegrationError("Atualização de preços não autorizada")
+        url = self.base_url.rstrip("/") + f"/wp-json/wc/v3/products/{int(product_id)}"
+        body = json.dumps({
+            "regular_price": str(regular_price), "sale_price": str(sale_price),
+        }).encode("utf-8")
+        request = Request(url, data=body, method="PUT", headers={
+            "Accept": "application/json", "Content-Type": "application/json",
+            "Authorization": self._authorization(),
+            "User-Agent": "CrapScraper-controlled-pack-pricing/1.0",
+        })
+        try:
+            status, _headers, response_body = self.transport(request, self.timeout)
+            if status >= 400:
+                raise IntegrationError(f"WooCommerce recusou os preços: HTTP {status}")
+            decoded = json.loads(response_body) if response_body else {}
+        except Exception as error:
+            if isinstance(error, IntegrationError):
+                raise
+            safe = sanitize_text(error, self.username, self.password)
+            raise IntegrationError(f"Falha ao atualizar preços do pack: {safe}") from None
+        if not isinstance(decoded, Mapping):
+            raise IntegrationError("WooCommerce retornou resposta inválida ao atualizar o pack")
+        return decoded
+
     @staticmethod
     def metadata(product: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         return list(product.get("meta_data", []) or [])

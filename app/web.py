@@ -2355,6 +2355,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="store-form-actions"><button class="btn-success" id="store_apply_btn" type="submit" disabled>Aplicar preços em lote</button></div>
     <div class="notice hidden" id="store_result" role="status" aria-live="polite"></div>
   </form>
+  <section class="card store-pack-card" aria-labelledby="store_pack_title">
+    <div class="store-section-head">
+      <div><div class="section-title" id="store_pack_title">Preços de pacotes / packs</div><div class="small">Edite individualmente os preços dos produtos bundle e dos produtos cadastrados na categoria Pack.</div></div>
+      <button class="btn-secondary btn-sm" id="store_pack_refresh" type="button">Atualizar lista</button>
+    </div>
+    <div class="store-table-wrap" id="store_pack_prices" aria-live="polite" aria-busy="true">
+      <span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando pacotes…</span></span>
+    </div>
+  </section>
+  <section class="card store-quality-card" aria-labelledby="store_quality_title">
+    <div class="store-section-head">
+      <div><div class="section-title" id="store_quality_title">Breve descrição dos produtos</div><div class="small">Localize qualquer produto publicado cujo campo “Breve descrição sobre o produto” esteja vazio.</div></div>
+    </div>
+    <form class="store-quality-filter" id="store_missing_description_form">
+      <label for="store_missing_description_search">Filtrar por nome ou ID</label>
+      <div class="store-filter-row"><input id="store_missing_description_search" type="search" autocomplete="off" placeholder="Ex.: Elementor ou 92038"><button class="btn-secondary" type="submit">Buscar sem breve descrição</button></div>
+    </form>
+    <div class="store-table-wrap" id="store_missing_descriptions" aria-live="polite">
+      <div class="small">Use o filtro para consultar os produtos sem breve descrição.</div>
+    </div>
+  </section>
 </section>
 
 <section
@@ -4313,6 +4334,28 @@ def make_handler(
                 self._send_json({"ok": True, **_store_price_job_snapshot()})
                 return True
 
+            if path == "/loja/pacotes/precos":
+                try:
+                    from app.store_pricing import list_store_pack_products
+                    products = list_store_pack_products(_build_store_woocommerce_client())
+                    self._send_json({"ok": True, "products": products, "total": len(products)})
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
+            if path == "/loja/produtos/sem-breve-descricao":
+                query = parse_qs(urlsplit(self.path).query or "")
+                search = str((query.get("busca") or [""])[0] or "").strip()
+                try:
+                    from app.store_pricing import products_without_short_description
+                    products = products_without_short_description(
+                        _build_store_woocommerce_client(), search,
+                    )
+                    self._send_json({"ok": True, "products": products, "total": len(products)})
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
             if path == "/plugintema/catalogo/baixar":
                 query = parse_qs(urlsplit(self.path).query or "")
                 catalog_id = str((query.get("catalog_id") or [""])[0] or "").strip()
@@ -4454,6 +4497,16 @@ def make_handler(
             return False
 
         def _route_post(self, path: str, payload: dict[str, Any]) -> bool:
+            if path == "/loja/pacotes/precos":
+                try:
+                    from app.store_pricing import update_store_pack_price
+                    self._send_json(update_store_pack_price(_build_store_woocommerce_client(), payload))
+                except ValueError as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=400)
+                except Exception as error:
+                    self._send_json(build_error_payload(error), code=500)
+                return True
+
             if path == "/loja/precos":
                 try:
                     result = _start_store_price_job(payload)

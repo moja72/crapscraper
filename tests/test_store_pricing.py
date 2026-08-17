@@ -6,7 +6,8 @@ from pathlib import Path
 
 from app.store_pricing import (
     apply_store_prices, build_store_pricing_snapshot, normalize_prices,
-    read_store_price_reference_products, variation_period,
+    read_store_price_reference_products, variation_period, is_pack_product,
+    list_store_pack_products, products_without_short_description, update_store_pack_price,
 )
 
 
@@ -42,6 +43,41 @@ class Woo:
 
 
 class StorePricingTests(unittest.TestCase):
+    def test_pack_prices_use_parent_product_fields_and_keep_last_price(self):
+        class PackWoo:
+            def __init__(self):
+                self.rows = [{"id": 70, "name": "Pack Elementor", "type": "bundle", "status": "publish",
+                              "categories": [{"id": 9, "name": "Pack"}], "regular_price": "84.90",
+                              "sale_price": "59.90", "price": "59.90"}]
+                self.updated = None
+            def list_products(self, **filters):
+                if filters.get("page", 1) > 1: return []
+                return self.rows
+            def list_product_categories(self, **filters):
+                return [{"id": 9, "name": "Pack"}] if filters.get("page", 1) == 1 else []
+            def get_product(self, product_id): return self.rows[0]
+            def update_product_prices(self, product_id, regular, sale, *, authorized=False):
+                self.updated = (product_id, regular, sale, authorized)
+                return {**self.rows[0], "regular_price": regular, "sale_price": sale, "price": sale or regular}
+        woo = PackWoo()
+        rows = list_store_pack_products(woo)
+        self.assertEqual(rows[0]["last_price"], "59.90")
+        result = update_store_pack_price(woo, {"product_id": 70, "regular_price": "99,90", "sale_price": "69,90"})
+        self.assertEqual(woo.updated, (70, "99.90", "69.90", True))
+        self.assertEqual(result["product"]["last_price"], "69.90")
+        self.assertTrue(is_pack_product(woo.rows[0]))
+
+    def test_missing_short_description_filters_any_published_product(self):
+        class DescriptionWoo:
+            def list_products(self, **filters):
+                if filters.get("page", 1) > 1: return []
+                return [
+                    {"id": 1, "name": "Elementor", "type": "variable", "categories": [{"name": "Plugin"}], "short_description": "<p>&nbsp;</p>", "permalink": "https://example/1"},
+                    {"id": 2, "name": "Tema pronto", "type": "variable", "categories": [{"name": "Tema"}], "short_description": "Descrição existente"},
+                ]
+        rows = products_without_short_description(DescriptionWoo(), "Elementor")
+        self.assertEqual([row["product_id"] for row in rows], [1])
+
     def test_period_recognizes_portuguese_and_english(self):
         self.assertEqual(variation_period({"attributes": [{"option": "Plano anual"}]}), "annual")
         self.assertEqual(variation_period({"name": "Licença Vitalícia"}), "lifetime")
@@ -158,6 +194,16 @@ class StorePricingTests(unittest.TestCase):
         self.assertIn("store-progress-track", css)
         self.assertIn("60 * 60 * 1000", js)
         self.assertIn("write_workers = min(4", (root / "app" / "store_pricing.py").read_text(encoding="utf-8"))
+
+    def test_store_panel_has_pack_editor_and_missing_description_filter(self):
+        root = Path(__file__).resolve().parents[1]
+        web = (root / "app" / "web.py").read_text(encoding="utf-8")
+        js = (root / "app" / "static" / "panel.js").read_text(encoding="utf-8")
+        for token in ('/loja/pacotes/precos', '/loja/produtos/sem-breve-descricao',
+                      'data-store-pack-regular', 'data-store-pack-sale', 'store-last-price',
+                      'Buscar sem breve descrição'):
+            self.assertIn(token, web + js)
+        self.assertIn("update_product_prices", (root / "app" / "integrations" / "woocommerce.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

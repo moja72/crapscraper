@@ -62,6 +62,8 @@
       plugintemaCatalogManage: "/plugintema/catalogo/gerenciar",
       plugintemaCatalogDownload: "/plugintema/catalogo/baixar",
       storePricing: "/loja/precos",
+      storePackPricing: "/loja/pacotes/precos",
+      storeMissingDescriptions: "/loja/produtos/sem-breve-descricao",
       comparisonProducts: "/comparacao/produtos",
       comparisonRelationshipSave: "/comparacao/vinculo/salvar",
     },
@@ -6202,6 +6204,80 @@ async function refreshStorePricing() {
   }
 }
 
+function storeMoney(value) {
+  const parsed = Number.parseFloat(String(value || "").replace(",", "."));
+  return Number.isFinite(parsed)
+    ? parsed.toLocaleString("pt-BR", {style:"currency", currency:"BRL"}) : "—";
+}
+
+function renderStorePackProducts(products) {
+  const root = byId("store_pack_prices");
+  if (!root) return;
+  if (!Array.isArray(products) || !products.length) {
+    root.innerHTML = '<div class="notice">Nenhum produto pacote/pack publicado foi encontrado.</div>';
+    return;
+  }
+  root.innerHTML = `<table class="store-data-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${products.map(product => {
+    const id=Number(product.product_id||0);
+    return `<tr data-store-pack-id="${id}"><td><strong>${escapeHtml(product.product_name||`Produto #${id}`)}</strong><span class="small">WooCommerce #${id}</span></td><td>${escapeHtml(product.product_type||"—")}</td><td class="store-last-price">${escapeHtml(storeMoney(product.last_price))}</td><td><label class="sr-only" for="store_pack_regular_${id}">Preço original de ${escapeHtml(product.product_name||String(id))}</label><input id="store_pack_regular_${id}" data-store-pack-regular inputmode="decimal" value="${escapeHtml(product.regular_price||"")}"></td><td><label class="sr-only" for="store_pack_sale_${id}">Preço promocional de ${escapeHtml(product.product_name||String(id))}</label><input id="store_pack_sale_${id}" data-store-pack-sale inputmode="decimal" value="${escapeHtml(product.sale_price||"")}" placeholder="Sem promoção"></td><td><button class="btn-success btn-sm" type="button" data-store-pack-save>Salvar preços</button><span class="store-row-status small" role="status"></span></td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+
+async function refreshStorePackPricing() {
+  const root=byId("store_pack_prices");
+  if(!root)return;
+  root.setAttribute("aria-busy","true");
+  root.innerHTML='<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando pacotes…</span></span>';
+  try {
+    const data=await getJsonWithTimeout(UI.endpoints.storePackPricing||"/loja/pacotes/precos",60000);
+    renderStorePackProducts(data.products||[]);
+  } catch(error) {
+    root.innerHTML=`<div class="updates-error" role="alert"><strong>Não foi possível carregar os packs.</strong><br>${escapeHtml(error?.message||String(error))}</div>`;
+  } finally { root.setAttribute("aria-busy","false"); }
+}
+
+async function saveStorePackPrice(button) {
+  const row=button.closest("[data-store-pack-id]");
+  if(!row)return;
+  const status=qs(".store-row-status",row);
+  button.disabled=true;
+  button.textContent="Salvando…";
+  if(status)status.textContent="Validando preços";
+  try {
+    const result=await postJson(UI.endpoints.storePackPricing||"/loja/pacotes/precos",{
+      product_id:Number(row.dataset.storePackId),
+      regular_price:qs("[data-store-pack-regular]",row)?.value||"",
+      sale_price:qs("[data-store-pack-sale]",row)?.value||"",
+    });
+    const product=result.product||{};
+    qs("[data-store-pack-regular]",row).value=product.regular_price||"";
+    qs("[data-store-pack-sale]",row).value=product.sale_price||"";
+    qs(".store-last-price",row).textContent=storeMoney(product.last_price);
+    if(status)status.textContent="Preço atualizado";
+    notify(result.message||"Preço do pack atualizado.","ok");
+  } catch(error) {
+    if(status)status.textContent=error?.message||"Falha ao atualizar";
+    notify(error?.message||String(error),"error");
+  } finally { button.disabled=false; button.textContent="Salvar preços"; }
+}
+
+async function refreshMissingDescriptions(event) {
+  event?.preventDefault?.();
+  const root=byId("store_missing_descriptions");
+  if(!root)return;
+  const query=normalizeText(byId("store_missing_description_search")?.value);
+  root.setAttribute("aria-busy","true");
+  root.innerHTML='<span class="modal-inline-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Verificando breves descrições…</span></span>';
+  try {
+    const endpoint=UI.endpoints.storeMissingDescriptions||"/loja/produtos/sem-breve-descricao";
+    const data=await getJsonWithTimeout(`${endpoint}?busca=${encodeURIComponent(query)}`,120000);
+    const products=Array.isArray(data.products)?data.products:[];
+    root.innerHTML=products.length?`<div class="store-quality-count"><strong>${products.length}</strong> produto(s) sem breve descrição</div><table class="store-data-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Categorias</th><th>Acesso</th></tr></thead><tbody>${products.map(product=>`<tr><td><strong>${escapeHtml(product.product_name||"")}</strong><span class="small">WooCommerce #${Number(product.product_id||0)}</span></td><td>${escapeHtml(product.product_type||"—")}</td><td>${escapeHtml((product.categories||[]).join(", ")||"—")}</td><td>${product.permalink?`<a class="btn-secondary btn-sm" href="${escapeHtml(product.permalink)}" target="_blank" rel="noopener noreferrer">Abrir produto</a>`:"—"}</td></tr>`).join("")}</tbody></table>`:'<div class="notice is-success">Nenhum produto sem breve descrição foi encontrado com esse filtro.</div>';
+  } catch(error) {
+    root.innerHTML=`<div class="updates-error" role="alert"><strong>Não foi possível verificar as descrições.</strong><br>${escapeHtml(error?.message||String(error))}</div>`;
+  } finally { root.setAttribute("aria-busy","false"); }
+}
+
 async function selectAndRefreshUpdateQueue(name) {
   const selectedName = normalizeText(name, "default");
   UPDATE_QUEUE.jobs = [];
@@ -6515,7 +6591,7 @@ function bindMainTabs() {
   if (lojaBtn) {
     lojaBtn.addEventListener("click", async function () {
       activateMainTab("loja");
-      await Promise.all([refreshStorePricing(), refreshWordPressManualMonitor()]);
+      await Promise.all([refreshStorePricing(), refreshStorePackPricing(), refreshWordPressManualMonitor()]);
     });
   }
   window.setInterval(() => {
@@ -6529,6 +6605,12 @@ function bindMainTabs() {
   qsa('input[name="store_kind"]').forEach(node => node.addEventListener("change", refreshStorePricing));
   byId("store_confirmation")?.addEventListener("input", updateStoreSubmitState);
   byId("store_pricing_form")?.addEventListener("submit", submitStorePricing);
+  byId("store_pack_refresh")?.addEventListener("click", refreshStorePackPricing);
+  byId("store_pack_prices")?.addEventListener("click",event=>{
+    const button=event.target.closest?.("[data-store-pack-save]");
+    if(button)saveStorePackPrice(button);
+  });
+  byId("store_missing_description_form")?.addEventListener("submit",refreshMissingDescriptions);
 
   if (filterNode) {
     filterNode.addEventListener("change", async () => {

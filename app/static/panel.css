@@ -1172,6 +1172,23 @@ pre {
 .store-kind-prices-head > strong { font-size:18px; }
 .store-kind-prices-head > span,.store-readonly-note { color:var(--text-muted); font-size:12px; }
 .store-readonly-note { font-weight:700; }
+.sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+.store-pack-card,.store-quality-card { display:grid; gap:16px; }
+.store-section-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.store-table-wrap { min-width:0; overflow-x:auto; }
+.store-data-table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+.store-data-table th { padding:10px 12px; color:var(--text-muted); text-align:left; font-size:11px; letter-spacing:.04em; text-transform:uppercase; border-bottom:1px solid var(--line); }
+.store-data-table td { padding:12px; vertical-align:middle; border-bottom:1px solid var(--line); }
+.store-data-table td:first-child { min-width:220px; }
+.store-data-table td > strong,.store-data-table td > .small { display:block; }
+.store-data-table input { width:132px; min-height:40px; font-variant-numeric:tabular-nums; }
+.store-data-table .store-last-price { font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.store-data-table td:last-child { min-width:150px; }
+.store-row-status { margin-top:6px; max-width:180px; }
+.store-quality-filter { display:grid; gap:8px; }
+.store-filter-row { display:flex; align-items:center; gap:10px; }
+.store-filter-row input { flex:1 1 320px; min-width:0; }
+.store-quality-count { margin-bottom:10px; color:var(--text-muted); }
 
 .store-confirmation {
   display: grid;
@@ -1203,6 +1220,7 @@ pre {
     grid-template-columns: 1fr;
   }
   .store-kind-price-grid { grid-template-columns:1fr; }
+  .store-section-head,.store-filter-row { align-items:stretch; flex-direction:column; }
 }
 
 .runs-grid {

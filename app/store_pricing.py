@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import csv
+import html
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping
@@ -19,6 +20,132 @@ PRICE_FIELDS = ("annual_regular", "annual_sale", "lifetime_regular", "lifetime_s
 def _fold(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
     return " ".join(re.findall(r"[a-z0-9]+", text.encode("ascii", "ignore").decode().lower()))
+
+
+def is_pack_product(product: Mapping[str, Any]) -> bool:
+    categories = [_fold(item.get("name", "")) for item in product.get("categories", []) or []
+                  if isinstance(item, Mapping)]
+    return str(product.get("type", "")).strip().lower() == "bundle" or any(
+        value in {"pack", "packs", "pacote", "pacotes"} for value in categories
+    )
+
+
+def _paged_products(woo: Any, **filters: Any) -> list[Mapping[str, Any]]:
+    products: list[Mapping[str, Any]] = []
+    page = 1
+    while True:
+        batch = list(woo.list_products(page=page, per_page=100, **filters) or [])
+        products.extend(item for item in batch if isinstance(item, Mapping))
+        if len(batch) < 100:
+            break
+        page += 1
+    return products
+
+
+def list_store_pack_products(woo: Any) -> list[dict[str, Any]]:
+    """Lista bundles e produtos da categoria Pack sem duplicar registros."""
+    found: dict[int, Mapping[str, Any]] = {}
+    fields = "id,name,type,status,categories,regular_price,sale_price,price"
+    for product in _paged_products(woo, status="publish", type="bundle", _fields=fields):
+        found[int(product.get("id") or 0)] = product
+    category_ids: list[int] = []
+    page = 1
+    while True:
+        batch = list(woo.list_product_categories(page=page, per_page=100) or [])
+        category_ids.extend(
+            int(item.get("id") or 0) for item in batch if isinstance(item, Mapping)
+            and _fold(item.get("name", "")) in {"pack", "packs", "pacote", "pacotes"}
+        )
+        if len(batch) < 100:
+            break
+        page += 1
+    for category_id in category_ids:
+        for product in _paged_products(
+            woo, status="publish", category=category_id, _fields=fields,
+        ):
+            if is_pack_product(product):
+                found[int(product.get("id") or 0)] = product
+    return [
+        {
+            "product_id": product_id,
+            "product_name": str(product.get("name", "") or ""),
+            "product_type": str(product.get("type", "") or ""),
+            "regular_price": str(product.get("regular_price", "") or ""),
+            "sale_price": str(product.get("sale_price", "") or ""),
+            "last_price": str(product.get("price", "") or ""),
+        }
+        for product_id, product in sorted(found.items(), key=lambda item: str(item[1].get("name", "")).casefold())
+        if product_id
+    ]
+
+
+def normalize_price_pair(regular: Any, sale: Any) -> tuple[str, str]:
+    def parse(value: Any, *, required: bool) -> str:
+        raw = str(value or "").strip().replace("R$", "").strip()
+        if raw and "," in raw and "." in raw:
+            raw = raw.replace(".", "").replace(",", ".")
+        else:
+            raw = raw.replace(",", ".")
+        if not raw and not required:
+            return ""
+        if not raw:
+            raise ValueError("Informe o preço original.")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation:
+            raise ValueError("Use valores monetários válidos.") from None
+        if amount < 0:
+            raise ValueError("Os preços não podem ser negativos.")
+        return format(amount.quantize(Decimal("0.01")), "f")
+    normalized_regular, normalized_sale = parse(regular, required=True), parse(sale, required=False)
+    if normalized_sale and Decimal(normalized_sale) >= Decimal(normalized_regular):
+        raise ValueError("O preço promocional deve ser menor que o preço original.")
+    return normalized_regular, normalized_sale
+
+
+def update_store_pack_price(woo: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
+    product_id = int(payload.get("product_id") or 0)
+    if product_id <= 0:
+        raise ValueError("Produto pack inválido.")
+    product = woo.get_product(product_id)
+    if not is_pack_product(product):
+        raise ValueError("O produto selecionado não é um pacote/pack.")
+    regular, sale = normalize_price_pair(payload.get("regular_price"), payload.get("sale_price"))
+    updated = woo.update_product_prices(product_id, regular, sale, authorized=True)
+    return {
+        "ok": True, "message": f"Preços de {product.get('name') or ('#' + str(product_id))} atualizados.",
+        "product": {
+            "product_id": product_id, "product_name": str(updated.get("name") or product.get("name") or ""),
+            "product_type": str(updated.get("type") or product.get("type") or ""),
+            "regular_price": str(updated.get("regular_price", regular) or regular),
+            "sale_price": str(updated.get("sale_price", sale) or sale),
+            "last_price": str(updated.get("price") or sale or regular),
+        },
+    }
+
+
+def products_without_short_description(woo: Any, query: str = "") -> list[dict[str, Any]]:
+    folded_query = _fold(query)
+    rows = _paged_products(
+        woo, status="publish", _fields="id,name,type,categories,short_description,permalink",
+        **({"search": query.strip()} if query.strip() else {}),
+    )
+    missing = []
+    for product in rows:
+        short = html.unescape(re.sub(r"<[^>]+>", " ", str(product.get("short_description", "") or "")))
+        if _fold(short):
+            continue
+        searchable = _fold(" ".join((str(product.get("id", "")), str(product.get("name", "")))))
+        if folded_query and folded_query not in searchable:
+            continue
+        missing.append({
+            "product_id": int(product.get("id") or 0),
+            "product_name": str(product.get("name", "") or ""),
+            "product_type": str(product.get("type", "") or ""),
+            "categories": [str(item.get("name", "") or "") for item in product.get("categories", []) or [] if isinstance(item, Mapping)],
+            "permalink": str(product.get("permalink", "") or ""),
+        })
+    return missing
 
 
 def variation_period(variation: Mapping[str, Any]) -> str:
