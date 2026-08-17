@@ -159,6 +159,12 @@
       .map(([label,count]) => `<span class="update-recovery-chip"><strong>${count}</strong>${label}</span>`)
       .join("");
 
+    const signature = JSON.stringify(errors.map(job => [
+      job.job_id, job.state, job.updated_at, job.execution_error, job.last_completed_step,
+    ]));
+    if (panel.dataset.recoverySignature === signature) return;
+    panel.dataset.recoverySignature = signature;
+
     panel.innerHTML = `
       <div>
         <strong>Recuperação de erros</strong>
@@ -176,6 +182,7 @@
       const button = event.currentTarget;
       const progress = document.getElementById("updates_recovery_progress");
       button.disabled = true;
+      document.body.dataset.updateRecoveryBusy = "1";
       let ok = 0, failed = 0;
       for (let index = 0; index < recoverable.length; index += 1) {
         const job = recoverable[index];
@@ -189,6 +196,7 @@
       }
       if (progress) progress.textContent = `${ok} recuperado(s) · ${failed} ainda bloqueado(s)`;
       notify(`${ok} item(ns) voltaram com plano pronto; ${failed} continuam exigindo atenção.`, failed ? "error" : "ok");
+      delete document.body.dataset.updateRecoveryBusy;
       setTimeout(() => location.reload(), 900);
     });
   }
@@ -209,7 +217,8 @@
         meta.className = "update-recovery-meta";
         main.appendChild(meta);
       }
-      meta.innerHTML = `<span class="update-recovery-category">${info.label}</span><span class="update-recovery-guidance">${info.guidance}</span>`;
+      const metaHtml = `<span class="update-recovery-category">${info.label}</span><span class="update-recovery-guidance">${info.guidance}</span>`;
+      if (meta.innerHTML !== metaHtml) meta.innerHTML = metaHtml;
 
       const existing = row.querySelector(".update-retry-btn");
       if (isRecoverable(job)) {
@@ -221,6 +230,7 @@
           details?.parentElement?.insertBefore(button, details);
           button.addEventListener("click", async () => {
             button.disabled = true;
+            document.body.dataset.updateRecoveryBusy = "1";
             const original = button.textContent;
             try {
               await retryJob(job, message => { button.textContent = message; });
@@ -231,6 +241,8 @@
               button.disabled = false;
               button.textContent = original;
               notify(`${job.name}: ${error.message}`, "error");
+            } finally {
+              delete document.body.dataset.updateRecoveryBusy;
             }
           });
         }
@@ -245,6 +257,7 @@
     clearTimeout(scheduled);
     scheduled = setTimeout(async () => {
       if (!document.getElementById("updates_history")) return;
+      if (document.body.dataset.updateRecoveryBusy === "1") return;
       try {
         const jobs = await loadJobs();
         renderPanel(jobs);

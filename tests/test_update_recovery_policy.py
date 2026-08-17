@@ -7,6 +7,14 @@ import app.update_recovery_policy as policy
 
 
 class UpdateRecoveryPolicyTests(unittest.TestCase):
+    def test_recovery_ui_does_not_rerender_unchanged_data_or_interrupt_actions(self) -> None:
+        script = policy._SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("recoverySignature", script)
+        self.assertIn("panel.dataset.recoverySignature === signature", script)
+        self.assertIn("updateRecoveryBusy", script)
+        self.assertIn("if (meta.innerHTML !== metaHtml)", script)
+
     def test_recovery_script_is_injected_before_body_close(self) -> None:
         with patch.object(
             policy,

@@ -193,6 +193,9 @@ class UpdateQueueUiTests(unittest.TestCase):
 
     def test_manual_history_refreshes_and_shows_wordpress_audit(self):
         self.assertIn("async function refreshUpdateRuntime", self.js)
+        self.assertIn("runtimeSignature", self.js)
+        self.assertIn("if(signature===UPDATE_QUEUE.runtimeSignature)return", self.js)
+        self.assertIn('document.body.dataset.updateRecoveryBusy === "1"', self.js)
         self.assertIn("Manual pelo WordPress", self.js)
         self.assertIn("manual_requested_at", self.js)
         self.assertIn('tab_panel_atualizacoes', self.js)

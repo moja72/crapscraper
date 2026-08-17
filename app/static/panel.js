@@ -5808,7 +5808,18 @@ function updateRelationshipLabel(value) {
   return UPDATE_RELATIONSHIP_LABELS[normalized] || (normalized ? "Outro relacionamento" : "Não informado");
 }
 
-const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: LISTING_DEFAULT_PAGE_SIZE, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:LISTING_DEFAULT_PAGE_SIZE, historyMode:"completed", historyPage:1, historyPageSize:LISTING_DEFAULT_PAGE_SIZE, poll:null, renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:LISTING_DEFAULT_PAGE_SIZE};
+const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: LISTING_DEFAULT_PAGE_SIZE, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:LISTING_DEFAULT_PAGE_SIZE, historyMode:"completed", historyPage:1, historyPageSize:LISTING_DEFAULT_PAGE_SIZE, poll:null, runtimeSignature:"", renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:LISTING_DEFAULT_PAGE_SIZE};
+
+function updateRuntimeSignature(jobs, queue) {
+  const compactJobs=(Array.isArray(jobs)?jobs:[]).map(job=>[
+    job.job_id,job.state,job.updated_at,job.completed_at,job.queue_name,job.queue_position,
+    job.execution_error,job.last_completed_step,job.effective_source_version,
+  ]).sort((left,right)=>String(left[0]).localeCompare(String(right[0])));
+  const compactQueues=(Array.isArray(queue?.queues)?queue.queues:[]).map(item=>[
+    item.name,item.total,item.pending,item.completed,item.last_completed_at,
+  ]).sort((left,right)=>String(left[0]).localeCompare(String(right[0])));
+  return JSON.stringify([queue?.status,queue?.active_queue,compactQueues,compactJobs]);
+}
 
 function updateFilteredJobs() {
   const status = byId("updates_status_filter")?.value || "", type = byId("updates_type_filter")?.value || "";
@@ -6019,23 +6030,28 @@ function renderUpdateLogs(logs) {
 async function refreshUpdateJobs() {
   const result = await postJson("/atualizacoes/materializar", {comparison_rows: Object.values(UI.comparison.rowsById || {})});
   UPDATE_QUEUE.queue=result?.queue||UPDATE_QUEUE.queue;
+  UPDATE_QUEUE.runtimeSignature=updateRuntimeSignature(result?.jobs||[],UPDATE_QUEUE.queue);
   renderUpdateJobs(result?.jobs || []);
 }
 
 let updateRuntimeRefreshInFlight = false;
 async function refreshUpdateRuntime() {
-  if (updateRuntimeRefreshInFlight) return;
+  if (updateRuntimeRefreshInFlight || document.body.dataset.updateRecoveryBusy === "1") return;
   updateRuntimeRefreshInFlight = true;
   try {
     const result = await getJson("/atualizacoes/jobs");
-    UPDATE_QUEUE.queue = result?.queue || UPDATE_QUEUE.queue;
-    renderUpdateJobs(result?.jobs || []);
+    const queue=result?.queue||UPDATE_QUEUE.queue,jobs=result?.jobs||[];
+    const signature=updateRuntimeSignature(jobs,queue);
+    if(signature===UPDATE_QUEUE.runtimeSignature)return;
+    UPDATE_QUEUE.queue=queue;
+    UPDATE_QUEUE.runtimeSignature=signature;
+    renderUpdateJobs(jobs);
   } finally {
     updateRuntimeRefreshInFlight = false;
   }
 }
 
-function startUpdateQueuePolling(){if(UPDATE_QUEUE.poll)return;UPDATE_QUEUE.poll=setInterval(async()=>{try{const result=await getJson("/atualizacoes/jobs");UPDATE_QUEUE.queue=result?.queue||UPDATE_QUEUE.queue;renderUpdateJobs(result?.jobs||[]);if(!["running"].includes(UPDATE_QUEUE.queue?.status)){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}}catch(_error){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}},2000);}
+function startUpdateQueuePolling(){if(UPDATE_QUEUE.poll)return;UPDATE_QUEUE.poll=setInterval(async()=>{try{const result=await getJson("/atualizacoes/jobs");UPDATE_QUEUE.queue=result?.queue||UPDATE_QUEUE.queue;UPDATE_QUEUE.runtimeSignature=updateRuntimeSignature(result?.jobs||[],UPDATE_QUEUE.queue);renderUpdateJobs(result?.jobs||[]);if(!["running"].includes(UPDATE_QUEUE.queue?.status)){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}}catch(_error){clearInterval(UPDATE_QUEUE.poll);UPDATE_QUEUE.poll=null;}},2000);}
 
 async function runUpdateBatch(action) {
   UPDATE_QUEUE.cancel=false;
@@ -6203,6 +6219,7 @@ async function selectAndRefreshUpdateQueue(name) {
   const details = Array.isArray(selected?.details?.items) ? selected.details.items : [];
   const known = new Set(jobs.map(job => job.job_id));
   jobs = jobs.concat(details.filter(job => !known.has(job.job_id)).map(job => ({...job, queue_name:selectedName})));
+  UPDATE_QUEUE.runtimeSignature=updateRuntimeSignature(jobs,UPDATE_QUEUE.queue);
   renderUpdateJobs(jobs);
 }
 
