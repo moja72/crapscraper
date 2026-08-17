@@ -54,7 +54,6 @@ from app.search_ui_policy import install_search_ui_policy
 from app.accordion_cleanup_policy import install_accordion_cleanup_policy
 from app.session_validation_policy import install_session_validation_policy
 from app.update_flow_fix_policy import install_update_flow_fix_policy
-from app.store_management_policy import install_store_management_policy
 from app.staging_reuse_policy import install_staging_reuse_policy
 from app.update_operational_ui_policy import install_update_operational_ui_policy
 from app.models import ScraperContext, build_context
@@ -80,8 +79,7 @@ install_accordion_cleanup_policy()
 install_session_validation_policy()
 # Evita falso bloqueio da sessão PluginTheme e torna a execução da fila observável.
 install_update_flow_fix_policy()
-# Unifica Plugins, Temas e Packs em uma única central de preços por produto.
-install_store_management_policy()
+# A aba Loja usa o fluxo nativo: Plugins e Temas por categoria/lote; Packs separados.
 # Reaproveita ZIP de staging somente quando SHA e versão persistidos continuam válidos.
 install_staging_reuse_policy()
 # Exibe todos os estados reais da lista, resumo operacional e indicação de ZIP local.
