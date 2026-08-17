@@ -51,6 +51,7 @@ from app.accordion_cleanup_policy import install_accordion_cleanup_policy
 from app.session_validation_policy import install_session_validation_policy
 from app.update_flow_fix_policy import install_update_flow_fix_policy
 from app.store_management_policy import install_store_management_policy
+from app.staging_reuse_policy import install_staging_reuse_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -76,6 +77,8 @@ install_session_validation_policy()
 install_update_flow_fix_policy()
 # Unifica Plugins, Temas e Packs em uma única central de preços por produto.
 install_store_management_policy()
+# Reaproveita ZIP de staging somente quando SHA e versão persistidos continuam válidos.
+install_staging_reuse_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
