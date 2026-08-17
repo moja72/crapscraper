@@ -2,13 +2,13 @@
 /**
  * Plugin Name: CrapScraper Manual Update
  * Description: Fila atualizações seguras de Plugin, Tema e Template para o CrapScraper local.
- * Version: 2.3.0
+ * Version: 2.4.0
  */
 defined('ABSPATH') || exit;
 
 final class CrapScraper_Manual_Update {
     const NONCE_ACTION = 'crapscraper_manual_update';
-    const DB_VERSION = '2.3.0';
+    const DB_VERSION = '2.4.0';
 
     public static function init() {
         self::ensure_table();
@@ -19,6 +19,7 @@ final class CrapScraper_Manual_Update {
         add_action('template_redirect', array(__CLASS__, 'frontend_no_cache'));
         add_action('wp_ajax_crapscraper_manual_start', array(__CLASS__, 'ajax_start'));
         add_action('wp_ajax_crapscraper_manual_status', array(__CLASS__, 'ajax_status'));
+        add_action('wp_ajax_crapscraper_manual_history', array(__CLASS__, 'ajax_history'));
         add_action('rest_api_init', array(__CLASS__, 'rest_routes'));
         add_filter('rest_pre_serve_request', array(__CLASS__, 'rest_no_cache'), 10, 4);
     }
@@ -84,7 +85,11 @@ final class CrapScraper_Manual_Update {
         echo '<div><dt>Etapa</dt><dd data-cs-stage>Aguardando ação</dd></div>';
         echo '<div><dt>Origem</dt><dd data-cs-source>—</dd></div>';
         echo '<div><dt>Versão</dt><dd data-cs-version>—</dd></div>';
-        echo '</dl></div></aside>';
+        echo '</dl></div>';
+        echo '<div class="cs-history">';
+        echo '<button type="button" class="cs-history-toggle" data-cs-history-toggle aria-expanded="false" aria-controls="crapscraper-manual-history"><span>Últimas 3 atualizações</span><span class="cs-history-chevron" aria-hidden="true">⌄</span></button>';
+        echo '<div id="crapscraper-manual-history" class="cs-history-panel" data-cs-history-panel hidden><div class="cs-history-empty">Abra para consultar o histórico.</div></div>';
+        echo '</div></aside>';
     }
 
     private static function frontend_product_id() {
@@ -153,6 +158,30 @@ final class CrapScraper_Manual_Update {
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE request_id=%s AND product_id=%d", $request_id, $product_id), ARRAY_A);
         if (!$row) wp_send_json_error(array('message'=>'Pedido não encontrado.'), 404);
         wp_send_json_success($row);
+    }
+
+    public static function ajax_history() {
+        global $wpdb;
+        $product_id = absint(isset($_POST['product_id']) ? $_POST['product_id'] : 0);
+        self::require_admin_request($product_id);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT status, source, previous_version, new_version, message, requested_at, updated_at, completed_at FROM " . self::table() . " WHERE product_id=%d ORDER BY id DESC LIMIT 3",
+            $product_id
+        ), ARRAY_A);
+        $history = array();
+        foreach ((array) $rows as $row) {
+            $raw_date = !empty($row['completed_at']) ? $row['completed_at'] : (!empty($row['updated_at']) ? $row['updated_at'] : $row['requested_at']);
+            $local_date = $raw_date ? get_date_from_gmt($raw_date, 'Y-m-d H:i:s') : '';
+            $history[] = array(
+                'status' => sanitize_key($row['status']),
+                'source' => sanitize_text_field($row['source']),
+                'previous_version' => sanitize_text_field($row['previous_version']),
+                'new_version' => sanitize_text_field($row['new_version']),
+                'message' => sanitize_text_field($row['message']),
+                'date' => $local_date ? date_i18n('d/m/Y H:i', strtotime($local_date)) : '',
+            );
+        }
+        wp_send_json_success(array('history' => $history));
     }
 
     private static function rest_secret() {

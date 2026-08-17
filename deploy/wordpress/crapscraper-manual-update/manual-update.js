@@ -10,8 +10,11 @@
   const productId = root.dataset.productId;
   const dragHandle = root.querySelector('[data-cs-drag-handle]');
   const minimize = root.querySelector('[data-cs-minimize]');
+  const historyToggle = root.querySelector('[data-cs-history-toggle]');
+  const historyPanel = root.querySelector('[data-cs-history-panel]');
   const storageKey = 'crapscraper-manual-panel-v1';
   let panelState = { x: null, y: null, minimized: false };
+  let historyLoaded = false;
 
   const persistPanel = () => {
     try { window.localStorage.setItem(storageKey, JSON.stringify(panelState)); } catch (_error) {}
@@ -38,7 +41,7 @@
       minimize.setAttribute('aria-expanded', String(!panelState.minimized));
       minimize.setAttribute('aria-label', panelState.minimized ? 'Expandir painel' : 'Minimizar painel');
       minimize.title = panelState.minimized ? 'Expandir painel' : 'Minimizar painel';
-      minimize.querySelector('span').textContent = panelState.minimized ? '+' : '−';
+      minimize.querySelector('span').textContent = panelState.minimized ? '⬇️' : '−';
     }
     if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x, panelState.y, false);
     if (save) persistPanel();
@@ -88,6 +91,47 @@
     if (!response.ok || !result.success) throw new Error(result?.data?.message || 'Falha na atualização.');
     return result.data;
   };
+  const historyLabels = {pending:'Aguardando',claimed:'Recebido pelo PC',locating:'Localizando',comparing:'Comparando',update_found:'Atualização encontrada',preparing:'Preparando',processing:'Processando',executing:'Executando',validating:'Validando',up_to_date:'Já atualizado',no_match:'Sem correspondência',source_not_found:'Fonte não encontrada',source_version_missing:'Versão ausente',relationship_required:'Vínculo necessário',comparison_stale:'Comparação desatualizada',completed:'Concluído',error:'Erro',blocked:'Bloqueado',rolled_back:'Revertido',rollback_required:'Rollback necessário'};
+  const loadHistory = async (force = false) => {
+    if (!historyPanel || (historyLoaded && !force)) return;
+    historyPanel.classList.remove('is-error');
+    historyPanel.innerHTML = '<div class="cs-history-empty">Carregando últimas atualizações…</div>';
+    try {
+      const data = await request('crapscraper_manual_history');
+      const rows = Array.isArray(data.history) ? data.history.slice(0, 3) : [];
+      historyPanel.textContent = '';
+      if (!rows.length) {
+        historyPanel.innerHTML = '<div class="cs-history-empty">Nenhuma atualização registrada para este produto.</div>';
+      } else {
+        const list = document.createElement('ol');
+        list.className = 'cs-history-list';
+        rows.forEach(item => {
+          const row = document.createElement('li');
+          const head = document.createElement('div'); head.className = 'cs-history-item-head';
+          const label = document.createElement('strong'); label.textContent = historyLabels[item.status] || item.status || 'Atualização';
+          const date = document.createElement('time'); date.textContent = item.date || 'Data não informada';
+          head.append(label, date);
+          const detail = document.createElement('div'); detail.className = 'cs-history-item-detail';
+          const versions = item.previous_version || item.new_version ? `${item.previous_version || '?'} → ${item.new_version || '?'}` : 'Versão não informada';
+          detail.textContent = `${item.source || 'Origem não definida'} · ${versions}`;
+          row.append(head, detail);
+          if (item.message) { const message = document.createElement('p'); message.textContent = item.message; row.append(message); }
+          list.append(row);
+        });
+        historyPanel.append(list);
+      }
+      historyLoaded = true;
+    } catch (error) {
+      historyPanel.textContent = error.message || 'Não foi possível carregar o histórico.';
+      historyPanel.classList.add('is-error');
+    }
+  };
+  historyToggle?.addEventListener('click', () => {
+    const expanded = historyToggle.getAttribute('aria-expanded') !== 'true';
+    historyToggle.setAttribute('aria-expanded', String(expanded));
+    historyPanel.hidden = !expanded;
+    if (expanded) loadHistory();
+  });
   const show = (message, tone = 'loading', details = {}) => {
     status.className = `cs-status is-${tone}`;
     status.setAttribute('role', tone === 'error' ? 'alert' : 'status');
@@ -111,7 +155,10 @@
         ? `${data.previous_version || '?'} → ${data.new_version || '?'}` : 'Aguardando consulta',
     });
     if (!terminal) window.setTimeout(() => poll(requestId).catch(fail), 3000);
-    else { button.disabled=false; button.removeAttribute('aria-busy'); }
+    else {
+      button.disabled=false; button.removeAttribute('aria-busy'); historyLoaded=false;
+      if (historyToggle?.getAttribute('aria-expanded') === 'true') loadHistory(true);
+    }
   };
   const fail = (error) => { show(error.message || String(error), 'error', {stage:'Erro ao processar'}); button.disabled = false; button.removeAttribute('aria-busy'); };
   button.addEventListener('click', async () => {

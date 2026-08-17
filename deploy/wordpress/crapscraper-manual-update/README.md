@@ -12,4 +12,4 @@ O `autoscraper.bat` habilita o coletor com `SCRAPER_WORDPRESS_MANUAL_POLLING_ENA
 
 Quando o Super Admin clicar no botão, o WordPress grava o pedido localmente. Assim que o CrapScraper estiver aberto no PC, ele coleta o pedido, executa o pipeline seguro e devolve o resultado ao WordPress. O fluxo respeita `SCRAPER_UPDATE_EXECUTION_ENABLED` e `SCRAPER_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS`.
 
-Versão 2.3.0: o painel fixo pode ser arrastado pela barra superior ou movido com as setas do teclado, além de poder ser minimizado. Posição e estado ficam salvos apenas no navegador do Super Admin; `Home` restaura a posição original. O controle continua usando o mesmo fluxo seguro e as rotas `/wp-json/crapscraper/v1/manual-updates/*` permanecem com `no-store` e integração no-cache do LiteSpeed.
+Versão 2.4.0: uma sanfona mostra as três atualizações mais recentes do produto, com data, resultado, origem e versões, reutilizando a tabela de pedidos existente. Quando minimizado, o painel exibe somente o ícone `⬇️`. Movimento, persistência local e todas as proteções do fluxo seguro permanecem ativos.
