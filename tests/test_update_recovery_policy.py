@@ -15,6 +15,16 @@ class UpdateRecoveryPolicyTests(unittest.TestCase):
         self.assertIn("updateRecoveryBusy", script)
         self.assertIn("if (meta.innerHTML !== metaHtml)", script)
 
+    def test_quarantined_jobs_can_be_reprepared_but_rollback_stays_manual(self) -> None:
+        script = policy._SCRIPT_PATH.read_text(encoding="utf-8")
+        recoverable = script.split("function isRecoverable(job)", 1)[1].split("async function loadJobs", 1)[0]
+
+        self.assertIn('state === "rollback_required"', recoverable)
+        self.assertNotIn("RISKY_STEPS", recoverable)
+        self.assertIn("failures.push", script)
+        self.assertIn('results.textContent = failures.join("\\n")', script)
+        self.assertIn("if (!failed) setTimeout", script)
+
     def test_recovery_script_is_injected_before_body_close(self) -> None:
         with patch.object(
             policy,

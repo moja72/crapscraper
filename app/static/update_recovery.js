@@ -3,7 +3,6 @@
 
   const ERROR_STATES = new Set(["error", "failed", "blocked", "rollback_required", "canceled", "interrupted"]);
   const AUTO_RETRY_STATES = new Set(["error", "failed", "blocked", "canceled", "interrupted"]);
-  const RISKY_STEPS = new Set(["production_zip_installed", "pt_versao_updated"]);
 
   const style = document.createElement("style");
   style.textContent = `
@@ -18,12 +17,14 @@
     .update-retry-btn{white-space:nowrap}
     .update-retry-btn[disabled]{opacity:.55}
     .update-recovery-progress{font-size:12px;color:#b8b8c2;min-width:180px}
+    .update-recovery-results{width:100%;max-height:160px;overflow:auto;margin:0;padding:8px 10px;border:1px solid #3b3b45;border-radius:9px;background:#09090b;color:#d6d6df;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap}
     @media(max-width:760px){.update-recovery-panel{align-items:stretch}.update-recovery-actions{width:100%}.update-recovery-actions button{flex:1 1 180px}}
   `;
   document.head.appendChild(style);
 
   const normalize = (value) => String(value ?? "").trim();
   const lower = (value) => normalize(value).toLowerCase();
+  let recoveryFailures = [];
 
   async function requestJson(url, options = {}) {
     const response = await fetch(url, {
@@ -81,9 +82,10 @@
 
   function isRecoverable(job) {
     const state = lower(job?.state);
-    const step = normalize(job?.last_completed_step);
     if (!AUTO_RETRY_STATES.has(state)) return false;
-    if (state === "rollback_required" || RISKY_STEPS.has(step)) return false;
+    // Preparar e gerar um plano novo não executa alterações em produção.
+    // Somente rollback_required continua exigindo intervenção manual.
+    if (state === "rollback_required") return false;
     return true;
   }
 
@@ -174,30 +176,45 @@
       <div class="update-recovery-actions">
         <span class="update-recovery-progress" id="updates_recovery_progress"></span>
         <button type="button" class="btn-success" id="updates_retry_recoverable" ${recoverable.length ? "" : "disabled"}>Reprocessar recuperáveis</button>
-      </div>`;
+      </div>
+      <pre class="update-recovery-results" id="updates_recovery_results" hidden></pre>`;
+    if (recoveryFailures.length) {
+      const previousResults = document.getElementById("updates_recovery_results");
+      previousResults.hidden = false;
+      previousResults.textContent = recoveryFailures.join("\n");
+    }
 
     document.getElementById("updates_retry_recoverable")?.addEventListener("click", async (event) => {
       if (!recoverable.length) return;
-      if (!confirm(`Reprocessar ${recoverable.length} item(ns)? Cada item será revalidado, preparado novamente e receberá um novo plano. Itens com risco de alteração em produção ou rollback não serão incluídos.`)) return;
+      if (!confirm(`Reprocessar ${recoverable.length} item(ns)? Cada item será revalidado, preparado novamente e receberá um novo plano. Itens que exigem rollback não serão incluídos.`)) return;
       const button = event.currentTarget;
       const progress = document.getElementById("updates_recovery_progress");
+      const results = document.getElementById("updates_recovery_results");
       button.disabled = true;
       document.body.dataset.updateRecoveryBusy = "1";
+      recoveryFailures = [];
       let ok = 0, failed = 0;
+      const failures = [];
       for (let index = 0; index < recoverable.length; index += 1) {
         const job = recoverable[index];
         if (progress) progress.textContent = `${index + 1}/${recoverable.length} · ${job.name}`;
         try {
           await retryJob(job, (message) => { if (progress) progress.textContent = `${index + 1}/${recoverable.length} · ${message}`; });
           ok += 1;
-        } catch (_error) {
+        } catch (error) {
           failed += 1;
+          failures.push(`${job.name}: ${error.message}`);
         }
+      }
+      if (results && failures.length) {
+        recoveryFailures = failures;
+        results.hidden = false;
+        results.textContent = failures.join("\n");
       }
       if (progress) progress.textContent = `${ok} recuperado(s) · ${failed} ainda bloqueado(s)`;
       notify(`${ok} item(ns) voltaram com plano pronto; ${failed} continuam exigindo atenção.`, failed ? "error" : "ok");
       delete document.body.dataset.updateRecoveryBusy;
-      setTimeout(() => location.reload(), 900);
+      if (!failed) setTimeout(() => location.reload(), 900);
     });
   }
 
