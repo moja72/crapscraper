@@ -4,6 +4,7 @@
   const esc=v=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   const SAFE_STATES=new Set(['approved','blocked','error','failed','interrupted','canceled','prepared']);
   const FORBIDDEN_STATES=new Set(['completed','rolled_back','rollback_required','executing','queued']);
+  const TRANSIENT_STATES=new Set(['validating','downloading','preparing']);
   const RISKY_STEPS=new Set(['production_zip_installed','pt_versao_updated','wordpress_validated']);
   const localArtifact=j=>Boolean(clean(j?.local_staging_path)&&clean(j?.new_sha256));
   const filename=p=>clean(p).split(/[\\/]/).pop()||'arquivo.zip';
@@ -52,10 +53,17 @@
       const rows=[];
       for(const item of inventory){
         const job=jobMap.get(clean(item.job_id)),items=byJob.get(clean(item.job_id))||[],choice=recoveryChoice(job,items),linked=job&&linkedEligible(job);
+        const state=clean(job?.state).toLowerCase();
         let action='';
-        if(linked) action=`<button type="button" class="btn-success" data-local-job="${esc(job.job_id)}">Revalidar e gerar plano</button>`;
-        else if(job&&choice.ok&&!FORBIDDEN_STATES.has(clean(job.state).toLowerCase())) action=`<button type="button" class="btn-success" data-local-job="${esc(job.job_id)}">Recuperar ZIP e gerar plano</button>`;
-        else if(job&&FORBIDDEN_STATES.has(clean(job.state).toLowerCase())) action='<span class="small">Não reprocessar automaticamente neste estado.</span>';
+        if(state==='plan_ready') action='<span class="small"><strong>Plano pronto.</strong> Selecione o item na lista de atualizações e use “Adicionar à fila”.</span>';
+        else if(TRANSIENT_STATES.has(state)) action='<span class="small">Recuperação/preparação em andamento. Aguarde a conclusão deste item.</span>';
+        else if(linked) action=`<button type="button" class="btn-success" data-local-job="${esc(job.job_id)}">Revalidar e gerar plano</button>`;
+        else if(job&&choice.ok&&!FORBIDDEN_STATES.has(state)) action=`<button type="button" class="btn-success" data-local-job="${esc(job.job_id)}">Recuperar ZIP e gerar plano</button>`;
+        else if(state==='completed') action='<span class="small">Já concluído. Nenhuma recuperação necessária.</span>';
+        else if(state==='queued') action='<span class="small">Já está na fila de atualização.</span>';
+        else if(state==='executing') action='<span class="small">Atualização em execução.</span>';
+        else if(state==='rollback_required') action='<span class="small">Rollback necessário — revisão manual obrigatória.</span>';
+        else if(job&&FORBIDDEN_STATES.has(state)) action='<span class="small">Não reprocessar automaticamente neste estado.</span>';
         else if(job) action=`<span class="small">${esc(choice.reason||'Não elegível para recuperação automática segura.')}</span>`;
         else action='<span class="small">Sem job correspondente no runtime atual.</span>';
         rows.push({item,job,action});
