@@ -196,10 +196,34 @@ class UpdatePreparationService:
                                           source_detail, "info" if source_advanced else
                                           ("ok" if ultrapack_ok else "error")))
 
+        site_vs_source = _compare_source_version(current_version, effective_source_version)
+        already_updated = bool(ultrapack_ok and site_vs_source in {0, 1})
+        already_updated_message = ""
+        if already_updated:
+            relation = "igual à" if site_vs_source == 0 else "superior à"
+            already_updated_message = (
+                f"Produto já atualizado no PluginTema: versão atual {current_version} é {relation} "
+                f"versão disponível na fonte {effective_source_version}. Nenhuma ação necessária."
+            )
+            version_validation = next((item for item in validations if item.key == "version"), None)
+            if version_validation is not None:
+                version_validation.ok = True
+                version_validation.level = "info"
+                version_validation.detail = (
+                    f"Comparação registrava {job.plugintema_version}; WooCommerce já está em {current_version}."
+                )
+            validations.append(ValidationItem(
+                "already_updated", "Produto já atualizado", False,
+                already_updated_message, "info",
+            ))
+            self.logger(f"ℹ {already_updated_message}")
+
         artifact: dict[str, Any] = {}
         try:
             if not ultrapack_ok:
                 raise RuntimeError("Download bloqueado pela validacao da versao fonte ou do vinculo")
+            if already_updated:
+                raise RuntimeError(already_updated_message)
             self.logger("📦 Baixando ZIP para staging local")
             job.set_state(JobState.DOWNLOADING)
             local, discovered_version = self.downloader.download(
