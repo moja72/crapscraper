@@ -3,64 +3,87 @@
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const clean=v=>String(v??"").replace(/\s+/g," ").trim();
   const esc=v=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
   function legacyCard(){
     const action=$$('button').find(b=>/Aplicar preços em lote/i.test(clean(b.textContent)));
     return action?.closest('.card')||null;
   }
-  function periodInputs(card,label){
-    const fs=$$('fieldset',card).find(n=>new RegExp(label,'i').test(clean(n.querySelector('legend')?.textContent||'')));
-    const inputs=fs?$$('input',fs).filter(i=>i.type!=="checkbox"):[];
-    return {regular:inputs[0]||null,sale:inputs[1]||null};
+  async function loadCurrent(){
+    const r=await fetch('/loja/precos?tipo=plugin&tipo=theme',{cache:'no-store',credentials:'same-origin'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||d?.ok===false)throw new Error(d?.message||d?.error||`HTTP ${r.status}`);
+    return d;
   }
-  function categoryCheck(card,label){
-    const l=$$('label',card).find(n=>clean(n.textContent)===label);
-    return l?.querySelector('input[type=checkbox]')||null;
+  function currentFromSummary(summary,period){
+    const rows=Array.isArray(summary?.distribution?.[period])?summary.distribution[period]:[];
+    const first=rows[0]||{};
+    return {regular:clean(first.regular_price),sale:clean(first.sale_price),count:Number(first.count||0)};
   }
-  function current(card,category,period){
-    const root=$$('div',card).find(n=>/Valores atuais no WooCommerce/i.test(clean(n.textContent)));
-    if(!root)return {regular:"",sale:""};
-    const blocks=$$('div',root).filter(n=>clean(n.textContent).startsWith(category));
-    const block=blocks.sort((a,b)=>clean(a.textContent).length-clean(b.textContent).length)[0];
-    if(!block)return {regular:"",sale:""};
-    const p=$$('strong,h3,h4',block).find(n=>clean(n.textContent)===period);
-    const raw=clean((p?.parentElement||block).textContent);
-    return {regular:raw.match(/Original:\s*R\$\s*([0-9.,]+)/i)?.[1]||"",sale:raw.match(/Promocional:\s*R\$\s*([0-9.,]+)/i)?.[1]||""};
+  async function waitJob(jobId,status){
+    const started=Date.now();
+    while(Date.now()-started<60*60*1000){
+      const r=await fetch('/loja/precos/status',{cache:'no-store',credentials:'same-origin'});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(d?.message||`HTTP ${r.status}`);
+      if(jobId&&d.job_id&&d.job_id!==jobId){await sleep(500);continue;}
+      status.textContent=d.message||'Atualizando preços...';
+      if(d.status==='completed')return d;
+      if(d.status==='error')throw new Error(d.message||d.error||'Falha ao atualizar preços.');
+      await sleep(700);
+    }
+    throw new Error('A atualização excedeu 60 minutos.');
   }
-  async function postPrices(payload){
+  async function postPrices(payload,status){
     const response=await fetch('/loja/precos',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const data=await response.json().catch(()=>({}));
     if(!response.ok||data?.ok===false)throw new Error(data?.message||data?.error||`HTTP ${response.status}`);
-    return data;
+    return waitJob(data.job_id,status);
   }
-  function install(){
-    const card=legacyCard(); if(!card||$('#store_category_pricing_table'))return;
-    const annual=periodInputs(card,'Versão anual'), lifetime=periodInputs(card,'Versão vitalícia');
-    const plugin=categoryCheck(card,'Plugins'), theme=categoryCheck(card,'Temas');
-    if(!annual.regular||!annual.sale||!lifetime.regular||!lifetime.sale||!plugin||!theme)return;
-
-    const data={plugin:{label:'Plugins',annual:current(card,'Plugins','Anual'),lifetime:current(card,'Plugins','Vitalício')},theme:{label:'Temas',annual:current(card,'Temas','Anual'),lifetime:current(card,'Temas','Vitalício')}};
-    const box=document.createElement('div'); box.id='store_category_pricing_table';
-    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Mesmo padrão da tabela de Packs, porém por categoria e variação.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
+  function values(box,kind){
+    const val=(period,field)=>$(`[data-store-kind="${kind}"][data-store-period="${period}"][data-store-field="${field}"]`,box)?.value||'';
+    return {kinds:[kind],annual_regular:val('annual','regular'),annual_sale:val('annual','sale'),lifetime_regular:val('lifetime','regular'),lifetime_sale:val('lifetime','sale'),confirmation:'ALTERAR PRECOS'};
+  }
+  function render(box,payload){
+    const data={
+      plugin:{label:'Plugins',annual:currentFromSummary(payload?.by_kind?.plugin,'annual'),lifetime:currentFromSummary(payload?.by_kind?.plugin,'lifetime')},
+      theme:{label:'Temas',annual:currentFromSummary(payload?.by_kind?.theme,'annual'),lifetime:currentFromSummary(payload?.by_kind?.theme,'lifetime')},
+    };
+    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-success" type="button" id="store_category_save_all">Salvar Plugins e Temas</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
     const tbody=$('tbody',box);
     for(const kind of ['plugin','theme'])for(const period of ['annual','lifetime']){
-      const item=data[kind], cur=item[period], periodLabel=period==='annual'?'Anual':'Vitalício';
+      const item=data[kind],cur=item[period],periodLabel=period==='annual'?'Anual':'Vitalício';
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td>${period==='lifetime'?`<button class="btn-success" type="button" data-store-save="${kind}">Salvar ${item.label}</button>`:''}</td>`;
+      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td>${period==='lifetime'?`<button class="btn-success btn-sm" type="button" data-store-save="${kind}">Salvar ${item.label}</button>`:''}</td>`;
       tbody.appendChild(tr);
     }
-    card.prepend(box);
-    [...card.children].forEach(n=>{if(n!==box)n.style.display='none'});
-    box.addEventListener('click',async e=>{
-      const btn=e.target.closest('[data-store-save]'); if(!btn)return;
-      const kind=btn.dataset.storeSave, val=(period,field)=>$(`[data-store-kind="${kind}"][data-store-period="${period}"][data-store-field="${field}"]`,box)?.value||'';
-      const payload={kinds:[kind],annual_regular:val('annual','regular'),annual_sale:val('annual','sale'),lifetime_regular:val('lifetime','regular'),lifetime_sale:val('lifetime','sale'),confirmation:'ALTERAR PRECOS'};
-      btn.disabled=true; const old=btn.textContent; btn.textContent='Salvando...';
-      try{const result=await postPrices(payload);$('#store_category_pricing_status').textContent=result?.message||`${data[kind].label}: preços atualizados.`;}
-      catch(error){$('#store_category_pricing_status').textContent=`Falha: ${error.message}`;}
+    const status=$('#store_category_pricing_status',box);
+    box.querySelectorAll('[data-store-save]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const kind=btn.dataset.storeSave;btn.disabled=true;const old=btn.textContent;btn.textContent='Salvando...';
+      try{const result=await postPrices(values(box,kind),status);status.textContent=result.message||`${data[kind].label}: preços atualizados.`;}
+      catch(error){status.textContent=`Falha: ${error.message}`;}
+      finally{btn.disabled=false;btn.textContent=old;}
+    }));
+    $('#store_category_save_all',box)?.addEventListener('click',async event=>{
+      const btn=event.currentTarget;btn.disabled=true;const old=btn.textContent;
+      try{
+        btn.textContent='Salvando Plugins...';await postPrices(values(box,'plugin'),status);
+        btn.textContent='Salvando Temas...';const result=await postPrices(values(box,'theme'),status);
+        status.textContent=result.message||'Plugins e Temas atualizados.';
+      }catch(error){status.textContent=`Falha: ${error.message}`;}
       finally{btn.disabled=false;btn.textContent=old;}
     });
   }
-  const start=()=>{install();new MutationObserver(install).observe(document.body,{childList:true,subtree:true});};
+  let installing=false;
+  async function install(){
+    const card=legacyCard(); if(!card||installing)return;
+    let box=$('#store_category_pricing_table');
+    if(!box){box=document.createElement('div');box.id='store_category_pricing_table';card.prepend(box);[...card.children].forEach(n=>{if(n!==box)n.style.display='none'});}
+    installing=true;box.innerHTML='<div class="small">Carregando preços atuais do WooCommerce...</div>';
+    try{render(box,await loadCurrent());}
+    catch(error){box.innerHTML=`<div class="notice is-danger">Não foi possível carregar os preços atuais: ${esc(error.message)}</div><button type="button" class="btn-secondary btn-sm" id="store_category_retry">Tentar novamente</button>`;$('#store_category_retry',box)?.addEventListener('click',install,{once:true});}
+    finally{installing=false;}
+  }
+  const start=()=>{install();};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();

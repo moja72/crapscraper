@@ -50,6 +50,9 @@ from app.update_flow_fix_policy import install_update_flow_fix_policy
 from app.staging_reuse_policy import install_staging_reuse_policy
 from app.update_operational_ui_policy import install_update_operational_ui_policy
 from app.store_category_table_policy import install_store_category_table_policy
+from app.store_pack_variation_policy import install_store_pack_variation_policy
+from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
+from app.local_staging_inventory_policy import install_local_staging_inventory_policy
 from app.local_staging_ui_policy import install_local_staging_ui_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
@@ -67,11 +70,15 @@ install_search_ui_policy()
 install_accordion_cleanup_policy()
 install_session_validation_policy()
 install_update_flow_fix_policy()
-# Loja: Plugins/Temas continuam em lote por categoria, agora exibidos como tabela por variação.
+# Loja: Plugins/Temas continuam em lote por categoria, exibidos como tabela por variação.
 install_store_category_table_policy()
-# Atualizações: mantém reaproveitamento seguro e exibe os jobs que possuem ZIP local registrado.
+# Packs: expõe e edita as variações Anual/Vitalícia quando elas existem no WooCommerce.
+install_store_pack_variation_policy()
+install_store_pack_variation_ui_policy()
+# Atualizações: mantém reaproveitamento seguro e também inventaria os ZIPs existentes no disco.
 install_staging_reuse_policy()
 install_update_operational_ui_policy()
+install_local_staging_inventory_policy()
 install_local_staging_ui_policy()
 
 
