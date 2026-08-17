@@ -2,18 +2,21 @@
 /**
  * Plugin Name: CrapScraper Manual Update
  * Description: Fila atualizações seguras de Plugin, Tema e Template para o CrapScraper local.
- * Version: 2.1.0
+ * Version: 2.2.0
  */
 defined('ABSPATH') || exit;
 
 final class CrapScraper_Manual_Update {
     const NONCE_ACTION = 'crapscraper_manual_update';
-    const DB_VERSION = '2.1.0';
+    const DB_VERSION = '2.2.0';
 
     public static function init() {
         self::ensure_table();
         add_action('add_meta_boxes_product', array(__CLASS__, 'add_meta_box'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'assets'));
+        add_action('wp_enqueue_scripts', array(__CLASS__, 'frontend_assets'));
+        add_action('wp_footer', array(__CLASS__, 'render_frontend'));
+        add_action('template_redirect', array(__CLASS__, 'frontend_no_cache'));
         add_action('wp_ajax_crapscraper_manual_start', array(__CLASS__, 'ajax_start'));
         add_action('wp_ajax_crapscraper_manual_status', array(__CLASS__, 'ajax_status'));
         add_action('rest_api_init', array(__CLASS__, 'rest_routes'));
@@ -64,22 +67,57 @@ final class CrapScraper_Manual_Update {
 
     public static function render_component($product_id, $context = 'admin') {
         if (!self::authorized() || !self::eligible($product_id)) return;
-        echo '<div id="crapscraper-manual" data-context="' . esc_attr($context) . '" data-product-id="' . esc_attr($product_id) . '">';
-        echo '<p>O pedido será processado pelo CrapScraper assim que ele estiver aberto no PC.</p>';
+        $frontend = 'frontend' === $context;
+        echo '<aside id="crapscraper-manual" class="cs-manual ' . ($frontend ? 'cs-frontend-panel' : 'cs-admin-panel') . '" data-context="' . esc_attr($context) . '" data-product-id="' . esc_attr($product_id) . '" aria-label="Atualização CrapScraper">';
+        if ($frontend) echo '<div class="cs-panel-title">Atualização do produto</div>';
+        echo '<p class="cs-intro">O pedido será processado pelo CrapScraper assim que ele estiver aberto no PC.</p>';
         echo '<button type="button" class="button button-primary" id="crapscraper-manual-button">Verificar e atualizar</button>';
-        echo '<div id="crapscraper-manual-status" class="cs-status" role="status" aria-live="polite"></div>';
-        echo '<div id="crapscraper-manual-progress" class="cs-progress" hidden><span></span></div></div>';
+        echo '<div class="cs-loading-space" aria-live="polite">';
+        echo '<div id="crapscraper-manual-status" class="cs-status is-idle" role="status">Aguardando verificação.</div>';
+        echo '<div id="crapscraper-manual-progress" class="cs-progress" hidden><span></span></div>';
+        echo '<dl class="cs-details" id="crapscraper-manual-details">';
+        echo '<div><dt>Etapa</dt><dd data-cs-stage>Aguardando ação</dd></div>';
+        echo '<div><dt>Origem</dt><dd data-cs-source>—</dd></div>';
+        echo '<div><dt>Versão</dt><dd data-cs-version>—</dd></div>';
+        echo '</dl></div></aside>';
     }
 
-    public static function assets($hook) {
-        global $post;
-        if (!self::authorized() || !in_array($hook, array('post.php', 'post-new.php'), true) || !$post || !self::eligible($post->ID)) return;
+    private static function frontend_product_id() {
+        if (is_admin() || !function_exists('is_product') || !is_product()) return 0;
+        return absint(get_queried_object_id());
+    }
+
+    private static function enqueue_assets() {
         $base = plugin_dir_url(__FILE__);
         wp_enqueue_script('crapscraper-manual-update', $base . 'manual-update.js', array(), self::DB_VERSION, true);
         wp_enqueue_style('crapscraper-manual-update', $base . 'manual-update.css', array(), self::DB_VERSION);
         wp_localize_script('crapscraper-manual-update', 'CrapScraperManual', array(
             'ajaxUrl' => admin_url('admin-ajax.php'), 'nonce' => wp_create_nonce(self::NONCE_ACTION),
         ));
+    }
+
+    public static function assets($hook) {
+        global $post;
+        if (!self::authorized() || !in_array($hook, array('post.php', 'post-new.php'), true) || !$post || !self::eligible($post->ID)) return;
+        self::enqueue_assets();
+    }
+
+    public static function frontend_assets() {
+        $product_id = self::frontend_product_id();
+        if (!$product_id || !self::authorized() || !self::eligible($product_id)) return;
+        self::enqueue_assets();
+    }
+
+    public static function render_frontend() {
+        $product_id = self::frontend_product_id();
+        if ($product_id) self::render_component($product_id, 'frontend');
+    }
+
+    public static function frontend_no_cache() {
+        $product_id = self::frontend_product_id();
+        if (!$product_id || !self::authorized() || !self::eligible($product_id)) return;
+        nocache_headers();
+        if (defined('LSCWP_V')) do_action('litespeed_control_set_nocache', 'CrapScraper Super Admin product control');
     }
 
     private static function require_admin_request($product_id) {

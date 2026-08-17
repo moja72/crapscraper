@@ -96,6 +96,18 @@ class WordPressManualUpdateTests(unittest.TestCase):
             self.assertIn(state, js)
         for header in ("Cache-Control", "CDN-Cache-Control", "litespeed_control_set_nocache"):
             self.assertIn(header, php)
+        for frontend in ("wp_enqueue_scripts", "wp_footer", "frontend_product_id",
+                         "render_component($product_id, 'frontend')", "cs-frontend-panel"):
+            self.assertIn(frontend, php)
+        self.assertIn("data-cs-stage", php)
+        self.assertIn("data-cs-source", php)
+        self.assertIn("data-cs-version", php)
+        self.assertIn("Ainda não definida", js)
+        css = (root / "deploy/wordpress/crapscraper-manual-update/manual-update.css").read_text(encoding="utf-8")
+        self.assertIn("position:fixed", css)
+        self.assertIn("top:20px", css)
+        self.assertIn("right:20px", css)
+        self.assertIn("prefers-reduced-motion", css)
         runtime = (root / "app/operations/runtime.py").read_text(encoding="utf-8")
         for field in ("source", "previous_version", "new_version", "requested_at", "result"):
             self.assertIn(f'"{field}"', runtime)
