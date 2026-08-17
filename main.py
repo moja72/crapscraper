@@ -32,20 +32,13 @@ def load_windows_user_environment() -> dict[str, bool]:
     return presence
 
 
-# Precisa ocorrer antes de importar modulos que calculam constantes via getenv.
 load_windows_user_environment()
 
-# Corrige estados persistidos antigos antes que app.web/app.operations.runtime sejam
-# importados e restaurem jobs. Um job só continua como completed quando há prova
-# persistida de plano, SHA do ZIP e confirmação de pt_versao.
 from app.operations.runtime_repair import repair_update_runtime
 from app.operations.transient_recovery import recover_interrupted_preparations
 
 repair_update_runtime()
-# Estados de preparação não podem continuar ativos depois de um reinício. Eles
-# retornam para Aprovado, preservando staging/SHA para uma preparação segura.
 recover_interrupted_preparations()
-
 
 from app.app import ScraperApp
 from app.resume_policy import install_resume_policy
@@ -56,6 +49,8 @@ from app.session_validation_policy import install_session_validation_policy
 from app.update_flow_fix_policy import install_update_flow_fix_policy
 from app.staging_reuse_policy import install_staging_reuse_policy
 from app.update_operational_ui_policy import install_update_operational_ui_policy
+from app.store_category_table_policy import install_store_category_table_policy
+from app.local_staging_ui_policy import install_local_staging_ui_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -66,54 +61,32 @@ from app.storage import (
 )
 from app.web import serve
 
-# Mantém o botão principal coerente com o estado persistido: quando há continuação
-# utilizável, "Retomar" reaproveita a fila salva em vez de iniciar nova descoberta.
 install_resume_policy()
-# Adiciona classificação e reprocessamento seguro dos erros da aba Atualizar.
 install_update_recovery_policy()
-# Uniformiza filtros, busca, seleção, quantidade por página e navegação das listagens.
 install_search_ui_policy()
-# Remove redundâncias visuais remanescentes nas sanfonas de Comparar e Atualizar.
 install_accordion_cleanup_policy()
-# Confirma a sessão PluginTheme contra a API real de acesso, não só pela presença de cookies.
 install_session_validation_policy()
-# Evita falso bloqueio da sessão PluginTheme e torna a execução da fila observável.
 install_update_flow_fix_policy()
-# A aba Loja usa o fluxo nativo: Plugins e Temas por categoria/lote; Packs separados.
-# Reaproveita ZIP de staging somente quando SHA e versão persistidos continuam válidos.
+# Loja: Plugins/Temas continuam em lote por categoria, agora exibidos como tabela por variação.
+install_store_category_table_policy()
+# Atualizações: mantém reaproveitamento seguro e exibe os jobs que possuem ZIP local registrado.
 install_staging_reuse_policy()
-# Exibe todos os estados reais da lista, resumo operacional e indicação de ZIP local.
 install_update_operational_ui_policy()
+install_local_staging_ui_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
-    """
-    Garante que a estrutura mínima do projeto exista antes de subir o app.
-
-    Responsabilidades:
-    - garantir a raiz de slots
-    - normalizar/criar o slots_meta.json
-    - garantir a pasta do slot ativo
-    """
     ensure_slots_root_dir()
     load_slots_meta()
-
     active_slot = slot_name or get_active_slot_name()
     ensure_slot_dir(active_slot)
-
     return active_slot
 
 
 def build_default_context(slot_name: str | None = None) -> ScraperContext:
-    """
-    Monta o contexto padrão da aplicação já apontando para o slot ativo.
-    """
     active_slot = prepare_environment(slot_name)
     context = build_context(slot_name=active_slot)
-
-    # Garante também toda a árvore de pastas do contexto atual.
     build_context_paths(context, ensure=True)
-
     return context
 
 
@@ -122,15 +95,8 @@ def build_app(
     *,
     auto_load_summary: bool = True,
 ) -> ScraperApp:
-    """
-    Instancia a aplicação principal já pronta para uso no painel.
-    """
     context = build_default_context(slot_name)
-
-    return ScraperApp(
-        context=context,
-        auto_load_summary=auto_load_summary,
-    )
+    return ScraperApp(context=context, auto_load_summary=auto_load_summary)
 
 
 def main() -> None:
