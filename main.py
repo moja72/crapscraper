@@ -55,6 +55,7 @@ from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
 from app.comparison_actions_layout_policy import install_comparison_actions_layout_policy
+from app.already_current_update_policy import install_already_current_update_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -78,6 +79,8 @@ install_store_category_table_policy()
 # Packs: expõe e edita as variações Anual/Vitalícia quando elas existem no WooCommerce.
 install_store_pack_variation_policy()
 install_store_pack_variation_ui_policy()
+# Atualizações: se o destino já estiver na versão esperada, registra e conclui sem sobrescrever ZIP/pt_versao.
+install_already_current_update_policy()
 # Atualizações: fluxo normal, sem inventário/UI de ZIPs locais.
 install_staging_reuse_policy()
 install_update_operational_ui_policy()
