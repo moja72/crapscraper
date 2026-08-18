@@ -53,6 +53,7 @@ from app.update_reset_policy import install_update_reset_policy
 from app.default_queue_clear_policy import install_default_queue_clear_policy
 from app.update_queue_lifecycle_policy import install_update_queue_lifecycle_policy
 from app.update_queue_execution_reliability_policy import install_update_queue_execution_reliability_policy
+from app.update_retry_safety_policy import install_update_retry_safety_policy
 from app.process_observability_policy import install_process_observability_policy
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
@@ -101,6 +102,8 @@ install_default_queue_clear_policy()
 install_update_queue_lifecycle_policy()
 # A fila reserva atomicamente o job antes de executar e limita operações remotas para não ficar presa indefinidamente.
 install_update_queue_execution_reliability_policy()
+# Retry: prepara com leituras WooCommerce fresh e limpa somente staging temporário do próprio job.
+install_update_retry_safety_policy()
 # Observabilidade: projeta logs vivos sem persistir cada linha e adiciona a central de processos ativos.
 install_process_observability_policy()
 
