@@ -50,6 +50,7 @@ from app.update_flow_fix_policy import install_update_flow_fix_policy
 from app.staging_reuse_policy import install_staging_reuse_policy
 from app.update_operational_ui_policy import install_update_operational_ui_policy
 from app.update_reset_policy import install_update_reset_policy
+from app.default_queue_clear_policy import install_default_queue_clear_policy
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
@@ -82,6 +83,8 @@ install_staging_reuse_policy()
 install_update_operational_ui_policy()
 # Limpar histórico/fila significa resetar o estado local como se os jobs ainda não tivessem sido processados.
 install_update_reset_policy()
+# Limpar uma lista remove de fato seus jobs materializados e evita reaparecimento imediato da mesma aprovação.
+install_default_queue_clear_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
