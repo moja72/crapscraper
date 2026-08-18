@@ -27,9 +27,15 @@
     const id=Number(item.product_id||0), variationId=Number(item.variation_id||0);
     return `<tr data-pack-custom-row data-product-id="${id}" data-variation-id="${variationId}"><td><strong>${esc(item.product_name||`Produto #${id}`)}</strong><div class="small">WooCommerce #${id}${variationId?` · variação #${variationId}`:''}</div></td><td>${esc(item.product_type||'—')}</td><td><strong>${esc(item.variation||'Produto')}</strong></td><td>${money(item.last_price)}</td><td><input data-pack-regular inputmode="decimal" value="${esc(item.regular_price||'')}"></td><td><input data-pack-sale inputmode="decimal" value="${esc(item.sale_price||'')}" placeholder="Sem promoção"></td><td><button class="btn-success btn-sm" type="button" data-pack-save>Salvar preços</button></td></tr>`;
   }
+  function renameSection(root){
+    const card=root.closest('.card');
+    const title=card?.querySelector('.section-title');
+    if(title)title.textContent='Preços de pacotes';
+  }
   let busy=false;
   async function refresh(){
     if(busy)return; const root=$('#store_pack_prices'); if(!root)return; busy=true;
+    renameSection(root);
     try{
       const rows=await getRows();
       root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:14px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_pack_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px"></div>`;
