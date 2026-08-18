@@ -7,17 +7,26 @@ import app.web as web
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
-_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "store_pack_variation_table.js"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_SCRIPT_PATHS = (
+    ("store-pack-variation-table", _STATIC_DIR / "store_pack_variation_table.js"),
+    ("store-ui-polish", _STATIC_DIR / "store_ui_polish.js"),
+)
 
 
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
-    except OSError:
+    blocks: list[str] = []
+    for marker, path in _SCRIPT_PATHS:
+        try:
+            script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+        except OSError:
+            continue
+        blocks.append(f"\n<script data-{marker}>\n{script}\n</script>\n")
+    if not blocks:
         return html
-    block = f"\n<script data-store-pack-variation-table>\n{script}\n</script>\n"
+    block = "".join(blocks)
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
