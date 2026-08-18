@@ -12,6 +12,7 @@ _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _BASE_MATERIALIZE: Callable[..., list[dict[str, Any]]] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "active_processes.js"
+_HEADER_POSITION_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "processes_header_position.js"
 _STATE_SYNC_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_state_sync.js"
 _SUCCESS_RESULTS = frozenset({"completed", "already_current"})
 _SUCCESS_STEPS = frozenset({"pt_versao_updated", "already_current"})
@@ -123,6 +124,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     html = base(*args, **kwargs)
     block = (
         _script_block(_SCRIPT_PATH, "data-active-processes")
+        + _script_block(_HEADER_POSITION_SCRIPT_PATH, "data-processes-header-position")
         + _script_block(_STATE_SYNC_SCRIPT_PATH, "data-update-state-sync")
     )
     if not block:
