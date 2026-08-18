@@ -32,7 +32,7 @@
     if(busy)return; const root=$('#store_pack_prices'); if(!root)return; busy=true;
     try{
       const rows=await getRows();
-      root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-success" type="button" id="store_pack_save_all">Salvar todos os pacotes</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px"></div>`;
+      root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:14px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_pack_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px"></div>`;
       const status=$('#store_pack_custom_status',root);
       root.querySelectorAll('[data-pack-save]').forEach(btn=>btn.addEventListener('click',()=>saveRow(btn.closest('[data-pack-custom-row]'),btn,status)));
       $('#store_pack_save_all',root)?.addEventListener('click',async event=>{

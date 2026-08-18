@@ -44,12 +44,28 @@
     const val=(period,field)=>$(`[data-store-kind="${kind}"][data-store-period="${period}"][data-store-field="${field}"]`,box)?.value||'';
     return {kinds:[kind],annual_regular:val('annual','regular'),annual_sale:val('annual','sale'),lifetime_regular:val('lifetime','regular'),lifetime_sale:val('lifetime','sale'),confirmation:'ALTERAR PRECOS'};
   }
+  async function saveKind(box,kind,status,button){
+    const old=button.textContent;
+    button.disabled=true;
+    button.textContent='Salvando...';
+    try{
+      const result=await postPrices(values(box,kind),status);
+      status.textContent=result.message||`${kind==='plugin'?'Plugins':'Temas'}: preços atualizados.`;
+      return true;
+    }catch(error){
+      status.textContent=`Falha: ${error.message}`;
+      return false;
+    }finally{
+      button.disabled=false;
+      button.textContent=old;
+    }
+  }
   function render(box,payload){
     const data={
       plugin:{label:'Plugins',annual:currentFromSummary(payload?.by_kind?.plugin,'annual'),lifetime:currentFromSummary(payload?.by_kind?.plugin,'lifetime')},
       theme:{label:'Temas',annual:currentFromSummary(payload?.by_kind?.theme,'annual'),lifetime:currentFromSummary(payload?.by_kind?.theme,'lifetime')},
     };
-    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-success" type="button" id="store_category_save_all">Salvar Plugins e Temas</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
+    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_category_save_plugins">Salvar Plugins</button><button class="btn-success" type="button" id="store_category_save_themes">Salvar Temas</button><button class="btn-success" type="button" id="store_category_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
     const tbody=$('tbody',box);
     for(const kind of ['plugin','theme'])for(const period of ['annual','lifetime']){
       const item=data[kind],cur=item[period],periodLabel=period==='annual'?'Anual':'Vitalício';
@@ -58,12 +74,9 @@
       tbody.appendChild(tr);
     }
     const status=$('#store_category_pricing_status',box);
-    box.querySelectorAll('[data-store-save]').forEach(btn=>btn.addEventListener('click',async()=>{
-      const kind=btn.dataset.storeSave;btn.disabled=true;const old=btn.textContent;btn.textContent='Salvando...';
-      try{const result=await postPrices(values(box,kind),status);status.textContent=result.message||`${data[kind].label}: preços atualizados.`;}
-      catch(error){status.textContent=`Falha: ${error.message}`;}
-      finally{btn.disabled=false;btn.textContent=old;}
-    }));
+    box.querySelectorAll('[data-store-save]').forEach(btn=>btn.addEventListener('click',()=>saveKind(box,btn.dataset.storeSave,status,btn)));
+    $('#store_category_save_plugins',box)?.addEventListener('click',event=>saveKind(box,'plugin',status,event.currentTarget));
+    $('#store_category_save_themes',box)?.addEventListener('click',event=>saveKind(box,'theme',status,event.currentTarget));
     $('#store_category_save_all',box)?.addEventListener('click',async event=>{
       const btn=event.currentTarget;btn.disabled=true;const old=btn.textContent;
       try{
