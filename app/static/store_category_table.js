@@ -65,12 +65,16 @@
       plugin:{label:'Plugins',annual:currentFromSummary(payload?.by_kind?.plugin,'annual'),lifetime:currentFromSummary(payload?.by_kind?.plugin,'lifetime')},
       theme:{label:'Temas',annual:currentFromSummary(payload?.by_kind?.theme,'annual'),lifetime:currentFromSummary(payload?.by_kind?.theme,'lifetime')},
     };
-    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="margin-top:14px;padding:0 16px 2px;box-sizing:border-box;width:100%"><button class="btn-success" type="button" id="store_category_save_all" style="display:block;width:100%;max-width:100%;box-sizing:border-box">Salvar preços</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px;padding:0 16px;box-sizing:border-box"></div>`;
+    box.style.width='100%';
+    box.style.maxWidth='100%';
+    box.style.minWidth='0';
+    box.style.boxSizing='border-box';
+    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap" style="width:100%;max-width:100%;overflow-x:hidden;box-sizing:border-box"><table class="catalogos-table" style="width:100%;max-width:100%;min-width:0;table-layout:fixed"><colgroup><col style="width:9%"><col style="width:8%"><col style="width:14%"><col style="width:16%"><col style="width:20%"><col style="width:20%"><col style="width:13%"></colgroup><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="width:100%;max-width:100%;box-sizing:border-box;margin-top:14px;padding:0 12px 4px"><button class="btn-success" type="button" id="store_category_save_all" style="display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;white-space:nowrap">Salvar preços</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px;padding:0 12px;box-sizing:border-box"></div>`;
     const tbody=$('tbody',box);
     for(const kind of ['plugin','theme'])for(const period of ['annual','lifetime']){
       const item=data[kind],cur=item[period],periodLabel=period==='annual'?'Anual':'Vitalício';
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td><button class="btn-success btn-sm" type="button" data-store-save="${kind}">Salvar preços</button></td>`;
+      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input style="width:100%;max-width:100%;min-width:0;box-sizing:border-box" data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input style="width:100%;max-width:100%;min-width:0;box-sizing:border-box" data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td><button class="btn-success btn-sm" style="width:100%;max-width:100%;min-width:0;box-sizing:border-box;white-space:nowrap;padding-left:6px;padding-right:6px" type="button" data-store-save="${kind}">Salvar preços</button></td>`;
       tbody.appendChild(tr);
     }
     const status=$('#store_category_pricing_status',box);
@@ -88,6 +92,9 @@
   let installing=false;
   async function install(){
     const card=legacyCard(); if(!card||installing)return;
+    card.style.minWidth='0';
+    card.style.maxWidth='100%';
+    card.style.boxSizing='border-box';
     let box=$('#store_category_pricing_table');
     if(!box){box=document.createElement('div');box.id='store_category_pricing_table';card.prepend(box);[...card.children].forEach(n=>{if(n!==box)n.style.display='none'});}
     installing=true;box.innerHTML='<div class="small">Carregando preços atuais do WooCommerce...</div>';
