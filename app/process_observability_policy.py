@@ -4,12 +4,70 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+import app.operations.runtime as runtime
 import app.web as web
+from app.operations.models import JobState, utc_now_iso
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _BASE_MATERIALIZE: Callable[..., list[dict[str, Any]]] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "active_processes.js"
+_STATE_SYNC_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_state_sync.js"
+_SUCCESS_RESULTS = frozenset({"completed", "already_current"})
+_SUCCESS_STEPS = frozenset({"pt_versao_updated", "already_current"})
+
+
+def _matching_success_history(job: Mapping[str, Any]) -> bool:
+    completed_at = str(job.get("completed_at") or "").strip()
+    executing_at = str(job.get("executing_at") or "").strip()
+    if not completed_at or str(job.get("execution_error") or "").strip():
+        return False
+    if str(job.get("last_completed_step") or "").strip() not in _SUCCESS_STEPS:
+        return False
+    history = [item for item in job.get("execution_history", []) or [] if isinstance(item, Mapping)]
+    for item in reversed(history):
+        if str(item.get("result") or "").strip() not in _SUCCESS_RESULTS:
+            continue
+        if completed_at and str(item.get("completed_at") or "").strip() == completed_at:
+            return True
+        if executing_at and str(item.get("executing_at") or "").strip() == executing_at:
+            return True
+    return False
+
+
+def _repair_successful_terminal_state(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Evita estado terminal contraditório após uma execução comprovadamente concluída.
+
+    O reparo só ocorre com evidências persistidas do ciclo atual: completed_at, ausência de
+    execution_error, última etapa de sucesso e execution_history correspondente. Logs, sozinhos,
+    nunca são usados para promover um job a concluído.
+    """
+    current = dict(row)
+    if str(current.get("state") or "") == JobState.COMPLETED.value:
+        return current
+    if not _matching_success_history(current):
+        return current
+
+    job_id = str(current.get("job_id") or "").strip()
+    if not job_id:
+        return current
+    with runtime._LOCK:
+        job = runtime._JOBS.get(job_id)
+        if job is None:
+            return current
+        public = runtime.job_public(job)
+        if not _matching_success_history(public):
+            return current
+        if job.state != JobState.COMPLETED:
+            job.state = JobState.COMPLETED
+            job.updated_at = utc_now_iso()
+            job.execution_error = ""
+            marker = "Estado reconciliado para Concluído a partir das evidências persistidas da execução."
+            if not job.diagnostics or job.diagnostics[-1] != marker:
+                job.diagnostics.append(marker)
+            runtime._ensure_final_history(job)
+            runtime._persist()
+        return runtime.job_public(job)
 
 
 def _current_history_ready(job: Mapping[str, Any]) -> bool:
@@ -34,7 +92,7 @@ def _patched_materialize_update_jobs(*args: Any, **kwargs: Any) -> list[dict[str
     rows = base(*args, **kwargs)
     enriched: list[dict[str, Any]] = []
     for raw in rows:
-        row = dict(raw)
+        row = _repair_successful_terminal_state(raw)
         job_id = str(row.get("job_id") or "").strip()
         live_logs: list[str] = []
         if job_id:
@@ -52,14 +110,23 @@ def _patched_materialize_update_jobs(*args: Any, **kwargs: Any) -> list[dict[str
     return enriched
 
 
+def _script_block(path: Path, attribute: str) -> str:
+    try:
+        script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+    except OSError:
+        return ""
+    return f"\n<script {attribute}>\n{script}\n</script>\n"
+
+
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
-    except OSError:
+    block = (
+        _script_block(_SCRIPT_PATH, "data-active-processes")
+        + _script_block(_STATE_SYNC_SCRIPT_PATH, "data-update-state-sync")
+    )
+    if not block:
         return html
-    block = f"\n<script data-active-processes>\n{script}\n</script>\n"
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
