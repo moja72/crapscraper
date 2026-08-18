@@ -60,7 +60,6 @@
       button.cs-update-operational-chip{cursor:pointer}.cs-update-operational-chip strong{color:#fff;font-size:13px}
       button.cs-update-operational-chip:hover{border-color:#6d3bb5;background:#20182d}
       .cs-update-operational-guidance{flex:1 1 100%;margin-top:3px;padding-top:10px;border-top:1px solid #26262d;color:#a7a7b2;font-size:12px;line-height:1.45}
-      .cs-update-filter-note{margin-top:6px;color:#8f95a3;font-size:11px;font-weight:400}
       .cs-zip-local-badge{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:3px 7px;border:1px solid rgba(16,185,129,.38);border-radius:999px;background:rgba(16,185,129,.09);color:#8ce0bf;font-size:10px;font-weight:800;vertical-align:middle}
       @media(max-width:720px){.cs-update-operational-chip{flex:1 1 auto;justify-content:center}}
     `;
@@ -88,16 +87,7 @@
 
   function improveFilterControls() {
     const queueState = $("#updates_queue_status_filter");
-    if (queueState) {
-      fillSelect(queueState, STATE_OPTIONS);
-      const label = queueState.closest("label");
-      if (label && !$(".cs-update-filter-note", label)) {
-        const note = document.createElement("div");
-        note.className = "cs-update-filter-note";
-        note.textContent = "Inclui estados ativos e concluídos da lista selecionada";
-        label.appendChild(note);
-      }
-    }
+    if (queueState) fillSelect(queueState, STATE_OPTIONS);
 
     const preparationState = $("#updates_status_filter");
     if (preparationState) fillSelect(preparationState, PREPARATION_OPTIONS);
