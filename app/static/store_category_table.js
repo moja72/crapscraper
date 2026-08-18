@@ -65,24 +65,22 @@
       plugin:{label:'Plugins',annual:currentFromSummary(payload?.by_kind?.plugin,'annual'),lifetime:currentFromSummary(payload?.by_kind?.plugin,'lifetime')},
       theme:{label:'Temas',annual:currentFromSummary(payload?.by_kind?.theme,'annual'),lifetime:currentFromSummary(payload?.by_kind?.theme,'lifetime')},
     };
-    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_category_save_plugins">Salvar Plugins</button><button class="btn-success" type="button" id="store_category_save_themes">Salvar Temas</button><button class="btn-success" type="button" id="store_category_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
+    box.innerHTML=`<div class="section-title">Preços de Plugins e Temas</div><div class="small" style="margin:6px 0 14px">Edite por categoria e variação. Os valores atuais são lidos diretamente do WooCommerce.</div><div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Categoria</th><th>Variação</th><th>Preço atual original</th><th>Preço atual promocional</th><th>Novo original</th><th>Novo promocional</th><th>Ação</th></tr></thead><tbody></tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:14px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_category_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_category_pricing_status" class="small" style="margin-top:10px"></div>`;
     const tbody=$('tbody',box);
     for(const kind of ['plugin','theme'])for(const period of ['annual','lifetime']){
       const item=data[kind],cur=item[period],periodLabel=period==='annual'?'Anual':'Vitalício';
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td>${period==='lifetime'?`<button class="btn-success btn-sm" type="button" data-store-save="${kind}">Salvar ${item.label}</button>`:''}</td>`;
+      tr.innerHTML=`<td><strong>${item.label}</strong></td><td>${periodLabel}</td><td>${cur.regular?`R$ ${esc(cur.regular)}`:'—'}</td><td>${cur.sale?`R$ ${esc(cur.sale)}`:'Sem promoção'}</td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="regular" inputmode="decimal" value="${esc(cur.regular)}"></td><td><input data-store-kind="${kind}" data-store-period="${period}" data-store-field="sale" inputmode="decimal" value="${esc(cur.sale)}"></td><td><button class="btn-success btn-sm" type="button" data-store-save="${kind}">Salvar preços</button></td>`;
       tbody.appendChild(tr);
     }
     const status=$('#store_category_pricing_status',box);
     box.querySelectorAll('[data-store-save]').forEach(btn=>btn.addEventListener('click',()=>saveKind(box,btn.dataset.storeSave,status,btn)));
-    $('#store_category_save_plugins',box)?.addEventListener('click',event=>saveKind(box,'plugin',status,event.currentTarget));
-    $('#store_category_save_themes',box)?.addEventListener('click',event=>saveKind(box,'theme',status,event.currentTarget));
     $('#store_category_save_all',box)?.addEventListener('click',async event=>{
       const btn=event.currentTarget;btn.disabled=true;const old=btn.textContent;
       try{
         btn.textContent='Salvando Plugins...';await postPrices(values(box,'plugin'),status);
         btn.textContent='Salvando Temas...';const result=await postPrices(values(box,'theme'),status);
-        status.textContent=result.message||'Plugins e Temas atualizados.';
+        status.textContent=result.message||'Preços de Plugins e Temas atualizados.';
       }catch(error){status.textContent=`Falha: ${error.message}`;}
       finally{btn.disabled=false;btn.textContent=old;}
     });
