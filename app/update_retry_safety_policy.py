@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import PurePosixPath
 from typing import Any, Callable, Mapping
 
 from app.integrations.ssh_helper import SSHHelperRequest
-from app.integrations.wordpress import IntegrationError
+from app.integrations.wordpress import IntegrationError, sanitize_text
 from app.operations.models import JobState
 from app.operations.preparation import UpdatePreparationService
 from app.operations.real_executor import ControlledUpdateExecutor
@@ -13,16 +14,73 @@ _INSTALLED = False
 _BASE_PREPARE: Callable[..., Any] | None = None
 _BASE_EXECUTE: Callable[..., Any] | None = None
 _PRODUCTION_STEPS = frozenset({"production_zip_installed", "pt_versao_updated"})
+_SHA256_TIMEOUT_SECONDS = 90
+
+
+def _remote_sha256(storage: Any, path: str) -> str:
+    """Calcula o hash no servidor sem transferir o ZIP inteiro por SFTP.
+
+    O caminho primeiro passa pela mesma validação de confinamento do storage. O
+    comando executado é somente leitura e recebe o caminho já resolvido e
+    protegido por shlex. Isso evita que a preparação pareça travada enquanto um
+    tema grande é baixado apenas para calcular o SHA localmente.
+    """
+    resolved = storage._resolved_in_root(path, allow_root=False)
+    client = getattr(storage, "_client", None)
+    if client is None:
+        raise IntegrationError("Conexão SSH indisponível para calcular SHA-256 remoto")
+
+    command = "sha256sum -- " + shlex.quote(resolved)
+    try:
+        _stdin, stdout, stderr = client.exec_command(command, timeout=_SHA256_TIMEOUT_SECONDS)
+        raw = stdout.read().decode("utf-8", "replace").strip()
+        raw_error = stderr.read().decode("utf-8", "replace").strip()
+        channel = getattr(stdout, "channel", None)
+        status = channel.recv_exit_status() if channel is not None else 0
+    except Exception as error:
+        safe = sanitize_text(error, storage.config.username, storage.config.password)
+        raise IntegrationError(f"Falha ao calcular SHA-256 remoto: {safe}") from None
+
+    if status != 0:
+        detail = sanitize_text(raw_error, storage.config.username, storage.config.password)
+        raise IntegrationError(
+            f"sha256sum remoto falhou: {detail}" if detail else
+            f"sha256sum remoto retornou status {status}"
+        )
+
+    digest = raw.split()[0].lower() if raw else ""
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise IntegrationError("Servidor retornou SHA-256 remoto inválido")
+    return digest
+
+
+def _patch_fast_sha(storage: Any, *, logger: Callable[[str], None] | None = None) -> tuple[Any, bool]:
+    """Troca o SHA SFTP pelo SHA executado no host apenas nesta conexão."""
+    original = getattr(storage, "sha256", None)
+    if not callable(original) or getattr(storage, "_client", None) is None:
+        return original, False
+
+    def fast_sha(path: str, *, chunk_size: int = 1024 * 1024) -> str:
+        del chunk_size  # compatibilidade com a assinatura original
+        if logger is not None:
+            name = PurePosixPath(str(path)).name
+            logger(f"🔎 Calculando SHA-256 remoto no servidor: {name}")
+        digest = _remote_sha256(storage, path)
+        if logger is not None:
+            logger(f"✅ SHA-256 remoto confirmado: {digest[:12]}…")
+        return digest
+
+    storage.sha256 = fast_sha
+    return original, True
+
+
+def _restore_sha(storage: Any, original: Any, replaced: bool) -> None:
+    if replaced and callable(original):
+        storage.sha256 = original
 
 
 def _patched_prepare(self: UpdatePreparationService, job: Any) -> Any:
-    """Faz a preparação ler WooCommerce sem cache, como o executor já faz.
-
-    O executor revalida produto e variações por URLs únicas. Se a preparação usa
-    leituras potencialmente cacheadas, um plano pode nascer obsoleto e ser
-    bloqueado imediatamente na execução. Este wrapper mantém toda a preparação
-    atual, trocando somente os dois leitores quando as variantes fresh existem.
-    """
+    """Prepara com WooCommerce fresh e hashing remoto eficiente."""
     if _BASE_PREPARE is None:
         raise RuntimeError("prepare base indisponível")
 
@@ -40,11 +98,13 @@ def _patched_prepare(self: UpdatePreparationService, job: Any) -> Any:
     if replaced_variations:
         woo.list_variations = fresh_variations
 
+    original_sha, replaced_sha = _patch_fast_sha(self.storage, logger=self.logger)
     try:
         if replaced_product or replaced_variations:
             self.logger("🔄 Revalidando WooCommerce sem cache antes de preparar o plano")
         return _BASE_PREPARE(self, job)
     finally:
+        _restore_sha(self.storage, original_sha, replaced_sha)
         if replaced_product:
             woo.get_product = original_product
         if replaced_variations:
@@ -113,11 +173,19 @@ def _patched_execute(
     if _BASE_EXECUTE is None:
         raise RuntimeError("execute base indisponível")
 
-    # Autoriza antes de qualquer cleanup remoto. O executor base autoriza de
-    # novo, mantendo a defesa original e compatibilidade com outras políticas.
-    self.authorize(job, plan, confirmation)
-    _cleanup_retry_temporaries(self, job, plan)
-    return _BASE_EXECUTE(self, job, plan, confirmation)
+    # O executor consulta hashes várias vezes. Faça essas leituras no próprio
+    # servidor para que retry e validações não transfiram ZIPs inteiros por SFTP.
+    storage_sha, storage_replaced = _patch_fast_sha(self.storage)
+    staging_sha, staging_replaced = _patch_fast_sha(self.staging)
+    try:
+        # Autoriza antes de qualquer cleanup remoto. O executor base autoriza de
+        # novo, mantendo a defesa original e compatibilidade com outras políticas.
+        self.authorize(job, plan, confirmation)
+        _cleanup_retry_temporaries(self, job, plan)
+        return _BASE_EXECUTE(self, job, plan, confirmation)
+    finally:
+        _restore_sha(self.staging, staging_sha, staging_replaced)
+        _restore_sha(self.storage, storage_sha, storage_replaced)
 
 
 def install_update_retry_safety_policy() -> None:
