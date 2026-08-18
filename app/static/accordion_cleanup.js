@@ -17,7 +17,7 @@
       display:none!important;
     }
     #comparison_summary_card .comparison-summary-toggle{
-      font-size:13px!important;
+      font-size:16px!important;
       line-height:1!important;
       display:inline-flex!important;
       align-items:center!important;
