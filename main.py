@@ -57,6 +57,7 @@ from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_p
 from app.comparison_actions_layout_policy import install_comparison_actions_layout_policy
 from app.already_current_update_policy import install_already_current_update_policy
 from app.decision_cache_policy import install_decision_cache_policy
+from app.execution_prerequisite_policy import install_execution_prerequisite_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -77,6 +78,8 @@ install_update_flow_fix_policy()
 install_comparison_actions_layout_policy()
 # Comparação: decisões salvas invalidam imediatamente o payload em cache.
 install_decision_cache_policy()
+# Ambiente: reflete a trava real da escrita controlada usada pelo executor.
+install_execution_prerequisite_policy()
 # Loja: Plugins/Temas continuam em lote por categoria, exibidos como tabela por variação.
 install_store_category_table_policy()
 # Packs: expõe e edita as variações Anual/Vitalícia quando elas existem no WooCommerce.
