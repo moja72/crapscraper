@@ -184,14 +184,26 @@
     }finally{busy=false;}
   }
 
+  function scheduleRefreshAfterNative(){
+    [120,650,1600].forEach(delay=>setTimeout(()=>{ensureAccordion();refresh();},delay));
+  }
+
   const start=()=>{
     ensureAccordion();
     refresh();
     setTimeout(()=>{ensureAccordion();refresh();},800);
     setTimeout(()=>{ensureAccordion();refresh();},2200);
     document.addEventListener('click',event=>{
-      if(event.target.closest?.('#store_pack_refresh,#store_plan_refresh'))setTimeout(refresh,0);
-    });
+      const refreshButton=event.target.closest?.('#store_pack_refresh,#store_plan_refresh');
+      if(refreshButton){
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        setTimeout(refresh,0);
+        return;
+      }
+      if(event.target.closest?.('#tab_btn_loja'))scheduleRefreshAfterNative();
+    },true);
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
