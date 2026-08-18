@@ -25,20 +25,22 @@
   }
   function rowHtml(item){
     const id=Number(item.product_id||0), variationId=Number(item.variation_id||0);
-    return `<tr data-pack-custom-row data-product-id="${id}" data-variation-id="${variationId}"><td><strong>${esc(item.product_name||`Produto #${id}`)}</strong><div class="small">WooCommerce #${id}${variationId?` · variação #${variationId}`:''}</div></td><td>${esc(item.product_type||'—')}</td><td><strong>${esc(item.variation||'Produto')}</strong></td><td>${money(item.last_price)}</td><td><input data-pack-regular inputmode="decimal" value="${esc(item.regular_price||'')}"></td><td><input data-pack-sale inputmode="decimal" value="${esc(item.sale_price||'')}" placeholder="Sem promoção"></td><td><button class="btn-success btn-sm" type="button" data-pack-save>Salvar preços</button></td></tr>`;
+    return `<tr data-pack-custom-row data-product-id="${id}" data-variation-id="${variationId}"><td><strong>${esc(item.product_name||`Produto #${id}`)}</strong><div class="small">WooCommerce #${id}${variationId?` · variação #${variationId}`:''}</div></td><td>${esc(item.product_type||'—')}</td><td><strong>${esc(item.variation||'Produto')}</strong></td><td>${money(item.last_price)}</td><td><input style="width:100%;max-width:100%;min-width:0;box-sizing:border-box" data-pack-regular inputmode="decimal" value="${esc(item.regular_price||'')}"></td><td><input style="width:100%;max-width:100%;min-width:0;box-sizing:border-box" data-pack-sale inputmode="decimal" value="${esc(item.sale_price||'')}" placeholder="Sem promoção"></td><td><button class="btn-success btn-sm" style="width:100%;max-width:100%;min-width:0;box-sizing:border-box;white-space:nowrap;padding-left:6px;padding-right:6px" type="button" data-pack-save>Salvar preços</button></td></tr>`;
   }
   function renameSection(root){
     const card=root.closest('.card');
     const title=card?.querySelector('.section-title');
     if(title)title.textContent='Preços de pacotes';
+    if(card){card.style.minWidth='0';card.style.maxWidth='100%';card.style.boxSizing='border-box';}
   }
   let busy=false;
   async function refresh(){
     if(busy)return; const root=$('#store_pack_prices'); if(!root)return; busy=true;
+    root.style.width='100%';root.style.maxWidth='100%';root.style.minWidth='0';root.style.boxSizing='border-box';
     renameSection(root);
     try{
       const rows=await getRows();
-      root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="margin-top:14px;padding:0 16px 2px;box-sizing:border-box;width:100%"><button class="btn-success" type="button" id="store_pack_save_all" style="display:block;width:100%;max-width:100%;box-sizing:border-box">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px;padding:0 16px;box-sizing:border-box"></div>`;
+      root.innerHTML=`<div class="table-wrap" style="width:100%;max-width:100%;overflow-x:hidden;box-sizing:border-box"><table class="catalogos-table" style="width:100%;max-width:100%;min-width:0;table-layout:fixed"><colgroup><col style="width:23%"><col style="width:7%"><col style="width:8%"><col style="width:10%"><col style="width:18%"><col style="width:19%"><col style="width:15%"></colgroup><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="width:100%;max-width:100%;box-sizing:border-box;margin-top:14px;padding:0 12px 4px"><button class="btn-success" type="button" id="store_pack_save_all" style="display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;white-space:nowrap">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px;padding:0 12px;box-sizing:border-box"></div>`;
       const status=$('#store_pack_custom_status',root);
       root.querySelectorAll('[data-pack-save]').forEach(btn=>btn.addEventListener('click',()=>saveRow(btn.closest('[data-pack-custom-row]'),btn,status)));
       $('#store_pack_save_all',root)?.addEventListener('click',async event=>{
