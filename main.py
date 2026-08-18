@@ -62,6 +62,7 @@ from app.comparison_actions_layout_policy import install_comparison_actions_layo
 from app.already_current_update_policy import install_already_current_update_policy
 from app.decision_cache_policy import install_decision_cache_policy
 from app.execution_prerequisite_policy import install_execution_prerequisite_policy
+from app.addition_workflow_policy import install_addition_workflow_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -106,6 +107,8 @@ install_update_queue_execution_reliability_policy()
 install_update_retry_safety_policy()
 # Observabilidade: projeta logs vivos sem persistir cada linha e adiciona a central de processos ativos.
 install_process_observability_policy()
+# Adições: aprovações de novos produtos viram uma fila persistente com ZIP, conteúdo manual, rascunho e publicação.
+install_addition_workflow_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:

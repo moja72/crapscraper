@@ -77,7 +77,7 @@
       overlay.innerHTML = `
         <section class="cs-process-modal" role="dialog" aria-modal="true" aria-labelledby="cs_processes_title">
           <header class="cs-process-modal-head">
-            <div><div class="cs-process-modal-title" id="cs_processes_title">Processos ativos</div><div class="cs-process-modal-subtitle">Atualizações, preparações, comparações, coletas e operações da Loja que estão acontecendo agora.</div></div>
+            <div><div class="cs-process-modal-title" id="cs_processes_title">Processos ativos</div><div class="cs-process-modal-subtitle">Atualizações, adições, preparações, comparações, coletas e operações da Loja que estão acontecendo agora.</div></div>
             <button class="cs-process-close" id="cs_processes_close" type="button" aria-label="Fechar">×</button>
           </header>
           <div class="cs-process-modal-body" id="cs_processes_body"></div>
@@ -122,6 +122,9 @@
     if (write && path.endsWith("/atualizacoes/preparar")) return {kind:"update", title:"Preparação de atualização"};
     if (write && path.endsWith("/atualizacoes/plano")) return {kind:"update", title:"Geração do plano de atualização"};
     if (write && /\/atualizacoes\/fila\/(?:iniciar|continuar|adicionar)$/.test(path)) return {kind:"update", title:"Operação da fila de atualização"};
+    if (write && path.endsWith("/adicoes/preparar")) return {kind:"addition", title:"Preparação de novo produto"};
+    if (write && path.endsWith("/adicoes/rascunho")) return {kind:"addition", title:"Criação de rascunho"};
+    if (write && path.endsWith("/adicoes/publicar")) return {kind:"addition", title:"Publicação de novo produto"};
     if (write && path.endsWith("/loja/precos")) return {kind:"store", title:"Alteração de preços da Loja"};
     if (write && path.endsWith("/loja/pacotes/precos")) return {kind:"store", title:"Alteração de preço de produto"};
     if (write && path.endsWith("/loja/produtos/sem-breve-descricao")) return {kind:"store", title:"Verificação de descrições da Loja"};
@@ -209,6 +212,23 @@
     });
   }
 
+  function additionProcesses(data, target) {
+    const jobs = Array.isArray(data?.active) ? data.active : [];
+    jobs.filter(job => ["preparing", "creating_draft", "publishing"].includes(text(job?.state))).slice(0, 8).forEach(job => {
+      const logs = Array.isArray(job?.logs) ? job.logs : [];
+      const latest = logs.length ? logs[logs.length - 1] : null;
+      target.set(`backend:addition:${job.job_id}`, {
+        id:`backend:addition:${job.job_id}`,
+        title:job.state === "preparing" ? "Preparação de novo produto" : job.state === "creating_draft" ? "Criação de rascunho" : "Publicação de novo produto",
+        kind:"addition", status:text(job.state_label || "Processando"), active:true,
+        startedAt:Date.parse(job.updated_at || job.created_at || "") || Date.now(),
+        detail:`${text(job.title || job.source_name || "Novo produto")} · versão ${text(job.source_version || "-")}`,
+        latestLog:text(latest?.message || ""), progress:null,
+        meta:job.item_type === "theme" ? "Tema" : "Plugin"
+      });
+    });
+  }
+
   function storePriceProcess(data, target) {
     if (text(data?.status) !== "running") return;
     const done = Number(data.completed || 0), total = Number(data.total || 0);
@@ -252,12 +272,14 @@
         getJson("/atualizacoes/jobs"),
         getJson("/loja/precos/status"),
         getJson("/loja/produtos/sem-breve-descricao"),
-        getJson("/runs")
+        getJson("/runs"),
+        getJson("/adicoes/jobs")
       ]);
       if (results[0].status === "fulfilled") updateBackendProcesses(results[0].value, next);
       if (results[1].status === "fulfilled") storePriceProcess(results[1].value, next);
       if (results[2].status === "fulfilled") storeDescriptionProcess(results[2].value, next);
       if (results[3].status === "fulfilled") collectionProcesses(results[3].value, next);
+      if (results[4].status === "fulfilled") additionProcesses(results[4].value, next);
 
       for (const [id, previous] of backendProcesses) {
         if (next.has(id)) continue;
