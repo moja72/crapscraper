@@ -38,7 +38,7 @@
     renameSection(root);
     try{
       const rows=await getRows();
-      root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:14px;padding:0 2px 2px"><button class="btn-success" type="button" id="store_pack_save_all" style="white-space:nowrap;max-width:100%">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px"></div>`;
+      root.innerHTML=`<div class="table-wrap"><table class="catalogos-table"><thead><tr><th>Produto</th><th>Tipo</th><th>Variação</th><th>Último preço</th><th>Preço original</th><th>Preço promocional</th><th>Ação</th></tr></thead><tbody>${rows.map(rowHtml).join('')||'<tr><td colspan="7" class="small">Nenhum pacote encontrado.</td></tr>'}</tbody></table></div><div style="margin-top:14px;padding:0 16px 2px;box-sizing:border-box;width:100%"><button class="btn-success" type="button" id="store_pack_save_all" style="display:block;width:100%;max-width:100%;box-sizing:border-box">Salvar preços</button></div><div id="store_pack_custom_status" class="small" style="margin-top:10px;padding:0 16px;box-sizing:border-box"></div>`;
       const status=$('#store_pack_custom_status',root);
       root.querySelectorAll('[data-pack-save]').forEach(btn=>btn.addEventListener('click',()=>saveRow(btn.closest('[data-pack-custom-row]'),btn,status)));
       $('#store_pack_save_all',root)?.addEventListener('click',async event=>{
@@ -56,6 +56,11 @@
     }catch(error){root.innerHTML=`<div class="notice is-danger">Não foi possível carregar os pacotes: ${esc(error.message)}</div>`;}
     finally{busy=false;}
   }
-  const start=()=>{refresh();$('#store_pack_refresh')?.addEventListener('click',()=>setTimeout(refresh,0));};
+  const start=()=>{
+    refresh();
+    setTimeout(refresh,1200);
+    setTimeout(refresh,3000);
+    $('#store_pack_refresh')?.addEventListener('click',()=>setTimeout(refresh,0));
+  };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
