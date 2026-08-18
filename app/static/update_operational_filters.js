@@ -8,9 +8,16 @@
     ["downloading", "Baixando"],
     ["staging", "Preparando staging"],
     ["prepared", "Preparado"],
+    ["planned", "Planejado"],
     ["plan_ready", "Plano pronto"],
     ["queued", "Aguardando execução"],
     ["executing", "Executando"],
+    ["installing", "Instalando"],
+    ["filesystem_validated", "Sistema de arquivos validado"],
+    ["updating_wordpress", "Atualizando WordPress"],
+    ["validating_wordpress", "Validando WordPress"],
+    ["validated", "Validado"],
+    ["dry_run_ready", "Simulação pronta"],
     ["completed", "Concluído"],
     ["blocked", "Bloqueado"],
     ["error", "Erro"],
@@ -29,18 +36,19 @@
     ["downloading", "Baixando"],
     ["staging", "Preparando staging"],
     ["prepared", "Preparado"],
+    ["planned", "Planejado"],
     ["plan_ready", "Plano pronto"],
     ["blocked", "Bloqueado"],
   ];
 
   const TERMINAL_ERROR = new Set(["blocked", "error", "failed", "interrupted", "rollback_required"]);
-  const PREPARATION = new Set(["approved", "validating", "downloading", "staging", "prepared"]);
+  const PREPARATION = new Set(["approved", "validating", "downloading", "staging", "prepared", "planned"]);
+  const EXECUTION = new Set([
+    "executing", "installing", "filesystem_validated", "updating_wordpress",
+    "validating_wordpress", "validated", "dry_run_ready", "rolling_back"
+  ]);
   const $ = (selector, root = document) => root.querySelector(selector);
   const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
-
-  function stateLabel(state) {
-    return STATE_OPTIONS.find(([value]) => value === state)?.[1] || state || "Não informado";
-  }
 
   function installStyles() {
     if ($("#cs-update-operational-filter-style")) return;
@@ -86,7 +94,7 @@
       if (label && !$(".cs-update-filter-note", label)) {
         const note = document.createElement("div");
         note.className = "cs-update-filter-note";
-        note.textContent = "Todos os estados da lista ativa";
+        note.textContent = "Inclui estados ativos e concluídos da lista selecionada";
         label.appendChild(note);
       }
     }
@@ -140,16 +148,19 @@
     jobs.forEach(job => { counts[job.state] = (counts[job.state] || 0) + 1; });
     const local = jobs.filter(localArtifact).length;
     const preparing = jobs.filter(job => PREPARATION.has(job.state)).length;
+    const executing = jobs.filter(job => EXECUTION.has(job.state)).length;
     const attention = jobs.filter(job => TERMINAL_ERROR.has(job.state)).length;
     const completed = counts.completed || 0;
     const queued = counts.queued || 0;
     const planReady = counts.plan_ready || 0;
 
     let guidance = "";
-    if (queued > 0) guidance = `${queued} item(ns) aguardando execução. A fila pode ser iniciada.`;
-    else if (planReady > 0) guidance = `Não há itens na fila, mas ${planReady} possuem plano pronto. Selecione-os na Preparação e use “Adicionar à fila”.`;
-    else if (preparing > 0) guidance = `${preparing} item(ns) ainda estão na preparação. Estados interrompidos por reinício voltam para Aprovado ao abrir novamente o CrapScraper.`;
+    if (executing > 0) guidance = `${executing} item(ns) em execução. A linha da fila mostra a etapa e o log ao vivo.`;
+    else if (queued > 0) guidance = `${queued} item(ns) aguardando execução. A fila pode ser iniciada.`;
+    else if (planReady > 0) guidance = `Não há itens aguardando execução, mas ${planReady} possuem plano pronto.`;
+    else if (preparing > 0) guidance = `${preparing} item(ns) ainda estão na preparação.`;
     else if (attention > 0) guidance = `${attention} item(ns) exigem atenção. Use o filtro Estado para separar Bloqueados, Erros e Rollback necessário.`;
+    else if (completed > 0) guidance = `Os concluídos ficam disponíveis pelo filtro “Concluído” e no Histórico.`;
     else guidance = "Nenhum item pendente de execução nesta lista.";
 
     summary.innerHTML = [
@@ -159,6 +170,7 @@
       chip("Validando", counts.validating || 0, "validating"),
       chip("Plano pronto", planReady, "plan_ready"),
       chip("Na fila", queued, "queued"),
+      chip("Executando", executing, executing ? "executing" : ""),
       chip("Bloqueados", counts.blocked || 0, "blocked"),
       chip("Erros", (counts.error || 0) + (counts.failed || 0), counts.error ? "error" : "failed"),
       chip("Rollback necessário", counts.rollback_required || 0, "rollback_required"),
