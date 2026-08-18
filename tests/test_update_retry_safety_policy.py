@@ -27,9 +27,17 @@ class _Woo:
         return []
 
 
+class _NoSSHStore:
+    _client = None
+
+    def sha256(self, _path: str, *, chunk_size: int = 1024 * 1024) -> str:
+        return "0" * 64
+
+
 class _Preparation:
     def __init__(self) -> None:
         self.woo = _Woo()
+        self.storage = _NoSSHStore()
         self.logs: list[str] = []
         self.logger = self.logs.append
 
@@ -50,6 +58,88 @@ def test_prepare_temporarily_uses_fresh_woocommerce_readers(monkeypatch) -> None
     assert service.woo.get_product.__func__ is original_product.__func__
     assert service.woo.list_variations.__func__ is original_variations.__func__
     assert any("sem cache" in entry for entry in service.logs)
+
+
+class _Channel:
+    def __init__(self, status: int = 0) -> None:
+        self.status = status
+
+    def recv_exit_status(self) -> int:
+        return self.status
+
+
+class _Stream:
+    def __init__(self, value: bytes, *, status: int = 0) -> None:
+        self.value = value
+        self.channel = _Channel(status)
+
+    def read(self) -> bytes:
+        return self.value
+
+
+class _HashClient:
+    def __init__(self, digest: str, *, status: int = 0, stderr: bytes = b"") -> None:
+        self.digest = digest
+        self.status = status
+        self.stderr = stderr
+        self.commands: list[tuple[str, int]] = []
+
+    def exec_command(self, command: str, timeout: int):
+        self.commands.append((command, timeout))
+        return (
+            None,
+            _Stream(f"{self.digest}  product.zip\n".encode(), status=self.status),
+            _Stream(self.stderr),
+        )
+
+
+class _HashStorage:
+    def __init__(self, digest: str = "a" * 64) -> None:
+        self.config = SimpleNamespace(username="ssh-user", password="ssh-secret")
+        self._client = _HashClient(digest)
+        self.original_calls = 0
+
+    def _resolved_in_root(self, path: str, *, allow_root: bool = True) -> str:
+        del allow_root
+        if not path.startswith("/home/plugintema.com/downloads/"):
+            raise AssertionError("path escaped")
+        return path
+
+    def sha256(self, _path: str, *, chunk_size: int = 1024 * 1024) -> str:
+        del chunk_size
+        self.original_calls += 1
+        return "f" * 64
+
+
+def test_remote_sha256_runs_on_server_without_reading_zip_over_sftp() -> None:
+    storage = _HashStorage("b" * 64)
+    path = "/home/plugintema.com/downloads/product.zip"
+
+    digest = policy._remote_sha256(storage, path)
+
+    assert digest == "b" * 64
+    assert storage.original_calls == 0
+    assert len(storage._client.commands) == 1
+    command, timeout = storage._client.commands[0]
+    assert command.startswith("sha256sum -- ")
+    assert "product.zip" in command
+    assert timeout == policy._SHA256_TIMEOUT_SECONDS
+
+
+def test_fast_sha_reports_progress_and_restores_original_method() -> None:
+    storage = _HashStorage("c" * 64)
+    logs: list[str] = []
+    original = storage.sha256
+
+    saved, replaced = policy._patch_fast_sha(storage, logger=logs.append)
+    assert replaced is True
+    assert storage.sha256("/home/plugintema.com/downloads/product.zip") == "c" * 64
+    assert storage.original_calls == 0
+    assert any("Calculando SHA-256 remoto" in entry for entry in logs)
+    assert any("SHA-256 remoto confirmado" in entry for entry in logs)
+
+    policy._restore_sha(storage, saved, replaced)
+    assert storage.sha256.__func__ is original.__func__
 
 
 class _RemoteStore:
