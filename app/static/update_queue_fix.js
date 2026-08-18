@@ -76,6 +76,7 @@
     const queue = runtime?.queue || {};
     const activeName = normalizeQueueName(queue.active_queue);
     const byId = new Map(jobs.map(job => [String(job?.job_id || ""), job]));
+    const belongsToActiveList = job => String(job?.queue_name || "").trim() === activeName;
 
     const prepWrap = document.getElementById("updates_jobs");
     if (prepWrap) {
@@ -92,7 +93,7 @@
       ensureNotice(prepWrap, "cs-preparation-empty", "Nenhum job aguardando preparação.", visiblePrep === 0);
     }
 
-    const activeJobs = jobs.filter(job => normalizeQueueName(job?.queue_name) === activeName);
+    const activeJobs = jobs.filter(belongsToActiveList);
     const activeVisibleJobs = activeJobs.filter(job => ACTIVE_LIST_STATES.has(String(job?.state || "")));
     const queueWrap = document.getElementById("updates_queue_jobs");
     if (queueWrap) {
@@ -100,7 +101,7 @@
       queueWrap.querySelectorAll(".update-queue-row").forEach(row => {
         const detail = row.querySelector("[data-update-detail]");
         const job = byId.get(String(detail?.dataset?.updateDetail || ""));
-        const show = !!job && ACTIVE_LIST_STATES.has(String(job.state || ""));
+        const show = !!job && belongsToActiveList(job) && ACTIVE_LIST_STATES.has(String(job.state || ""));
         row.style.display = show ? "" : "none";
         if (show) visibleRows += 1;
       });
@@ -146,7 +147,8 @@
       let queue = runtime?.queue || {};
       const activeName = normalizeQueueName(queue.active_queue);
       let jobs = Array.isArray(runtime?.jobs) ? runtime.jobs : [];
-      const belongsToActive = job => normalizeQueueName(job?.queue_name) === activeName;
+      const belongsToActive = job => String(job?.queue_name || "").trim() === activeName;
+      const belongsToPreparationContext = job => normalizeQueueName(job?.queue_name) === activeName;
 
       const ready = jobs.filter(job => belongsToActive(job) && job?.state === "plan_ready" && job?.execution_eligible === true);
       if (ready.length) {
@@ -161,7 +163,7 @@
       const executing = jobs.filter(job => belongsToActive(job) && job?.state === "executing");
 
       if (!queued.length && !executing.length) {
-        const preparing = jobs.filter(job => belongsToActive(job) && PREPARATION_STATES.has(String(job?.state || "")));
+        const preparing = jobs.filter(job => belongsToPreparationContext(job) && PREPARATION_STATES.has(String(job?.state || "")));
         if (preparing.length) {
           toast(`${preparing.length} item(ns) ainda está(ão) em preparação. Quando o plano ficar pronto, ele aparecerá na lista ${queueLabel(activeName)}.`, "warning");
           return;
