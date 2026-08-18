@@ -53,6 +53,7 @@ from app.update_reset_policy import install_update_reset_policy
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
+from app.comparison_actions_layout_policy import install_comparison_actions_layout_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -69,6 +70,8 @@ install_search_ui_policy()
 install_accordion_cleanup_policy()
 install_session_validation_policy()
 install_update_flow_fix_policy()
+# Comparação: ações principais ficam junto da seleção dos dois catálogos.
+install_comparison_actions_layout_policy()
 # Loja: Plugins/Temas continuam em lote por categoria, exibidos como tabela por variação.
 install_store_category_table_policy()
 # Packs: expõe e edita as variações Anual/Vitalícia quando elas existem no WooCommerce.
