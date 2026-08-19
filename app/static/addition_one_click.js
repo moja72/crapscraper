@@ -9,6 +9,7 @@
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   const tasks = new Map();
+  const refreshedDone = new Set();
   let polling = false;
   let decorating = false;
 
@@ -47,6 +48,7 @@
 
   async function start(jobId, button) {
     if (!jobId || button.disabled) return;
+    refreshedDone.delete(jobId);
     button.disabled = true;
     button.textContent = "Adicionando…";
     try {
@@ -150,17 +152,14 @@
       });
       decorate();
 
-      // Ao terminar, pede à UI original que releia o job. Produtos concluídos
-      // desaparecem naturalmente do filtro Ativos.
-      if (rows.some(task => task?.done && !task?.running)) {
+      const newlyDone = rows.filter(task => {
+        const id = String(task?.job_id || "");
+        return id && task?.done && !task?.running && !refreshedDone.has(id);
+      });
+      if (newlyDone.length) {
+        newlyDone.forEach(task => refreshedDone.add(String(task.job_id)));
         const refresh = $("#addition_refresh");
-        if (refresh && !refresh.dataset.autoRefreshPending) {
-          refresh.dataset.autoRefreshPending = "1";
-          setTimeout(() => {
-            refresh.click();
-            delete refresh.dataset.autoRefreshPending;
-          }, 450);
-        }
+        if (refresh) setTimeout(() => refresh.click(), 450);
       }
     } catch (_error) {
       // O painel principal continua funcional mesmo se o endpoint de progresso
