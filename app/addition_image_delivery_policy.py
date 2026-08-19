@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import re
 import unicodedata
@@ -23,7 +22,7 @@ _BASE_DESCRIPTION_PROMPT = None
 _BASE_IMAGE_PROMPT = None
 
 _TARGET_SIZE = (500, 500)
-_MAX_BYTES = 100 * 1024
+_MAX_BYTES = 100_000
 
 
 def _kind(job: Mapping[str, Any]) -> str:
@@ -122,11 +121,10 @@ def _webp_bytes(canvas: Any) -> tuple[bytes, int]:
         return buffer.getvalue()
 
     smallest = b""
-    smallest_quality = qualities[-1]
     for quality in qualities:
         raw = encode(canvas, quality)
         if not smallest or len(raw) < len(smallest):
-            smallest, smallest_quality = raw, quality
+            smallest = raw
         if len(raw) <= _MAX_BYTES:
             return raw, quality
 
@@ -139,12 +137,12 @@ def _webp_bytes(canvas: Any) -> tuple[bytes, int]:
         for quality in (40, 30, 20, 12, 8, 5):
             raw = encode(reduced, quality)
             if not smallest or len(raw) < len(smallest):
-                smallest, smallest_quality = raw, quality
+                smallest = raw
             if len(raw) <= _MAX_BYTES:
                 return raw, quality
 
     raise RuntimeError(
-        f"Não foi possível reduzir a imagem 500x500 para até 100 KB; menor resultado: {len(smallest) / 1024:.1f} KB."
+        f"Não foi possível reduzir a imagem 500x500 para até 100 KB; menor resultado: {len(smallest) / 1000:.1f} KB."
     )
 
 
@@ -155,7 +153,7 @@ def _validate_delivery(path: Path) -> dict[str, Any]:
     if path.suffix.lower() != ".webp":
         raise RuntimeError("A imagem final precisa estar em WebP.")
     if size > _MAX_BYTES:
-        raise RuntimeError(f"A imagem final ultrapassou 100 KB: {size / 1024:.1f} KB.")
+        raise RuntimeError(f"A imagem final ultrapassou 100 KB: {size / 1000:.1f} KB.")
     Image, _ImageOps, _features = _pillow()
     with Image.open(path) as image:
         if tuple(image.size) != _TARGET_SIZE:
@@ -176,8 +174,9 @@ def _optimize_job_image(job_id: str, source_path: str | Path | None = None, *, e
 
     if source.resolve() == target.resolve():
         try:
-            info = _validate_delivery(target)
+            _validate_delivery(target)
             additions._update(job_id, image_path=str(target), error="")
+            additions._recalculate_state(job_id)
             return str(target)
         except Exception:
             pass
@@ -190,6 +189,7 @@ def _optimize_job_image(job_id: str, source_path: str | Path | None = None, *, e
     info = _validate_delivery(target)
 
     additions._update(job_id, image_path=str(target), error="")
+    additions._recalculate_state(job_id)
     try:
         image_root = additions._IMAGE_ROOT.resolve()
         if source.resolve() != target.resolve() and source.resolve().parent == image_root:
@@ -200,7 +200,7 @@ def _optimize_job_image(job_id: str, source_path: str | Path | None = None, *, e
     if emit:
         one_click._emit(
             job_id,
-            f"Imagem final otimizada: {target.name} | 500x500 | {info['size'] / 1024:.1f} KB | WebP (qualidade {quality}).",
+            f"Imagem final otimizada: {target.name} | 500x500 | {info['size'] / 1000:.1f} KB | WebP (qualidade {quality}).",
             step="image_ready",
             progress=78,
         )
