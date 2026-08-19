@@ -70,6 +70,7 @@ from app.addition_chatgpt_assist_policy import install_addition_chatgpt_assist_p
 from app.addition_server_integration_fix import install_addition_server_integration_fix
 from app.addition_one_click_policy import install_addition_one_click_policy
 from app.addition_chatgpt_cdp_fix import install_addition_chatgpt_cdp_fix
+from app.addition_chatgpt_cdp_reconnect_policy import install_addition_chatgpt_cdp_reconnect_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -130,6 +131,8 @@ install_addition_server_integration_fix()
 install_addition_one_click_policy()
 # Adições: conecta ao Chrome por CDP dentro do projeto ChatGPT e evita o crash do launch_persistent_context/perfil em uso.
 install_addition_chatgpt_cdp_fix()
+# Adições: reutiliza a guia existente e se recupera de TargetClosed/reinícios transitórios do Chrome sem cair imediatamente no modo assistido.
+install_addition_chatgpt_cdp_reconnect_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
