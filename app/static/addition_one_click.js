@@ -13,6 +13,45 @@
   let polling = false;
   let decorating = false;
 
+  function installMutationSafety() {
+    if (window.__crapScraperMutationSafetyInstalled) return;
+    window.__crapScraperMutationSafetyInstalled = true;
+
+    // O módulo de créditos observa mudanças no DOM. Ele também reescreve o
+    // innerHTML dos próprios contadores, o que pode gerar um ciclo infinito de
+    // MutationObserver -> render -> MutationObserver e congelar toda a aba.
+    // Para estes dois nós específicos, uma escrita idêntica é transformada em
+    // no-op. A primeira atualização continua acontecendo normalmente.
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+    if (!descriptor?.get || !descriptor?.set) return;
+
+    try {
+      Object.defineProperty(Element.prototype, "innerHTML", {
+        configurable: descriptor.configurable,
+        enumerable: descriptor.enumerable,
+        get: descriptor.get,
+        set(value) {
+          const protectedCreditNode =
+            this?.id === "cs_credit_ultrapack" ||
+            this?.id === "cs_credit_plugintheme";
+
+          if (protectedCreditNode) {
+            const next = String(value ?? "");
+            const current = descriptor.get.call(this);
+            if (current === next) return;
+          }
+
+          descriptor.set.call(this, value);
+        }
+      });
+    } catch (_error) {
+      // Se o navegador não permitir redefinir o descriptor, o restante do
+      // painel continua carregando normalmente.
+    }
+  }
+
+  installMutationSafety();
+
   function installStyles() {
     if ($("#addition-one-click-style")) return;
     const style = document.createElement("style");
