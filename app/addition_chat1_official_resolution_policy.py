@@ -40,18 +40,23 @@ def _identity_score(job: Mapping[str, Any], url: str, official_title: str = "") 
     if not name:
         return 0.0
 
-    score = fallback._name_similarity(name, url)
-    if official_title:
-        score = max(score, fallback._name_similarity(name, "", official_title))
+    url_score = fallback._name_similarity(name, url)
+    title_score = fallback._name_similarity(name, "", official_title) if official_title else 0.0
 
     short_name = fallback._short_search_name(name)
     compact_short = _compact(short_name)
-    compact_target = _compact(f"{url} {official_title}")
     short_tokens = fallback._fold(short_name).split()
-    if len(compact_short) >= 6 and len(short_tokens) >= 2 and compact_short in compact_target:
-        score = max(score, 0.82)
+    if len(compact_short) >= 6 and len(short_tokens) >= 2:
+        if compact_short in _compact(url):
+            url_score = max(url_score, 0.82)
+        if official_title and compact_short in _compact(official_title):
+            title_score = max(title_score, 0.82)
 
-    return score
+    if url_score >= 0.45:
+        return url_score
+    if url_score >= 0.18 and title_score >= 0.55:
+        return max(0.45, min(0.80, (url_score + title_score) / 2.0))
+    return url_score
 
 
 def _valid_official(job: Mapping[str, Any], url: str, official_title: str = "") -> bool:
@@ -128,11 +133,13 @@ def _parse_answer_parts(raw: str, job: Mapping[str, Any]) -> tuple[str, str, str
         flags=re.I,
     )
     desc_match = re.search(r"DESCRI[CÇ][AÃ]O\s*:\s*(.+)\Z", text, flags=re.I | re.S)
-    if not url_match or not title_match or not desc_match:
+    if not url_match or not desc_match:
         return "", "", ""
 
     official = url_match.group(1).strip().rstrip(".,;)>]↗")
-    official_title = " ".join(title_match.group(1).split()).strip().strip('"')
+    official_title = ""
+    if title_match:
+        official_title = " ".join(title_match.group(1).split()).strip().strip('"')
     description = simple._clean_description(desc_match.group(1))
     if not _valid_official(job, official, official_title):
         return "", "", ""
@@ -247,12 +254,12 @@ def _wait_official_and_description(
         found = ""
         for raw in reversed(_assistant_texts_fallback(current)):
             official, official_title, description = _parse_answer_parts(raw, job)
-            if official and official_title and description:
-                found = (
-                    f"PAGINA_OFICIAL: {official}\n"
-                    f"TITULO_OFICIAL: {official_title}\n"
-                    f"DESCRICAO: {description}"
-                )
+            if official and description:
+                lines = [f"PAGINA_OFICIAL: {official}"]
+                if official_title:
+                    lines.append(f"TITULO_OFICIAL: {official_title}")
+                lines.append(f"DESCRICAO: {description}")
+                found = "\n".join(lines)
                 break
 
         if found:
@@ -262,7 +269,7 @@ def _wait_official_and_description(
                 stable_value = found
                 stable_count = 0
             if not announced:
-                official, _title, description = _parse_answer_parts(found, job)
+                _official, _title, description = _parse_answer_parts(found, job)
                 one_click._emit(
                     job_id,
                     f"Chat 1 encontrou a página oficial e uma descrição válida ({len(description)} caracteres); validando o término da resposta…",
@@ -288,16 +295,16 @@ def _wait_official_and_description(
     if stable_value:
         return current, stable_value
     raise RuntimeError(
-        "O Chat 1 não retornou página oficial + título oficial + descrição válidos dentro de 2 minutos. "
+        "O Chat 1 não retornou uma página oficial e uma descrição válidas dentro de 2 minutos. "
         "A automação não seguirá para a imagem sem confirmar a fonte oficial."
     )
 
 
 def _save_official_and_description(job_id: str, raw: str) -> dict[str, Any]:
     job = additions._row(job_id)
-    official, official_title, description = _parse_answer_parts(raw, job)
-    if not official or not official_title or not description:
-        raise RuntimeError("A resposta do Chat 1 não passou na validação de página oficial + título oficial + descrição.")
+    official, _official_title, description = _parse_answer_parts(raw, job)
+    if not official or not description:
+        raise RuntimeError("A resposta do Chat 1 não passou na validação de página oficial + descrição.")
     additions._update(job_id, source_official_url=official, error="")
     one_click._emit(
         job_id,
