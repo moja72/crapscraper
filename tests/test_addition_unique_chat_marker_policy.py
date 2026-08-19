@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import app.addition_unique_chat_marker_policy as policy
 
@@ -36,6 +37,7 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
     def setUp(self):
         self.old_desc = policy._ORIGINAL_DESCRIPTION_PROMPT
         self.old_img = policy._ORIGINAL_IMAGE_PROMPT
+        self.old_img_candidates = policy._ORIGINAL_IMAGE_CANDIDATES
         policy._ORIGINAL_DESCRIPTION_PROMPT = lambda job: (
             "Pesquise o produto.\n\n"
             "Use como referência este exemplo longo que não deve ser capturado: "
@@ -43,17 +45,19 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
             "de um produto diferente e existe apenas dentro do prompt para orientar tamanho e estrutura."
         )
         policy._ORIGINAL_IMAGE_PROMPT = lambda job: "Gere SOMENTE a imagem principal."
+        policy._ORIGINAL_IMAGE_CANDIDATES = lambda page, before: []
 
     def tearDown(self):
         policy._ORIGINAL_DESCRIPTION_PROMPT = self.old_desc
         policy._ORIGINAL_IMAGE_PROMPT = self.old_img
+        policy._ORIGINAL_IMAGE_CANDIDATES = self.old_img_candidates
 
     def test_prompts_receive_distinct_unique_names(self):
         job = {"job_id": "add-6f3ec8d19128950e"}
         first = policy._description_prompt_named(job)
         second = policy._description_prompt_named(job)
         image = policy._image_prompt_named(job)
-        self.assertIn("NOME INTERNO DESTA CONVERSA: CSADD-", first)
+        self.assertIn("IDENTIFICADOR INTERNO: CSADD-", first)
         self.assertRegex(first, r"CSADD-[A-Z0-9-]+-DESC-END")
         self.assertRegex(image, r"CSADD-[A-Z0-9-]+-IMG-END")
         self.assertNotEqual(first.splitlines()[0], second.splitlines()[0])
@@ -66,7 +70,7 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
             "É indicado para farmácias, clínicas, hospitais e outros projetos WordPress ligados à área da saúde."
         )
         main = (
-            "NOME INTERNO DESTA CONVERSA: CSADD-ABC-120000-FFFF00-DESC\n"
+            "IDENTIFICADOR INTERNO: CSADD-ABC-120000-FFFF00-DESC\n"
             "texto do prompt\n"
             "Crie páginas profissionais com total liberdade visual e muitos outros detalhes do exemplo.\n"
             "CSADD-ABC-120000-FFFF00-DESC-END\n"
@@ -87,6 +91,23 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
         tail = policy._text_after_last_marker(text, policy._DESC_MARKER_RE)
         self.assertEqual(tail, "resposta nova")
 
+    def test_description_falls_back_to_current_conversation_turn_without_marker(self):
+        description = (
+            "Crie uma presença profissional para negócios de saúde e venda produtos online com o 123 Medicine. "
+            "O tema combina estrutura para farmácias, clínicas e hospitais, organizando serviços, produtos e "
+            "informações em páginas claras. É indicado para projetos WordPress ligados à saúde que precisam "
+            "apresentar atendimento e comércio eletrônico de forma profissional."
+        )
+        page = _Page("")
+        with patch.object(
+            policy.response_reader,
+            "_conversation_candidates",
+            return_value=[{"text": description, "source": "conversation-turn"}],
+        ):
+            values = policy._description_candidates_resilient(page)
+        self.assertTrue(values)
+        self.assertEqual(values[0], description)
+
     def test_image_candidates_after_marker_have_priority(self):
         page = _Page(evaluated=[{
             "src": "https://example.test/generated.png",
@@ -98,6 +119,30 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
         }])
         rows = policy._images_after_image_marker(page, {"https://example.test/reference.webp"})
         self.assertEqual(rows[0]["src"], "https://example.test/generated.png")
+
+    def test_new_large_image_is_accepted_without_assistant_role(self):
+        page = _Page(evaluated=[{
+            "src": "https://example.test/final-generated.png",
+            "width": 1024,
+            "height": 1024,
+            "alt": "",
+            "visible": True,
+        }])
+        rows = policy._new_large_images_anywhere(page, {"https://example.test/reference.webp"})
+        self.assertEqual(rows[0]["src"], "https://example.test/final-generated.png")
+
+    def test_chat_titles_are_human_readable_product_titles(self):
+        job = {
+            "source_name": "123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme",
+            "title": "123 Medicine",
+        }
+        with patch.object(policy.additions, "_row", return_value=job):
+            desc = policy._desired_chat_name("add-test", "Chat 1")
+            image = policy._desired_chat_name("add-test", "Chat 2")
+        self.assertTrue(desc.startswith("Descrição 123 Medicine"))
+        self.assertTrue(image.startswith("Imagem 123 Medicine"))
+        self.assertNotIn("CSADD", desc)
+        self.assertNotIn("CSADD", image)
 
 
 if __name__ == "__main__":
