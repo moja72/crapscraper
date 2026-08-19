@@ -10,6 +10,19 @@ from app.integrations.wordpress import sanitize_text
 _INSTALLED = False
 _BASE_SERVER: Any = None
 
+_POST_ROUTES = {
+    "/adicoes/conteudo",
+    "/adicoes/preparar-arquivo",
+    "/adicoes/criar-rascunho",
+    "/adicoes/publicar",
+    "/adicoes/resetar",
+    "/adicoes/sincronizar",
+    "/adicoes/chatgpt/config",
+    "/adicoes/chatgpt/abrir",
+    "/adicoes/chatgpt/importar-texto",
+    "/adicoes/chatgpt/importar-imagem",
+}
+
 
 def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwargs: Any) -> Any:
     """Acopla as rotas de adição ao servidor realmente usado por web.serve()."""
@@ -36,8 +49,15 @@ def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwar
 
         def do_POST(self) -> None:
             path = self._request_path()
-            if not path.startswith("/adicoes/"):
+
+            # Esta camada conhece apenas as rotas declaradas acima. Qualquer
+            # rota nova de /adicoes/* precisa chegar intacta às políticas
+            # instaladas depois dela (por exemplo /adicoes/automatico).
+            # Importante: delegamos ANTES de ler o body para não consumir o
+            # JSON que o próximo handler precisa processar.
+            if path not in _POST_ROUTES:
                 return super().do_POST()
+
             try:
                 payload = self._read_json_body()
                 if path == "/adicoes/conteudo":
@@ -81,9 +101,8 @@ def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwar
                     result = chatgpt_assist.import_latest_image(
                         additions._normalize(payload.get("job_id"))
                     )
-                else:
-                    self._send_json({"ok": False, "message": "Rota de adição não encontrada."}, code=404)
-                    return
+                else:  # pragma: no cover - protegido por _POST_ROUTES
+                    return super().do_POST()
                 self._send_json(result)
             except ValueError as error:
                 self._send_json({"ok": False, "message": str(error)}, code=400)
