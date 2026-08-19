@@ -75,6 +75,7 @@ from app.addition_chatgpt_coproducao_policy import install_addition_chatgpt_copr
 from app.addition_chatgpt_post_login_policy import install_addition_chatgpt_post_login_policy
 from app.addition_product_creative_policy import install_addition_product_creative_policy
 from app.addition_simple_creation_policy import install_addition_simple_creation_policy
+from app.addition_chatgpt_response_reader_policy import install_addition_chatgpt_response_reader_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -145,6 +146,8 @@ install_addition_chatgpt_post_login_policy()
 install_addition_product_creative_policy()
 # Adições provisórias: dois chats independentes (descrição e imagem) e depois cria somente um rascunho na categoria raiz Plugin/Tema.
 install_addition_simple_creation_policy()
+# ChatGPT: lê a resposta também pelos turnos da conversa quando o atributo antigo de autor não existir mais.
+install_addition_chatgpt_response_reader_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
