@@ -17,11 +17,6 @@
     if (window.__crapScraperMutationSafetyInstalled) return;
     window.__crapScraperMutationSafetyInstalled = true;
 
-    // O módulo de créditos observa mudanças no DOM. Ele também reescreve o
-    // innerHTML dos próprios contadores, o que pode gerar um ciclo infinito de
-    // MutationObserver -> render -> MutationObserver e congelar toda a aba.
-    // Para estes dois nós específicos, uma escrita idêntica é transformada em
-    // no-op. A primeira atualização continua acontecendo normalmente.
     const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
     if (!descriptor?.get || !descriptor?.set) return;
 
@@ -44,10 +39,7 @@
           descriptor.set.call(this, value);
         }
       });
-    } catch (_error) {
-      // Se o navegador não permitir redefinir o descriptor, o restante do
-      // painel continua carregando normalmente.
-    }
+    } catch (_error) {}
   }
 
   installMutationSafety();
@@ -62,6 +54,8 @@
       #tab_panel_adicoes .addition-progress{display:none!important}
       #tab_panel_adicoes .addition-auto-panel{display:grid;gap:8px;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.012)}
       #tab_panel_adicoes .addition-auto-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text-muted);font-size:11px}
+      #tab_panel_adicoes .addition-auto-tools{display:flex;align-items:center;gap:8px}
+      #tab_panel_adicoes .addition-auto-copy{min-height:26px!important;padding:4px 8px!important;font-size:10px!important;line-height:1!important}
       #tab_panel_adicoes .addition-auto-status{font-weight:800;color:#cbd5e1}
       #tab_panel_adicoes .addition-auto-status.is-running{color:#9ff4d1}
       #tab_panel_adicoes .addition-auto-status.is-error{color:#ffc1c1}
@@ -122,8 +116,6 @@
         progress:0,
         logs:[message]
       });
-      // Restaura imediatamente o controle clicado. Assim uma falha HTTP nunca
-      // deixa o usuário preso visualmente em “Adicionando…”.
       button.disabled = false;
       button.textContent = "Adicionar";
       decorate();
@@ -142,8 +134,37 @@
 
   function logText(task) {
     const logs = Array.isArray(task?.logs) ? task.logs : [];
-    if (!logs.length) return "Pronto para adicionar. O CrapScraper cuidará de conteúdo, imagem, ZIP, WooCommerce e publicação.";
+    if (!logs.length) return "Pronto para adicionar. O CrapScraper abrirá dois chats: descrição e imagem; depois criará o rascunho na categoria Plugin/Tema.";
     return logs.slice(-8).join("\n");
+  }
+
+  function fullLogText(task) {
+    const logs = Array.isArray(task?.logs) ? task.logs : [];
+    return logs.length ? logs.join("\n") : logText(task);
+  }
+
+  async function copyLog(jobId, button) {
+    const text = fullLogText(taskView(jobId));
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+      const previous = button.textContent;
+      button.textContent = "Copiado";
+      setTimeout(() => { if (button.isConnected) button.textContent = previous; }, 1200);
+    } catch (_error) {
+      button.textContent = "Falhou";
+      setTimeout(() => { if (button.isConnected) button.textContent = "Copiar log"; }, 1200);
+    }
   }
 
   function statusText(task) {
@@ -163,7 +184,10 @@
     return `
       <div class="addition-auto-head">
         <span class="addition-auto-status ${statusClass}">${esc(statusText(task))}</span>
-        <span>${running || task?.done ? `${Math.round(progress)}%` : ""}</span>
+        <span class="addition-auto-tools">
+          <span>${running || task?.done ? `${Math.round(progress)}%` : ""}</span>
+          <button type="button" class="addition-auto-copy" data-addition-copy-log="${esc(jobId)}">Copiar log</button>
+        </span>
       </div>
       <div class="addition-auto-track ${trackClass}"><span style="${trackClass ? "" : `width:${progress}%`}"></span></div>
       <div class="addition-auto-log">${esc(logText(task))}</div>
@@ -190,6 +214,7 @@
     panel.dataset.signature = signature;
     panel.innerHTML = panelHtml(jobId, task);
     panel.querySelector("[data-addition-one-click]")?.addEventListener("click", event => start(jobId, event.currentTarget));
+    panel.querySelector("[data-addition-copy-log]")?.addEventListener("click", event => copyLog(jobId, event.currentTarget));
     const log = panel.querySelector(".addition-auto-log");
     if (log) log.scrollTop = log.scrollHeight;
   }
@@ -227,8 +252,6 @@
         if (refresh) setTimeout(() => refresh.click(), 450);
       }
     } catch (_error) {
-      // O painel principal continua funcional mesmo se o endpoint de progresso
-      // estiver temporariamente indisponível.
     } finally {
       polling = false;
     }
