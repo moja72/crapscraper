@@ -13,3 +13,7 @@ def test_one_click_addition_ui_contract():
     assert 'button.disabled = false' in script
     assert 'button.textContent = "Adicionar"' in script
     assert 'AbortController' in script
+    assert '__crapScraperMutationSafetyInstalled' in script
+    assert 'cs_credit_ultrapack' in script
+    assert 'cs_credit_plugintheme' in script
+    assert 'current === next' in script
