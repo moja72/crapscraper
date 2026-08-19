@@ -65,9 +65,10 @@ Retorne SOMENTE o parágrafo final da breve descrição."""
         self.assertIn("400 a 500 caracteres", lowered)
         self.assertIn("retorne somente o parágrafo final", lowered)
         self.assertIn("não use título", lowered)
-        self.assertNotIn("título seo", lowered)
-        self.assertNotIn("meta description", lowered)
-        self.assertNotIn("tags relevantes", lowered)
+        self.assertIn("meta description", lowered)
+        self.assertIn("não escreva rótulos", lowered)
+        self.assertNotIn("título seo:", lowered)
+        self.assertNotIn("tags relevantes:", lowered)
 
 
 if __name__ == "__main__":
