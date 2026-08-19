@@ -4,6 +4,7 @@ from typing import Any
 
 import app.web as web
 import app.new_product_workflow_policy as additions
+import app.chatgpt_browser_assist as chatgpt_assist
 from app.integrations.wordpress import sanitize_text
 
 _INSTALLED = False
@@ -22,6 +23,12 @@ def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwar
                     payload = additions._snapshot()
                     payload["approved_total"] = len(additions.list_approved_additions())
                     self._send_json(payload)
+                except Exception as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=500)
+                return
+            if path == "/adicoes/chatgpt/config":
+                try:
+                    self._send_json(chatgpt_assist.public_config())
                 except Exception as error:
                     self._send_json({"ok": False, "message": str(error)}, code=500)
                 return
@@ -56,6 +63,23 @@ def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwar
                     result["message"] = (
                         f"{result['approved_total']} aprovação(ões) de cadastro novo encontrada(s); "
                         f"{result['total']} job(s) materializado(s)."
+                    )
+                elif path == "/adicoes/chatgpt/config":
+                    result = chatgpt_assist.save_conversation_url(
+                        str(payload.get("conversation_url", "") or "")
+                    )
+                elif path == "/adicoes/chatgpt/abrir":
+                    result = chatgpt_assist.open_for_job(
+                        additions._normalize(payload.get("job_id"))
+                    )
+                elif path == "/adicoes/chatgpt/importar-texto":
+                    result = chatgpt_assist.import_text(
+                        additions._normalize(payload.get("job_id")),
+                        str(payload.get("text", "") or ""),
+                    )
+                elif path == "/adicoes/chatgpt/importar-imagem":
+                    result = chatgpt_assist.import_latest_image(
+                        additions._normalize(payload.get("job_id"))
                     )
                 else:
                     self._send_json({"ok": False, "message": "Rota de adição não encontrada."}, code=404)
