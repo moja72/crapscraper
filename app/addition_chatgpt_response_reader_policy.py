@@ -9,12 +9,60 @@ import app.addition_simple_creation_policy as simple
 
 
 _INSTALLED = False
+_DESCRIPTION_EXAMPLE = (
+    "Crie páginas profissionais com total liberdade visual O Elementor Pro ajuda a montar páginas, lojas e áreas "
+    "do site com visual avançado, melhorando apresentação, conversão e flexibilidade para criar projetos WordPress "
+    "mais modernos e profissionais. Ele funciona com edição de arrastar e soltar, widgets premium, templates e "
+    "construtores para tema, formulários e pop-ups, deixando a criação mais prática e reduzindo dependência de código no projeto."
+)
+
+
+def _description_prompt_refined(job: Mapping[str, Any]) -> str:
+    kind = "theme" if str(job.get("kind") or "").strip().lower() == "theme" else "plugin"
+    kind_label = "tema WordPress" if kind == "theme" else "plugin WordPress"
+    source_url = str(job.get("source_product_url") or "").strip()
+    official_url = str(job.get("source_official_url") or "").strip()
+
+    return f"""Gere apenas a breve descrição comercial deste produto para o e-commerce PluginTema.
+
+PRODUTO
+Nome: {job.get('source_name') or '-'}
+Tipo: {kind_label}
+Versão de referência: {job.get('source_version') or '-'}
+Página da fonte: {source_url or '-'}
+Página oficial: {official_url or '-'}
+
+OBJETIVO DA DESCRIÇÃO
+Escreva um único parágrafo em português do Brasil, com aproximadamente 400 a 500 caracteres e 2 ou 3 frases. O texto deve soar como uma descrição real de produto de e-commerce WordPress: claro, comercial, específico e natural.
+
+ESTRUTURA DESEJADA
+1. Comece com uma frase curta focada no principal benefício ou uso do produto.
+2. Em seguida, mencione o nome do produto naturalmente e explique o que ele ajuda a criar, melhorar ou executar.
+3. Finalize mostrando para que tipo de projeto ou usuário ele é útil, sem repetir ideias.
+
+QUALIDADE
+- Prefira informações concretas que possam ser inferidas com segurança pelo nome e pelas páginas fornecidas.
+- Não invente recursos, integrações, compatibilidades ou números.
+- Evite frases genéricas como "uma opção versátil", "solução completa", "presença online", "leve seu projeto para outro nível" e similares quando elas não acrescentarem informação.
+- Não inclua a versão no texto final.
+- Não use título, subtítulo, H1, H2, listas, HTML, Markdown, SEO, meta description, tags, categoria, observações ou explicações.
+- Não escreva rótulos como "Descrição:" ou "Breve descrição:".
+
+Use somente a estrutura, ritmo e extensão deste exemplo como referência; não copie o conteúdo:
+"{_DESCRIPTION_EXAMPLE}"
+
+Retorne SOMENTE o parágrafo final da breve descrição."""
 
 
 def _looks_like_user_prompt(text: str) -> bool:
     normalized = " ".join(str(text or "").lower().split())
     return bool(
         "escreva somente a breve descrição comercial deste produto" in normalized
+        or "gere apenas a breve descrição comercial deste produto" in normalized
+        or (
+            "objetivo da descrição" in normalized
+            and "retorne somente o parágrafo final" in normalized
+        )
         or (
             "regras obrigatórias" in normalized
             and "retorne somente a descrição final" in normalized
@@ -24,37 +72,52 @@ def _looks_like_user_prompt(text: str) -> bool:
 
 def _plausible_description(text: str) -> str:
     cleaned = simple._clean_description(text)
-    if len(cleaned) < 180:
+    if len(cleaned) < 180 or len(cleaned) > 900:
         return ""
     if _looks_like_user_prompt(cleaned):
         return ""
     lowered = cleaned.lower()
     if lowered.startswith("chatgpt plus") or "novo chat em [cs] automação" in lowered:
         return ""
+    if "projetos" in lowered and "chats" in lowered and "biblioteca" in lowered:
+        return ""
     return cleaned
+
+
+def _candidate_score(item: Any, text: str) -> float:
+    source = ""
+    if isinstance(item, Mapping):
+        source = str(item.get("source") or "")
+    source_weight = {
+        "assistant-role": 400.0,
+        "conversation-turn": 300.0,
+        "article": 200.0,
+        "markdown": 100.0,
+    }.get(source, 0.0)
+    length_bonus = max(0.0, 120.0 - abs(len(text) - 450) * 0.35)
+    return source_weight + length_bonus
 
 
 def _select_description_candidate(candidates: Iterable[Any]) -> str:
     selected = ""
+    selected_score = -1.0
     for item in candidates:
         if isinstance(item, Mapping):
             raw = str(item.get("text") or "")
         else:
             raw = str(item or "")
         candidate = _plausible_description(raw)
-        if candidate:
+        if not candidate:
+            continue
+        score = _candidate_score(item, candidate)
+        if score >= selected_score:
             selected = candidate
+            selected_score = score
     return selected
 
 
 def _conversation_candidates(page: Any) -> list[dict[str, str]]:
-    """Read visible conversation text without depending on one ChatGPT DOM attribute.
-
-    The UI has changed more than once. Prefer explicit assistant nodes when they
-    exist, then fall back to conversation turns and main-area articles. User
-    turns are filtered here when their role is still available and again in
-    Python by the known prompt wording.
-    """
+    """Read visible answer text across current and recent ChatGPT DOM layouts."""
     try:
         result = page.evaluate(
             """
@@ -73,7 +136,7 @@ def _conversation_candidates(page: Any) -> list[dict[str, str]]:
                 node => push(node, 'assistant-role')
               );
 
-              document.querySelectorAll('main [data-testid^="conversation-turn-"]').forEach(turn => {
+              document.querySelectorAll('main [data-testid^="conversation-turn-"], main [data-testid*="conversation-turn"]').forEach(turn => {
                 const roleNode = turn.matches('[data-message-author-role]')
                   ? turn
                   : turn.querySelector('[data-message-author-role]');
@@ -102,6 +165,10 @@ def _conversation_candidates(page: Any) -> list[dict[str, str]]:
                   article;
                 push(preferred, 'article');
               });
+
+              document.querySelectorAll('main .markdown, main [class*="markdown"], main [class*="prose"]').forEach(
+                node => push(node, 'markdown')
+              );
 
               return out;
             }
@@ -136,6 +203,8 @@ def _wait_plain_answer_fixed(
     last = ""
     stable = 0
     announced_fallback = False
+    announced_wait = False
+    started = time.time()
 
     while time.time() < deadline:
         if not reconnect._page_is_alive(current):
@@ -145,7 +214,6 @@ def _wait_plain_answer_fixed(
             )
 
         candidate = ""
-        direct_count = 0
         try:
             messages = one_click._assistant_messages(current)
             direct_count = messages.count()
@@ -163,9 +231,9 @@ def _wait_plain_answer_fixed(
             if candidate and not announced_fallback:
                 one_click._emit(
                     job_id,
-                    "Resposta encontrada pelo detector compatível com o layout atual do ChatGPT.",
+                    "Resposta localizada no layout atual do ChatGPT; validando o texto…",
                     step="chatgpt_description",
-                    progress=26,
+                    progress=27,
                 )
                 announced_fallback = True
 
@@ -176,8 +244,16 @@ def _wait_plain_answer_fixed(
                 last = candidate
                 stable = 0
 
-            if stable >= 2 and not simple._assistant_busy(current):
+            if stable >= 1 and not simple._assistant_busy(current):
                 return current, candidate
+        elif not announced_wait and (time.time() - started) >= 15:
+            one_click._emit(
+                job_id,
+                "A resposta ainda não foi localizada no DOM; mantendo a leitura automática ativa…",
+                step="chatgpt_description",
+                progress=24,
+            )
+            announced_wait = True
 
         time.sleep(0.9)
 
@@ -192,5 +268,6 @@ def install_addition_chatgpt_response_reader_policy() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    simple._description_prompt = _description_prompt_refined
     simple._wait_plain_answer = _wait_plain_answer_fixed
     _INSTALLED = True
