@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -46,11 +47,28 @@ def _short_description_guidance() -> str:
     )
 
 
+def _strip_image_instructions(base: str) -> str:
+    text = str(base or "")
+    text = re.sub(
+        r"\n7\.\s*Gere também uma imagem quadrada 1:1, limpa, profissional, "
+        r"sem selos de preço, sem texto pequeno ilegível e sem copiar identidade visual protegida de terceiros\. "
+        r"A imagem deve funcionar como capa de produto em uma loja de plugins e temas WordPress\.\n",
+        "\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = text.replace(
+        "Depois do conteúdo textual, gere também a imagem principal quadrada 1:1 solicitada para o produto.",
+        "Nesta etapa, NÃO gere imagem. Entregue somente o conteúdo textual estruturado.",
+    )
+    return text.rstrip()
+
+
 def _image_guidance(job: Mapping[str, Any]) -> str:
     if _kind(job) == "theme":
         return (
             "REFERÊNCIA VISUAL OBRIGATÓRIA — TEMA\n"
-            "Quando gerar a imagem, use o arquivo anexado 'exemplo tema.webp' como referência visual principal. "
+            "Use o arquivo anexado 'exemplo tema.webp' como referência visual principal. "
             "A imagem final deve ser quadrada 1:1, com FUNDO TRANSPARENTE e o mais parecida possível com a "
             "referência em composição, acabamento, proporções, iluminação e apresentação do mockup. "
             "Mostre explicitamente o tema nas telas de um computador e de um celular; a posição do celular pode "
@@ -61,7 +79,7 @@ def _image_guidance(job: Mapping[str, Any]) -> str:
 
     return (
         "REFERÊNCIA VISUAL OBRIGATÓRIA — PLUGIN\n"
-        "Quando gerar a imagem, use o arquivo anexado 'exemplo plugin.webp' como referência visual principal. "
+        "Use o arquivo anexado 'exemplo plugin.webp' como referência visual principal. "
         "Refaça a caixa mantendo proporção e linguagem visual o mais próximas possível da referência, em imagem "
         "quadrada 1:1 e com FUNDO TRANSPARENTE. A caixa deve ser profissional, bem construída e mostrar pelo menos "
         "3 lados/faces visíveis; o ângulo pode variar, desde que preserve a sensação tridimensional e a qualidade do "
@@ -75,15 +93,14 @@ def _image_guidance(job: Mapping[str, Any]) -> str:
 def _patched_prompt(job: Mapping[str, Any]) -> str:
     if _BASE_PROMPT is None:
         raise RuntimeError("Política criativa ainda não foi instalada.")
-    base = _BASE_PROMPT(job)
+    base = _strip_image_instructions(_BASE_PROMPT(job))
     return (
         base
         + "\n\n"
         + _short_description_guidance()
-        + "\n\n"
-        + _image_guidance(job)
-        + "\n\nA imagem de referência anexada serve como modelo visual de composição e acabamento; "
-        "adapte apenas a identidade, logo, cores e conteúdo visual para o produto atual."
+        + "\n\nETAPA ATUAL: SOMENTE CONTEÚDO\n"
+        + "Não gere imagem, não descreva um prompt de imagem e não espere por nenhuma referência visual nesta etapa. "
+        + "Responda somente com o conteúdo editorial e o bloco final estruturado solicitado."
     )
 
 
@@ -91,75 +108,163 @@ def _is_image_request(prompt: str) -> bool:
     normalized = str(prompt or "").lower()
     return (
         "referência visual obrigatória" in normalized
-        or "agora gere somente uma imagem" in normalized
-        or "gere também uma imagem quadrada" in normalized
-        or "imagem de capa quadrada 1:1" in normalized
+        or "agora gere somente a imagem" in normalized
+        or "gere somente uma imagem" in normalized
+        or "imagem final do produto" in normalized
     )
 
 
 def _image_only_prompt(job: Mapping[str, Any]) -> str:
     title = str(job.get("title") or job.get("source_name") or "produto WordPress").strip()
+    source_url = str(job.get("source_product_url") or "").strip()
+    official_url = str(job.get("source_official_url") or "").strip()
+    context_lines = [
+        f"Produto: {title}",
+        f"Tipo: {'tema WordPress' if _kind(job) == 'theme' else 'plugin WordPress'}",
+    ]
+    if source_url:
+        context_lines.append(f"Página da fonte: {source_url}")
+    if official_url:
+        context_lines.append(f"Página oficial: {official_url}")
+
     return (
-        f"Agora gere SOMENTE a imagem final do produto {title}. Não responda com texto fora da geração da imagem.\n\n"
+        "Agora gere SOMENTE a imagem principal do produto. Não responda com texto fora da geração da imagem.\n\n"
+        + "\n".join(context_lines)
+        + "\n\n"
         + _image_guidance(job)
         + "\n\nREQUISITOS FINAIS\n"
         "- Formato quadrado 1:1.\n"
         "- Fundo totalmente transparente, inclusive nas bordas e áreas vazias.\n"
         "- Alta qualidade para uso como capa de produto em e-commerce.\n"
         "- Preserve a aparência geral, o nível de acabamento e a lógica de composição da imagem de referência.\n"
-        "- Use a identidade visual verdadeira do produto atual; não invente logotipo ou marca."
+        "- Use a identidade visual verdadeira do produto atual; não invente logotipo ou marca.\n"
+        "- A referência anexada define o estilo/composição; adapte apenas o conteúdo visual para o produto atual."
     )
+
+
+def _set_existing_file_input(page: Any, reference_path: Path) -> bool:
+    try:
+        inputs = page.locator("input[type='file']")
+        count = inputs.count()
+    except Exception:
+        return False
+
+    for index in range(count - 1, -1, -1):
+        try:
+            inputs.nth(index).set_input_files(str(reference_path))
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def _attach_reference(page: Any, reference_path: Path, job_id: str) -> bool:
     if not reference_path.exists() or not reference_path.is_file():
         one_click._emit(
             job_id,
-            f"Referência visual não encontrada em {reference_path}. A geração seguirá sem o anexo.",
+            f"Referência visual obrigatória não encontrada: {reference_path}.",
             step="chatgpt_image",
         )
         return False
 
-    try:
-        inputs = page.locator("input[type='file']")
-        count = inputs.count()
+    one_click._emit(
+        job_id,
+        f"Referência visual localizada: {reference_path.name}. Preparando anexo no ChatGPT…",
+        step="chatgpt_image",
+    )
 
-        if count <= 0:
-            for selector in (
-                "button[aria-label*='Attach' i]",
-                "button[aria-label*='Anexar' i]",
-                "button[data-testid*='attach' i]",
-                "button[data-testid*='composer-add' i]",
-            ):
-                button = page.locator(selector).first
-                try:
-                    if button.count() and button.is_visible() and button.is_enabled():
-                        button.click()
-                        page.wait_for_timeout(250)
-                        break
-                except Exception:
-                    continue
-            inputs = page.locator("input[type='file']")
-            count = inputs.count()
-
-        if count <= 0:
-            raise RuntimeError("campo de upload de arquivo não encontrado")
-
-        inputs.nth(count - 1).set_input_files(str(reference_path))
-        page.wait_for_timeout(1400)
+    if _set_existing_file_input(page, reference_path):
+        page.wait_for_timeout(1200)
         one_click._emit(
             job_id,
-            f"Referência visual anexada: {reference_path.name}.",
+            f"Referência visual anexada com sucesso: {reference_path.name}.",
             step="chatgpt_image",
         )
         return True
-    except Exception as error:
-        one_click._emit(
-            job_id,
-            f"Não foi possível anexar {reference_path.name}: {type(error).__name__}. A geração seguirá sem o anexo.",
-            step="chatgpt_image",
-        )
-        return False
+
+    button_selectors = (
+        "button[data-testid='composer-plus-btn']",
+        "button[data-testid*='composer-add' i]",
+        "button[data-testid*='attach' i]",
+        "button[aria-label*='Add files' i]",
+        "button[aria-label*='Attach' i]",
+        "button[aria-label*='Adicionar arquivos' i]",
+        "button[aria-label*='Anexar' i]",
+        "button[aria-label*='Upload' i]",
+    )
+
+    for selector in button_selectors:
+        try:
+            button = page.locator(selector).first
+            if not (button.count() and button.is_visible() and button.is_enabled()):
+                continue
+            try:
+                with page.expect_file_chooser(timeout=2500) as chooser_info:
+                    button.click()
+                chooser_info.value.set_files(str(reference_path))
+                page.wait_for_timeout(1200)
+                one_click._emit(
+                    job_id,
+                    f"Referência visual anexada com sucesso: {reference_path.name}.",
+                    step="chatgpt_image",
+                )
+                return True
+            except Exception:
+                page.wait_for_timeout(300)
+                if _set_existing_file_input(page, reference_path):
+                    page.wait_for_timeout(1200)
+                    one_click._emit(
+                        job_id,
+                        f"Referência visual anexada com sucesso: {reference_path.name}.",
+                        step="chatgpt_image",
+                    )
+                    return True
+                break
+        except Exception:
+            continue
+
+    menu_selectors = (
+        "[role='menuitem']:has-text('Upload from computer')",
+        "[role='menuitem']:has-text('Upload files')",
+        "[role='menuitem']:has-text('Carregar do computador')",
+        "[role='menuitem']:has-text('Fazer upload')",
+        "[role='menuitem']:has-text('Adicionar fotos e arquivos')",
+    )
+    for selector in menu_selectors:
+        try:
+            item = page.locator(selector).first
+            if not (item.count() and item.is_visible()):
+                continue
+            try:
+                with page.expect_file_chooser(timeout=2500) as chooser_info:
+                    item.click()
+                chooser_info.value.set_files(str(reference_path))
+                page.wait_for_timeout(1200)
+                one_click._emit(
+                    job_id,
+                    f"Referência visual anexada com sucesso: {reference_path.name}.",
+                    step="chatgpt_image",
+                )
+                return True
+            except Exception:
+                page.wait_for_timeout(300)
+                if _set_existing_file_input(page, reference_path):
+                    page.wait_for_timeout(1200)
+                    one_click._emit(
+                        job_id,
+                        f"Referência visual anexada com sucesso: {reference_path.name}.",
+                        step="chatgpt_image",
+                    )
+                    return True
+        except Exception:
+            continue
+
+    one_click._emit(
+        job_id,
+        f"Falha ao anexar a referência visual {reference_path.name}; a geração da imagem foi interrompida.",
+        step="chatgpt_image",
+    )
+    return False
 
 
 def _patched_send_message(page: Any, prompt: str, job_id: str) -> tuple[int, set[str]]:
@@ -172,11 +277,13 @@ def _patched_send_message(page: Any, prompt: str, job_id: str) -> tuple[int, set
     except Exception:
         job = {"kind": "plugin", "source_name": "produto WordPress"}
 
-    if "agora gere somente uma imagem" in final_prompt.lower():
-        final_prompt = _image_only_prompt(job)
-
     if _is_image_request(final_prompt):
-        _attach_reference(page, _reference_path(job), job_id)
+        final_prompt = _image_only_prompt(job)
+        reference = _reference_path(job)
+        if not _attach_reference(page, reference, job_id):
+            raise RuntimeError(
+                f"Não foi possível anexar a referência visual obrigatória {reference.name}."
+            )
 
     return _BASE_SEND_MESSAGE(page, final_prompt, job_id)
 
@@ -191,3 +298,7 @@ def install_addition_product_creative_policy() -> None:
     additions._prompt = _patched_prompt
     one_click._send_message = _patched_send_message
     _INSTALLED = True
+
+    from app.addition_two_stage_creation_policy import install_addition_two_stage_creation_policy
+
+    install_addition_two_stage_creation_policy()
