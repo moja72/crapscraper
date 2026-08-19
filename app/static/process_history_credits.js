@@ -16,9 +16,11 @@
     "executing", "installing", "filesystem_validated", "updating_wordpress",
     "validating_wordpress", "validated", "rolling_back"
   ]);
+
   let history = loadHistory();
   let backendSeen = new Map();
   let creditsLoading = false;
+  let lastCreditsPayload = null;
 
   function installStyles() {
     if ($("#cs-process-history-credits-style")) return;
@@ -66,7 +68,7 @@
       processId: text(process?.id || ""),
       title: text(process?.title || "Processo"),
       detail: text(process?.detail || ""),
-      status: text(process?.status || (process?.error ? "Erro" : "Concluído")),
+      status: text(process?.status || (process?.error ? "Erro" : "Finalizado")),
       error: Boolean(process?.error),
       kind: text(process?.kind || ""),
       startedAt,
@@ -94,8 +96,11 @@
     const statusClass = process.error ? "is-error" : "is-done";
     return `<article class="cs-process-history-card">
       <div class="cs-process-row">
-        <div><div class="cs-process-name">${escapeHtml(process.title)}</div>${process.detail ? `<div class="cs-process-detail">${escapeHtml(process.detail)}</div>` : ""}</div>
-        <span class="cs-process-status ${statusClass}">${escapeHtml(process.status || (process.error ? "Erro" : "Concluído"))}</span>
+        <div>
+          <div class="cs-process-name">${escapeHtml(process.title)}</div>
+          ${process.detail ? `<div class="cs-process-detail">${escapeHtml(process.detail)}</div>` : ""}
+        </div>
+        <span class="cs-process-status ${statusClass}">${escapeHtml(process.status || (process.error ? "Erro" : "Finalizado"))}</span>
       </div>
       <div class="cs-process-history-times">
         <span><b>Início:</b> ${escapeHtml(formatDate(process.startedAt))}</span>
@@ -104,29 +109,13 @@
     </article>`;
   }
 
-  function decorateModal() {
-    const body = $("#cs_processes_body");
-    if (!body) return;
-    body.querySelector("#cs_process_history_section")?.remove();
-    body.querySelector("#cs_process_active_empty")?.remove();
+  function historySignature() {
+    return history.map(item => item.historyId).join("|");
+  }
 
-    const activeCards = Array.from(body.children).filter(node =>
-      node.matches?.(".cs-process-card:not(.is-recent)")
-    );
-    const nativeEmpty = Array.from(body.children).some(node => node.matches?.(".cs-process-empty"));
-    if (!activeCards.length && !nativeEmpty) {
-      const empty = document.createElement("div");
-      empty.id = "cs_process_active_empty";
-      empty.className = "cs-process-active-empty";
-      empty.textContent = "Nenhum processo ativo no momento.";
-      body.appendChild(empty);
-    }
-
-    const section = document.createElement("section");
-    section.id = "cs_process_history_section";
-    section.className = "cs-process-history-section";
+  function historyMarkup() {
     const rows = history.slice(0, HISTORY_LIMIT);
-    section.innerHTML = `
+    return `
       <div class="cs-process-history-head">
         <div class="cs-process-history-title">Processos concluídos</div>
         <div class="cs-process-history-count">${rows.length} registro(s)</div>
@@ -134,25 +123,46 @@
       <div class="cs-process-history-list">
         ${rows.length ? rows.map(historyCard).join("") : '<div class="cs-process-history-empty">Nenhum processo concluído registrado neste painel.</div>'}
       </div>`;
-    body.appendChild(section);
   }
 
-  function ensureCreditsNode() {
-    const button = $("#cs_processes_button");
-    const parent = button?.parentElement;
-    if (!button || !parent) return null;
-    let node = $("#cs_download_credits");
-    if (!node) {
-      node = document.createElement("div");
-      node.id = "cs_download_credits";
-      node.innerHTML = `
-        <div id="cs_credit_ultrapack" class="is-loading">UltraPackV2: <b>—</b></div>
-        <div id="cs_credit_plugintheme" class="is-loading">PluginTheme: <b>—</b></div>`;
+  function decorateModal() {
+    const body = $("#cs_processes_body");
+    if (!body) return;
+
+    const activeCards = Array.from(body.children).filter(node =>
+      node.matches?.(".cs-process-card:not(.is-recent)")
+    );
+    const nativeEmpty = Array.from(body.children).some(node => node.matches?.(".cs-process-empty"));
+    let activeEmpty = $("#cs_process_active_empty", body);
+    if (!activeCards.length && !nativeEmpty) {
+      if (!activeEmpty) {
+        activeEmpty = document.createElement("div");
+        activeEmpty.id = "cs_process_active_empty";
+        activeEmpty.className = "cs-process-active-empty";
+        activeEmpty.textContent = "Nenhum processo ativo no momento.";
+        const existingSection = $("#cs_process_history_section", body);
+        if (existingSection) body.insertBefore(activeEmpty, existingSection);
+        else body.appendChild(activeEmpty);
+      }
+    } else if (activeEmpty) {
+      activeEmpty.remove();
     }
-    if (node.parentElement !== parent || node.previousElementSibling !== button) {
-      button.insertAdjacentElement("afterend", node);
+
+    const signature = historySignature();
+    let section = $("#cs_process_history_section", body);
+    if (!section) {
+      section = document.createElement("section");
+      section.id = "cs_process_history_section";
+      section.className = "cs-process-history-section";
+      section.dataset.signature = signature;
+      section.innerHTML = historyMarkup();
+      body.appendChild(section);
+      return;
     }
-    return node;
+    if (section.dataset.signature !== signature) {
+      section.dataset.signature = signature;
+      section.innerHTML = historyMarkup();
+    }
   }
 
   function creditLabel(payload) {
@@ -172,18 +182,45 @@
     node.title = text(payload?.message || (payload?.ok ? "Créditos de download restantes / limite diário." : "Créditos indisponíveis."));
   }
 
+  function renderCredits(payload) {
+    if (!payload) return;
+    renderCredit("cs_credit_ultrapack", "UltraPackV2", payload?.ultrapackv2 || {});
+    renderCredit("cs_credit_plugintheme", "PluginTheme", payload?.plugintheme || {});
+  }
+
+  function ensureCreditsNode() {
+    const button = $("#cs_processes_button");
+    const parent = button?.parentElement;
+    if (!button || !parent) return null;
+    let node = $("#cs_download_credits");
+    if (!node) {
+      node = document.createElement("div");
+      node.id = "cs_download_credits";
+      node.innerHTML = `
+        <div id="cs_credit_ultrapack" class="is-loading">UltraPackV2: <b>—</b></div>
+        <div id="cs_credit_plugintheme" class="is-loading">PluginTheme: <b>—</b></div>`;
+    }
+    if (node.parentElement !== parent || node.previousElementSibling !== button) {
+      button.insertAdjacentElement("afterend", node);
+    }
+    renderCredits(lastCreditsPayload);
+    return node;
+  }
+
   async function pollCredits() {
     ensureCreditsNode();
     if (creditsLoading || document.hidden) return;
     creditsLoading = true;
     try {
       const response = await upstreamFetch("/processos/creditos", {cache:"no-store", credentials:"same-origin"});
-      const payload = await response.json();
-      renderCredit("cs_credit_ultrapack", "UltraPackV2", payload?.ultrapackv2 || {});
-      renderCredit("cs_credit_plugintheme", "PluginTheme", payload?.plugintheme || {});
+      lastCreditsPayload = await response.json();
+      renderCredits(lastCreditsPayload);
     } catch (_error) {
-      renderCredit("cs_credit_ultrapack", "UltraPackV2", {ok:false, message:"Não foi possível consultar os créditos."});
-      renderCredit("cs_credit_plugintheme", "PluginTheme", {ok:false, message:"Não foi possível consultar os créditos."});
+      lastCreditsPayload = {
+        ultrapackv2:{ok:false, message:"Não foi possível consultar os créditos."},
+        plugintheme:{ok:false, message:"Não foi possível consultar os créditos."}
+      };
+      renderCredits(lastCreditsPayload);
     } finally {
       creditsLoading = false;
     }
@@ -301,17 +338,21 @@
   }
 
   function preservePrefix(target, prefix) {
-    for (const [id, process] of backendSeen) if (id.startsWith(prefix)) target.set(id, process);
+    for (const [id, process] of backendSeen) {
+      if (id.startsWith(prefix)) target.set(id, process);
+    }
   }
 
   function syncBackend(next) {
     for (const [id, process] of next) {
       const previous = backendSeen.get(id);
-      if (previous?.startedAt) process.startedAt = Math.min(Number(previous.startedAt), Number(process.startedAt || previous.startedAt));
+      if (previous?.startedAt) {
+        process.startedAt = Math.min(Number(previous.startedAt), Number(process.startedAt || previous.startedAt));
+      }
     }
     for (const [id, previous] of backendSeen) {
       if (next.has(id)) continue;
-      recordHistory({...previous, status:"Concluído", error:false, finishedAt:Date.now()});
+      recordHistory({...previous, status:"Finalizado", error:false, finishedAt:Date.now()});
     }
     backendSeen = next;
   }
@@ -325,10 +366,17 @@
       getJson("/runs")
     ]);
     const next = new Map();
-    if (results[0].status === "fulfilled") updateBackendMap(results[0].value, next); else { preservePrefix(next, "backend:update-queue:"); preservePrefix(next, "backend:prepare:"); }
-    if (results[1].status === "fulfilled") storePriceMap(results[1].value, next); else preservePrefix(next, "backend:store-price");
-    if (results[2].status === "fulfilled") storeDescriptionMap(results[2].value, next); else preservePrefix(next, "backend:store-description");
-    if (results[3].status === "fulfilled") collectionMap(results[3].value, next); else preservePrefix(next, "backend:run:");
+    if (results[0].status === "fulfilled") updateBackendMap(results[0].value, next);
+    else {
+      preservePrefix(next, "backend:update-queue:");
+      preservePrefix(next, "backend:prepare:");
+    }
+    if (results[1].status === "fulfilled") storePriceMap(results[1].value, next);
+    else preservePrefix(next, "backend:store-price");
+    if (results[2].status === "fulfilled") storeDescriptionMap(results[2].value, next);
+    else preservePrefix(next, "backend:store-description");
+    if (results[3].status === "fulfilled") collectionMap(results[3].value, next);
+    else preservePrefix(next, "backend:run:");
     syncBackend(next);
   }
 
