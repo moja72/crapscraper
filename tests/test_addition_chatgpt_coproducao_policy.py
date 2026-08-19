@@ -5,7 +5,8 @@ from pathlib import Path
 import app.addition_chatgpt_coproducao_policy as policy
 
 
-def test_uses_cs_automacao_project() -> None:
+def test_uses_cs_automacao_project(monkeypatch) -> None:
+    monkeypatch.delenv("SCRAPER_CHATGPT_PROJECT_URL", raising=False)
     assert policy._PROJECT_SLUG == "g-p-6a85a9a911888191a2cc491671a4056d-cs-automacao"
     assert policy._PROJECT_URL == (
         "https://chatgpt.com/g/"
@@ -14,7 +15,8 @@ def test_uses_cs_automacao_project() -> None:
     assert policy._project_url() == policy._PROJECT_URL
 
 
-def test_uses_isolated_coproducao_profile() -> None:
+def test_uses_isolated_coproducao_profile(monkeypatch) -> None:
+    monkeypatch.delenv("SCRAPER_CHATGPT_COPRODUCAO_DEBUG_PORT", raising=False)
     candidates = policy._profile_candidates()
     assert len(candidates) == 1
     assert isinstance(candidates[0], Path)
