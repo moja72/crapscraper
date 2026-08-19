@@ -56,6 +56,7 @@ from app.update_queue_execution_reliability_policy import install_update_queue_e
 from app.update_retry_safety_policy import install_update_retry_safety_policy
 from app.process_observability_policy import install_process_observability_policy
 from app.process_history_credits_policy import install_process_history_credits_policy
+from app.download_credit_fallback_policy import install_download_credit_fallback_policy
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
@@ -67,6 +68,7 @@ from app.new_product_workflow_policy import install_new_product_workflow_policy
 from app.addition_content_enrichment_policy import install_addition_content_enrichment_policy
 from app.addition_chatgpt_assist_policy import install_addition_chatgpt_assist_policy
 from app.addition_server_integration_fix import install_addition_server_integration_fix
+from app.addition_one_click_policy import install_addition_one_click_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -113,6 +115,8 @@ install_update_retry_safety_policy()
 install_process_observability_policy()
 # Processos: mostra créditos de download e mantém histórico persistente de operações concluídas.
 install_process_history_credits_policy()
+# Créditos: quando o site não expõe o saldo, usa contador diário local persistente dos downloads do CrapScraper.
+install_download_credit_fallback_policy()
 # Adições: materializa aprovações de novos produtos, prepara ZIP/conteúdo, cria rascunho e publica somente com confirmação explícita.
 install_new_product_workflow_policy()
 # Adições: usa categoria específica existente e aplica tags no rascunho WooCommerce.
@@ -121,6 +125,8 @@ install_addition_content_enrichment_policy()
 install_addition_chatgpt_assist_policy()
 # O painel usa PTThreadingHTTPServer; registra as rotas /adicoes/* no servidor efetivamente instanciado por web.serve().
 install_addition_server_integration_fix()
+# Adições: reduz a operação a um único botão e encadeia ChatGPT, imagem, ZIP, rascunho e publicação com logs ao vivo.
+install_addition_one_click_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
