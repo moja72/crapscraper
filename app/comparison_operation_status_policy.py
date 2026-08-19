@@ -154,28 +154,62 @@ def _get_cached_with_operations(source_path: Path, site_path: Path, *, force: bo
 
 def _render_with_generic_source_labels(*args: Any, **kwargs: Any) -> str:
     html = _BASE_RENDER(*args, **kwargs)
-    html = html.replace(
-        '<option value="updated">Atualizado</option>',
-        '<option value="updated">Atualizado</option><option value="added">Adicionado</option>',
-    )
-    html = html.replace(
-        '<option value="source_version_missing">Versão ausente no Ultrapack</option>',
-        '<option value="source_version_missing">Versão ausente no site de origem</option>',
-    )
-    html = html.replace(
-        '<option value="new_source">Novo no Ultrapack</option>',
-        '<option value="new_source">Novo</option>',
-    )
-    script = """
+    replacements = {
+        '<option value="updated">Atualizado</option>': '<option value="updated">Atualizado</option><option value="added">Adicionado</option>',
+        '<option value="source_version_missing">Versão ausente no Ultrapack</option>': '<option value="source_version_missing">Versão ausente no site de origem</option>',
+        '<option value="new_source">Novo no Ultrapack</option>': '<option value="new_source">Novo</option>',
+        'Compare o catálogo selecionado do Ultrapack com o catálogo exportado do': 'Compare o catálogo selecionado do site de origem com o catálogo exportado do',
+        '<span>Ultrapack</span>': '<span>Site de origem</span>',
+        '<span>Versão ausente no Ultrapack</span>': '<span>Versão ausente no site de origem</span>',
+        '<span>Versões suspeitas no Ultrapack</span>': '<span>Versões suspeitas na origem</span>',
+        '<span>Catálogo Ultrapack</span>': '<span>Catálogo de origem</span>',
+        '· Ultrapack:': '· Origem:',
+    }
+    for old, new in replacements.items():
+        html = html.replace(old, new)
+
+    script = r"""
 <script data-comparison-operation-refresh>
-document.addEventListener('click', function(event) {
-  const button = event.target && event.target.closest ? event.target.closest('button, a') : null;
-  if (!button || String(button.textContent || '').trim() !== 'Comparar') return;
-  window.setTimeout(function() {
-    const run = document.getElementById('comparison_run_btn');
-    if (run && !run.disabled) run.click();
-  }, 180);
-});
+(function () {
+  function neutral(value) {
+    let text = String(value || '').replace(/UltraPackV?2|UltrapackV?2|UltraPack|Ultrapack/gi, 'site de origem');
+    text = text.replace(/Novo no site de origem/gi, 'Novo');
+    return text;
+  }
+  function neutralize(root) {
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(function (node) {
+      const next = neutral(node.nodeValue);
+      if (next !== node.nodeValue) node.nodeValue = next;
+    });
+    root.querySelectorAll('[title],[aria-label],[data-tooltip]').forEach(function (node) {
+      ['title','aria-label','data-tooltip'].forEach(function (name) {
+        if (!node.hasAttribute(name)) return;
+        const value = node.getAttribute(name);
+        const next = neutral(value);
+        if (next !== value) node.setAttribute(name, next);
+      });
+    });
+  }
+  function comparisonRoot() { return document.getElementById('tab_panel_comparacao'); }
+  const root = comparisonRoot();
+  if (root) {
+    neutralize(root);
+    new MutationObserver(function () { neutralize(root); }).observe(root, {subtree:true, childList:true, characterData:true, attributes:true});
+  }
+  document.addEventListener('click', function(event) {
+    const button = event.target && event.target.closest ? event.target.closest('button, a') : null;
+    if (!button || String(button.textContent || '').trim() !== 'Comparar') return;
+    window.setTimeout(function() {
+      neutralize(comparisonRoot());
+      const run = document.getElementById('comparison_run_btn');
+      if (run && !run.disabled) run.click();
+    }, 180);
+  });
+})();
 </script>
 """
     return html.replace("</body>", script + "</body>", 1) if "</body>" in html else html + script
