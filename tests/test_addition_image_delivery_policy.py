@@ -60,7 +60,7 @@ class AdditionImageDeliveryPolicyTests(unittest.TestCase):
             info = policy._validate_delivery(target)
 
             self.assertEqual((info["width"], info["height"]), (500, 500))
-            self.assertLessEqual(info["size"], 100 * 1024)
+            self.assertLessEqual(info["size"], 100_000)
             self.assertEqual(target.suffix, ".webp")
 
 
