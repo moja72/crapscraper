@@ -71,6 +71,18 @@ class AdditionChat1OfficialResolutionPolicyTests(unittest.TestCase):
             )
         )
 
+    def test_accepts_missing_title_when_url_itself_confirms_identity(self) -> None:
+        raw = (
+            "PAGINA_OFICIAL: https://themeforest.net/item/123medicine-ecommerce-wordpress-theme/6552701\n"
+            "DESCRICAO: " + self._description()
+        )
+        official, description = policy._parse_answer(raw, self.job)
+        self.assertEqual(
+            official,
+            "https://themeforest.net/item/123medicine-ecommerce-wordpress-theme/6552701",
+        )
+        self.assertGreater(len(description), 300)
+
     def test_rejects_ultrapack_as_official_answer(self) -> None:
         raw = (
             "PAGINA_OFICIAL: https://www.ultrapackv2.com/item/example/\n"
@@ -87,9 +99,10 @@ class AdditionChat1OfficialResolutionPolicyTests(unittest.TestCase):
         )
         self.assertEqual(policy._parse_answer(raw, self.job), ("", ""))
 
-    def test_rejects_answer_without_official_title(self) -> None:
+    def test_correct_title_cannot_rescue_unrelated_url(self) -> None:
         raw = (
-            "PAGINA_OFICIAL: https://themeforest.net/item/123medicine-ecommerce-wordpress-theme/6552701\n"
+            "PAGINA_OFICIAL: https://themeforest.net/item/avada-responsive-multipurpose-theme/2833226\n"
+            "TITULO_OFICIAL: 123Medicine - eCommerce WordPress Theme\n"
             "DESCRICAO: " + self._description()
         )
         self.assertEqual(policy._parse_answer(raw, self.job), ("", ""))
