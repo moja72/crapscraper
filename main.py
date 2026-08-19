@@ -73,6 +73,7 @@ from app.addition_chatgpt_cdp_fix import install_addition_chatgpt_cdp_fix
 from app.addition_chatgpt_cdp_reconnect_policy import install_addition_chatgpt_cdp_reconnect_policy
 from app.addition_chatgpt_coproducao_policy import install_addition_chatgpt_coproducao_policy
 from app.addition_chatgpt_post_login_policy import install_addition_chatgpt_post_login_policy
+from app.addition_product_creative_policy import install_addition_product_creative_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -139,6 +140,8 @@ install_addition_chatgpt_cdp_reconnect_policy()
 install_addition_chatgpt_coproducao_policy()
 # Adições: um alvo antigo de login não pode bloquear o fluxo quando o projeto CS Automação já está autenticado e aberto.
 install_addition_chatgpt_post_login_policy()
+# Adições: padroniza breve descrição e usa referências visuais específicas de plugin/tema sem alterar o fluxo de login/CDP.
+install_addition_product_creative_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
