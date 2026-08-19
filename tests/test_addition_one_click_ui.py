@@ -10,3 +10,6 @@ def test_one_click_addition_ui_contract():
     assert '#tab_panel_adicoes .addition-progress{display:none!important}' in script
     assert '/adicoes/automatico' in script
     assert '/adicoes/automatico/status' in script
+    assert 'button.disabled = false' in script
+    assert 'button.textContent = "Adicionar"' in script
+    assert 'AbortController' in script
