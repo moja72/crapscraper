@@ -38,12 +38,25 @@
     document.head.appendChild(style);
   }
 
-  async function request(url, options = {}) {
-    const response = await fetch(url, {cache:"no-store", ...options});
-    let payload = {};
-    try { payload = await response.json(); } catch (_error) {}
-    if (!response.ok || payload?.ok === false) throw new Error(payload?.message || `HTTP ${response.status}`);
-    return payload;
+  async function request(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
+    try {
+      const response = await fetch(url, {
+        cache:"no-store",
+        ...options,
+        signal: options.signal || controller.signal
+      });
+      let payload = {};
+      try { payload = await response.json(); } catch (_error) {}
+      if (!response.ok || payload?.ok === false) throw new Error(payload?.message || `HTTP ${response.status}`);
+      return payload;
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("O servidor demorou demais para responder. Tente novamente.");
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   async function start(jobId, button) {
@@ -61,8 +74,21 @@
       decorate();
       poll(true);
     } catch (error) {
-      tasks.set(jobId, {job_id:jobId, running:false, done:false, error:String(error?.message || error), progress:0, logs:[String(error?.message || error)]});
+      const message = String(error?.message || error || "Falha ao iniciar o cadastro.");
+      tasks.set(jobId, {
+        job_id:jobId,
+        running:false,
+        done:false,
+        error:message,
+        progress:0,
+        logs:[message]
+      });
+      // Restaura imediatamente o controle clicado. Assim uma falha HTTP nunca
+      // deixa o usuário preso visualmente em “Adicionando…”.
+      button.disabled = false;
+      button.textContent = "Adicionar";
       decorate();
+      window.requestAnimationFrame(decorate);
     }
   }
 
@@ -144,7 +170,7 @@
     if (polling || (document.hidden && !force)) return;
     polling = true;
     try {
-      const payload = await request("/adicoes/automatico/status");
+      const payload = await request("/adicoes/automatico/status", {}, 8000);
       const rows = Array.isArray(payload?.tasks) ? payload.tasks : [];
       rows.forEach(task => {
         const id = String(task?.job_id || "");

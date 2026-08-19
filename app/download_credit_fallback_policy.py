@@ -39,6 +39,13 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return max(0, int(default))
 
 
+def _env_enabled(name: str, default: bool = False) -> bool:
+    value = str(os.getenv(name, "") or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on", "sim"}
+
+
 def _daily_limit(site_key: str) -> int:
     default = _DEFAULT_LIMITS.get(site_key, 50)
     return max(1, _safe_int(os.getenv(_ENV_LIMITS.get(site_key, ""), ""), default))
@@ -108,19 +115,34 @@ def _fallback(site_key: str, current: Any) -> dict[str, Any]:
         "estimated": True,
         "source": "crapscraper-local-ledger",
         "message": (
-            f"{label}: estimativa local do CrapScraper. O site não expôs o saldo atual; "
-            "o contador desconta automaticamente os downloads feitos pelo CrapScraper neste computador."
+            f"{label}: estimativa local do CrapScraper. O painel não faz login remoto para consultar créditos, "
+            "evitando travar a interface; o contador desconta os downloads feitos pelo CrapScraper neste computador."
         ),
     }
 
 
 def _patched_credit_snapshot(manager: Any) -> dict[str, Any]:
-    base = _BASE_CREDIT_SNAPSHOT or credits._credit_snapshot
-    payload = dict(base(manager) or {})
-    payload["ultrapackv2"] = _fallback("ultrapackv2", payload.get("ultrapackv2"))
-    payload["plugintheme"] = _fallback("plugintheme", payload.get("plugintheme"))
-    payload["ok"] = True
-    return payload
+    # O contador do cabeçalho precisa ser instantâneo. A implementação remota
+    # anterior podia iniciar autenticação/navegador durante um simples GET do
+    # painel, segurando a resposta e dando a impressão de que toda a interface
+    # estava travada. Por padrão usamos o ledger local, que é atualizado pelos
+    # próprios downloaders. A sondagem remota continua disponível apenas como
+    # opt-in explícito para diagnóstico.
+    remote_payload: dict[str, Any] = {}
+    if _env_enabled("SCRAPER_DOWNLOAD_CREDITS_REMOTE_PROBE", False):
+        base = _BASE_CREDIT_SNAPSHOT or credits._credit_snapshot
+        try:
+            candidate = base(manager)
+            if isinstance(candidate, dict):
+                remote_payload = candidate
+        except Exception:
+            remote_payload = {}
+
+    return {
+        "ok": True,
+        "ultrapackv2": _fallback("ultrapackv2", remote_payload.get("ultrapackv2")),
+        "plugintheme": _fallback("plugintheme", remote_payload.get("plugintheme")),
+    }
 
 
 def _patched_ultrapack_download(self: Any, *args: Any, **kwargs: Any) -> Any:

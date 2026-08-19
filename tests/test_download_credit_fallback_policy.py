@@ -22,3 +22,23 @@ def test_remote_credit_wins_over_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(policy, "_USAGE_PATH", tmp_path / "credits.json")
     current = {"ok": True, "limit": 25, "remaining": 7, "used": 18, "source": "remote"}
     assert policy._fallback("plugintheme", current) == current
+
+
+def test_credit_snapshot_does_not_probe_remote_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(policy, "_USAGE_PATH", tmp_path / "credits.json")
+    monkeypatch.delenv("SCRAPER_DOWNLOAD_CREDITS_REMOTE_PROBE", raising=False)
+    monkeypatch.setenv("SCRAPER_ULTRAPACKV2_DAILY_DOWNLOAD_LIMIT", "50")
+    monkeypatch.setenv("SCRAPER_PLUGINTHEME_DAILY_DOWNLOAD_LIMIT", "50")
+
+    def fail_if_called(_manager):
+        raise AssertionError("remote credit probe must not run during normal panel polling")
+
+    monkeypatch.setattr(policy, "_BASE_CREDIT_SNAPSHOT", fail_if_called)
+
+    payload = policy._patched_credit_snapshot(None)
+
+    assert payload["ok"] is True
+    assert payload["ultrapackv2"]["remaining"] == 50
+    assert payload["ultrapackv2"]["limit"] == 50
+    assert payload["plugintheme"]["remaining"] == 50
+    assert payload["plugintheme"]["limit"] == 50
