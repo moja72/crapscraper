@@ -150,6 +150,8 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_full_product_creation_policy import install_addition_full_product_creation_policy
     from app.addition_full_product_integrity_policy import install_addition_full_product_integrity_policy
     from app.addition_product_contract_policy import install_addition_product_contract_policy
+    from app.addition_image_delivery_policy import install_addition_image_delivery_policy
+    from app.addition_image_validation_policy import install_addition_image_validation_policy
     from app.comparison_operation_status_policy import install_comparison_operation_status_policy
 
     install_addition_chat1_official_resolution_policy()
@@ -163,8 +165,12 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_addition_root_category_policy()
     install_addition_full_product_creation_policy()
     install_addition_full_product_integrity_policy()
-    # Final contract: short prompts, generated image only and WooCommerce Licença taxonomy.
+    # Final product contract: short prompts, generated image only and WooCommerce Licença taxonomy.
     install_addition_product_contract_policy()
+    # Final image delivery: 500x500 WebP <=100 KB, SEO filename and readable chat titles.
+    install_addition_image_delivery_policy()
+    # Delivery validation replaces the old minimum-size heuristic for optimized WebP files.
+    install_addition_image_validation_policy()
     # Final comparison projection: operation outcomes + source-neutral wording.
     install_comparison_operation_status_policy()
     _INSTALLED = True
