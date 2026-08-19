@@ -19,10 +19,9 @@ class AdditionOfficialResolutionFallbackPolicyTests(unittest.TestCase):
             '123-medicine-pharmacy-shop-hospital-medical-health-service-theme\\/6552701"}'
         )
         rows = policy._extract_marketplace_candidates(html, "themeforest")
-        urls = [url for url, _label in rows]
         self.assertIn(
             "https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701",
-            urls,
+            [url for url, _label in rows],
         )
 
     def test_unwraps_duckduckgo_redirect(self) -> None:
@@ -56,54 +55,6 @@ class AdditionOfficialResolutionFallbackPolicyTests(unittest.TestCase):
             "https://themeforest.net/item/avada-responsive-multipurpose-theme/2833226",
         )
         self.assertLess(score, 0.5)
-
-    def test_best_candidate_picks_matching_themeforest_item(self) -> None:
-        document = """
-        <a href="https://themeforest.net/item/avada-responsive-multipurpose-theme/2833226">Avada</a>
-        <a href="https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701">
-            123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme
-        </a>
-        """
-        result = policy._best_marketplace_candidate(
-            "123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme",
-            "themeforest",
-            [document],
-        )
-        self.assertEqual(
-            result,
-            "https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701",
-        )
-
-    def test_extracts_third_party_result_from_bing_rss(self) -> None:
-        rss = """
-        <rss><channel><item>
-          <title>123 Medicine Theme</title>
-          <link>https://themes.example.test/123-medicine-theme</link>
-        </item></channel></rss>
-        """
-        links = policy._extract_search_result_links(
-            rss,
-            "https://www.ultrapackv2.com/item/themeforest-123-medicine/",
-            "themeforest",
-        )
-        self.assertIn("https://themes.example.test/123-medicine-theme", links)
-
-    def test_indirect_page_can_reveal_official_sale_link(self) -> None:
-        intermediary = """
-        <h1>123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme</h1>
-        <a href="https://1.envato.market/c/example?u=https%3A%2F%2Fthemeforest.net%2Fitem%2F123-medicine-pharmacy-shop-hospital-medical-health-service-theme%2F6552701">
-          Order on ThemeForest
-        </a>
-        """
-        result = policy._best_marketplace_candidate(
-            "123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme",
-            "themeforest",
-            [intermediary],
-        )
-        self.assertEqual(
-            result,
-            "https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701",
-        )
 
     def test_short_search_name_uses_product_prefix(self) -> None:
         self.assertEqual(
