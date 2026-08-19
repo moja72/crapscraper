@@ -77,6 +77,7 @@ from app.addition_product_creative_policy import install_addition_product_creati
 from app.addition_simple_creation_policy import install_addition_simple_creation_policy
 from app.addition_chatgpt_response_reader_policy import install_addition_chatgpt_response_reader_policy
 from app.addition_final_validation_policy import install_addition_final_validation_policy
+from app.addition_conversation_capture_policy import install_addition_conversation_capture_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -151,6 +152,8 @@ install_addition_simple_creation_policy()
 install_addition_chatgpt_response_reader_policy()
 # Adições finais: rejeita código/DOM como descrição, ignora a imagem de referência, valida rascunho e só então publica.
 install_addition_final_validation_policy()
+# Adições: resolve a página oficial, vincula Chat 1/2 ao job e captura a imagem final com leitura autenticada.
+install_addition_conversation_capture_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
