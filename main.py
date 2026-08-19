@@ -63,6 +63,8 @@ from app.already_current_update_policy import install_already_current_update_pol
 from app.decision_cache_policy import install_decision_cache_policy
 from app.execution_prerequisite_policy import install_execution_prerequisite_policy
 from app.new_product_workflow_policy import install_new_product_workflow_policy
+from app.addition_content_enrichment_policy import install_addition_content_enrichment_policy
+from app.addition_chatgpt_assist_policy import install_addition_chatgpt_assist_policy
 from app.addition_server_integration_fix import install_addition_server_integration_fix
 from app.models import ScraperContext, build_context
 from app.storage import (
@@ -110,6 +112,10 @@ install_update_retry_safety_policy()
 install_process_observability_policy()
 # Adições: materializa aprovações de novos produtos, prepara ZIP/conteúdo, cria rascunho e publica somente com confirmação explícita.
 install_new_product_workflow_policy()
+# Adições: usa categoria específica existente e aplica tags no rascunho WooCommerce.
+install_addition_content_enrichment_policy()
+# Adições: abre um perfil dedicado do navegador para ChatGPT, copia o prompt e facilita a importação local do resultado.
+install_addition_chatgpt_assist_policy()
 # O painel usa PTThreadingHTTPServer; registra as rotas /adicoes/* no servidor efetivamente instanciado por web.serve().
 install_addition_server_integration_fix()
 
