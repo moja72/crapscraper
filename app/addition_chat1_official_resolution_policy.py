@@ -31,17 +31,45 @@ def _marketplace(job: Mapping[str, Any]) -> str:
     return fallback._marketplace_from_source(str(job.get("source_product_url") or ""))
 
 
-def _valid_official(job: Mapping[str, Any], url: str) -> bool:
-    value = str(url or "").strip().rstrip(".,;)")
+def _compact(value: Any) -> str:
+    return fallback._fold(value).replace(" ", "")
+
+
+def _identity_score(job: Mapping[str, Any], url: str, official_title: str = "") -> float:
+    name = str(job.get("source_name") or job.get("title") or "").strip()
+    if not name:
+        return 0.0
+
+    url_score = fallback._name_similarity(name, url)
+    title_score = fallback._name_similarity(name, "", official_title) if official_title else 0.0
+
+    short_name = fallback._short_search_name(name)
+    compact_short = _compact(short_name)
+    short_tokens = fallback._fold(short_name).split()
+    if len(compact_short) >= 6 and len(short_tokens) >= 2:
+        if compact_short in _compact(url):
+            url_score = max(url_score, 0.82)
+        if official_title and compact_short in _compact(official_title):
+            title_score = max(title_score, 0.82)
+
+    if url_score >= 0.45:
+        return url_score
+    if url_score >= 0.18 and title_score >= 0.55:
+        return max(0.45, min(0.80, (url_score + title_score) / 2.0))
+    return url_score
+
+
+def _valid_official(job: Mapping[str, Any], url: str, official_title: str = "") -> bool:
+    value = str(url or "").strip().rstrip(".,;)>]↗")
     source = str(job.get("source_product_url") or "").strip()
     if not capture._is_official_candidate(value, source):
         return False
+
     marketplace = _marketplace(job)
     if marketplace:
         if not fallback._marketplace_item_url(value, marketplace):
             return False
-        name = str(job.get("source_name") or job.get("title") or "")
-        if fallback._name_similarity(name, value) < 0.55:
+        if _identity_score(job, value, official_title) < 0.45:
             return False
     return True
 
@@ -61,7 +89,7 @@ def _description_prompt(job: Mapping[str, Any]) -> str:
         if known
         else (
             f"Localize por pesquisa web a página OFICIAL exata deste produto. O marketplace esperado é {marketplace_label}. "
-            "Confirme que o nome corresponde ao produto antes de usar a página. Não use sites de redistribuição como fonte."
+            "Confirme o título exibido na página oficial antes de usar a URL. Não use sites de redistribuição como fonte."
         )
     )
 
@@ -83,27 +111,95 @@ Use apenas estrutura, ritmo e extensão deste exemplo como referência; não cop
 \"{_DESCRIPTION_EXAMPLE}\"
 
 FORMATO DE RESPOSTA OBRIGATÓRIO
-Retorne EXATAMENTE duas linhas, sem Markdown, sem explicações e sem qualquer texto adicional:
+Retorne EXATAMENTE três linhas, sem Markdown, sem explicações e sem qualquer texto adicional:
 PAGINA_OFICIAL: https://url-oficial-do-produto
+TITULO_OFICIAL: título oficial encontrado na página
 DESCRICAO: parágrafo final da breve descrição"""
 
 
-def _parse_answer(raw: str, job: Mapping[str, Any]) -> tuple[str, str]:
+def _parse_answer_parts(raw: str, job: Mapping[str, Any]) -> tuple[str, str, str]:
     text = str(raw or "").strip()
     text = re.sub(r"^```(?:text|markdown|json)?\s*", "", text, flags=re.I)
     text = re.sub(r"\s*```$", "", text)
-    url_match = re.search(r"P[ÁA]GINA[_\s-]*OFICIAL\s*:\s*(https?://\S+)", text, flags=re.I)
+
+    url_match = re.search(
+        r"P[ÁA]GINA[_\s-]*OFICIAL\s*:\s*(https?://[^\s<>\"']+)",
+        text,
+        flags=re.I,
+    )
+    title_match = re.search(
+        r"T[ÍI]TULO[_\s-]*OFICIAL\s*:\s*(.+?)(?:\r?\n|$)",
+        text,
+        flags=re.I,
+    )
     desc_match = re.search(r"DESCRI[CÇ][AÃ]O\s*:\s*(.+)\Z", text, flags=re.I | re.S)
     if not url_match or not desc_match:
-        return "", ""
-    official = url_match.group(1).strip().rstrip(".,;)")
+        return "", "", ""
+
+    official = url_match.group(1).strip().rstrip(".,;)>]↗")
+    official_title = ""
+    if title_match:
+        official_title = " ".join(title_match.group(1).split()).strip().strip('"')
     description = simple._clean_description(desc_match.group(1))
-    if not _valid_official(job, official):
-        return "", ""
+    if not _valid_official(job, official, official_title):
+        return "", "", ""
+
     validated = final_validation._validated_description(description)
     if not validated:
-        return "", ""
-    return official, validated
+        return "", "", ""
+    return official, official_title, validated
+
+
+def _parse_answer(raw: str, job: Mapping[str, Any]) -> tuple[str, str]:
+    official, _official_title, description = _parse_answer_parts(raw, job)
+    return official, description
+
+
+def _assistant_texts_fallback(page: Any) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    try:
+        for raw in capture._assistant_text_candidates(page):
+            text = str(raw or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                values.append(text)
+    except Exception:
+        pass
+
+    try:
+        messages = one_click._assistant_messages(page)
+        count = int(messages.count() or 0)
+        for index in range(max(0, count - 4), count):
+            try:
+                text = str(messages.nth(index).inner_text() or "").strip()
+            except Exception:
+                continue
+            if text and text not in seen:
+                seen.add(text)
+                values.append(text)
+    except Exception:
+        pass
+
+    try:
+        generic = page.evaluate(
+            """
+            () => [...document.querySelectorAll('main [data-testid*="conversation-turn"], main article')]
+              .slice(-6)
+              .map(node => String(node.innerText || node.textContent || '').trim())
+              .filter(Boolean)
+            """
+        )
+        for raw in generic or []:
+            text = str(raw or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                values.append(text)
+    except Exception:
+        pass
+
+    return values
 
 
 def _resolve_without_blocking(job_id: str) -> dict[str, Any]:
@@ -137,10 +233,13 @@ def _wait_official_and_description(
     job_id: str,
     url: str,
     *,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 120,
 ) -> tuple[Any, str]:
     del before_count
-    deadline = time.time() + timeout_seconds
+    timeout_seconds = min(max(int(timeout_seconds or 120), 1), 120)
+    started = time.time()
+    deadline = started + timeout_seconds
+    next_status_at = 15.0
     current = page
     stable_value = ""
     stable_count = 0
@@ -153,10 +252,14 @@ def _wait_official_and_description(
 
         job = additions._row(job_id)
         found = ""
-        for raw in reversed(capture._assistant_text_candidates(current)):
-            official, description = _parse_answer(raw, job)
+        for raw in reversed(_assistant_texts_fallback(current)):
+            official, official_title, description = _parse_answer_parts(raw, job)
             if official and description:
-                found = f"PAGINA_OFICIAL: {official}\nDESCRICAO: {description}"
+                lines = [f"PAGINA_OFICIAL: {official}"]
+                if official_title:
+                    lines.append(f"TITULO_OFICIAL: {official_title}")
+                lines.append(f"DESCRICAO: {description}")
+                found = "\n".join(lines)
                 break
 
         if found:
@@ -166,7 +269,7 @@ def _wait_official_and_description(
                 stable_value = found
                 stable_count = 0
             if not announced:
-                official, description = _parse_answer(found, job)
+                _official, _title, description = _parse_answer_parts(found, job)
                 one_click._emit(
                     job_id,
                     f"Chat 1 encontrou a página oficial e uma descrição válida ({len(description)} caracteres); validando o término da resposta…",
@@ -176,19 +279,30 @@ def _wait_official_and_description(
                 announced = True
             if stable_count >= 1 and not simple._assistant_busy(current):
                 return current, found
+
+        elapsed = time.time() - started
+        if elapsed >= next_status_at:
+            one_click._emit(
+                job_id,
+                f"Chat 1 ainda pesquisando/escrevendo; nova conferência automática em andamento ({int(elapsed)}s/{timeout_seconds}s).",
+                step="chatgpt_description",
+                progress=24,
+            )
+            next_status_at += 15.0
+
         time.sleep(0.8)
 
     if stable_value:
         return current, stable_value
     raise RuntimeError(
-        "O Chat 1 não retornou uma página oficial válida junto com a descrição. "
+        "O Chat 1 não retornou uma página oficial e uma descrição válidas dentro de 2 minutos. "
         "A automação não seguirá para a imagem sem confirmar a fonte oficial."
     )
 
 
 def _save_official_and_description(job_id: str, raw: str) -> dict[str, Any]:
     job = additions._row(job_id)
-    official, description = _parse_answer(raw, job)
+    official, _official_title, description = _parse_answer_parts(raw, job)
     if not official or not description:
         raise RuntimeError("A resposta do Chat 1 não passou na validação de página oficial + descrição.")
     additions._update(job_id, source_official_url=official, error="")
@@ -210,4 +324,8 @@ def install_addition_chat1_official_resolution_policy() -> None:
     simple._description_prompt = _description_prompt
     simple._wait_plain_answer = _wait_official_and_description
     simple._save_plain_description = _save_official_and_description
+
+    from app.addition_wait_budget_policy import install_addition_wait_budget_policy
+
+    install_addition_wait_budget_policy()
     _INSTALLED = True
