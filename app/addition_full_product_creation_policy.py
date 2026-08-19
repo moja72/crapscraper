@@ -43,6 +43,18 @@ def _category_ids(product: Mapping[str, Any]) -> set[int]:
     }
 
 
+def _has_plan_attribute(product: Mapping[str, Any]) -> bool:
+    for item in product.get("attributes", []) or []:
+        if not isinstance(item, Mapping):
+            continue
+        if simple._fold(item.get("name")) != "plano" or not bool(item.get("variation")):
+            continue
+        options = {simple._fold(value) for value in (item.get("options") or [])}
+        if "anual" in options and any(value in {"vitalicio", "vitalícia", "vitalicia", "lifetime"} for value in options):
+            return True
+    return False
+
+
 def _variation_map(variations: list[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
     result: dict[str, Mapping[str, Any]] = {}
     for variation in variations:
@@ -75,6 +87,8 @@ def _validate_store_product(
         )
     if str(product.get("type") or "").lower() != "variable":
         raise RuntimeError("O produto precisa ser do tipo variable.")
+    if not _has_plan_attribute(product):
+        raise RuntimeError("O produto não confirmou o atributo Plano com as opções Anual e Vitalício.")
 
     root_category_id, root_category_name = simple._root_category(woo, simple._kind(job))
     if root_category_id not in _category_ids(product):
@@ -88,6 +102,16 @@ def _validate_store_product(
         raise RuntimeError(
             f"O campo pt_versao não confere: esperado {version or '(vazio)'}, recebido {stored_version or '(vazio)'}."
         )
+
+    media_id = int(job.get("media_id") or 0)
+    if media_id:
+        image_ids = {
+            int(item.get("id") or 0)
+            for item in (product.get("images") or [])
+            if isinstance(item, Mapping) and int(item.get("id") or 0)
+        }
+        if media_id not in image_ids:
+            raise RuntimeError("O produto não confirmou a imagem principal gerada pelo Chat 2.")
 
     if len(variations) != 2:
         raise RuntimeError(
@@ -130,11 +154,44 @@ def _validate_store_product(
     one_click._emit(
         job_id,
         f"Produto #{product_id} validado: variable, pt_versao={version}, categoria {root_category_name}, "
-        "variações Anual/Vitalício, preços e ZIP confirmados.",
+        "Plano Anual/Vitalício, preços, imagem e ZIP confirmados.",
         step="store_validation",
         progress=progress,
     )
     return product, variations
+
+
+def _resolve_current_prices(job_id: str) -> dict[str, Any]:
+    job = additions._row(job_id)
+    kind = simple._kind(job)
+    defaults, reference = two_stage._price_defaults_for_kind(kind)
+    if not defaults.get("annual_regular") or not defaults.get("lifetime_regular"):
+        label = "tema" if kind == "theme" else "plugin"
+        raise RuntimeError(
+            f"Não foi possível localizar os preços padrão atuais de {label} no catálogo PluginTema. "
+            "Atualize o catálogo/preços da Loja antes de tentar novamente."
+        )
+
+    updates = {
+        "annual_regular": _norm(defaults.get("annual_regular")),
+        "annual_sale": _norm(defaults.get("annual_sale")),
+        "lifetime_regular": _norm(defaults.get("lifetime_regular")),
+        "lifetime_sale": _norm(defaults.get("lifetime_sale")),
+    }
+    job = additions._update(job_id, **updates, error="")
+
+    ref_id = int((reference or {}).get("id") or 0)
+    ref_name = _norm((reference or {}).get("name"))
+    source = f"#{ref_id}" + (f" {ref_name}" if ref_name else "") if ref_id else "produto de referência"
+    one_click._emit(
+        job_id,
+        f"Preços atuais de {'Tema' if kind == 'theme' else 'Plugin'} aplicados a partir de {source}: "
+        f"Anual R$ {updates['annual_regular']} / R$ {updates['annual_sale'] or '-'}; "
+        f"Vitalício R$ {updates['lifetime_regular']} / R$ {updates['lifetime_sale'] or '-'}.",
+        step="pricing",
+        progress=80,
+    )
+    return job
 
 
 def _ensure_download_and_prices(job_id: str, manager: Any) -> dict[str, Any]:
@@ -144,7 +201,7 @@ def _ensure_download_and_prices(job_id: str, manager: Any) -> dict[str, Any]:
         step="pricing",
         progress=79,
     )
-    job = two_stage._ensure_default_prices(job_id)
+    job = _resolve_current_prices(job_id)
 
     zip_path = Path(_norm(job.get("zip_path"))) if _norm(job.get("zip_path")) else None
     if zip_path is not None and zip_path.exists():
@@ -192,8 +249,8 @@ def _create_complete_draft(job_id: str) -> dict[str, Any]:
     if not product_id:
         raise RuntimeError("WooCommerce não confirmou o ID do rascunho completo.")
 
-    # _create_or_resume_draft usa a categoria Plugin/Tema, pt_versao e as duas variações.
-    # Garanta que a categoria é especificamente a raiz escolhida pelo fluxo atual.
+    # A rotina madura de criação já usa pt_versao, Plano e duas variações. Aqui garantimos
+    # especificamente a categoria raiz Plugin/Tema do fluxo atual antes de validar tudo.
     woo = additions.web._build_store_woocommerce_client()
     root_category_id, _root_name = simple._root_category(woo, simple._kind(job))
     product = woo.get_product_fresh(product_id)
@@ -221,9 +278,21 @@ def _publish_complete(job_id: str) -> dict[str, Any]:
         step="publishing",
         progress=96,
     )
-    additions._publish(job_id, f"PUBLICAR {product_id}")
+    woo = additions.web._build_store_woocommerce_client()
+    additions._wc_request(
+        woo,
+        "PUT",
+        f"/wp-json/wc/v3/products/{product_id}",
+        {"status": "publish"},
+    )
     _validate_store_product(job_id, expected_status="publish", progress=99)
-    return additions._row(job_id)
+    job = additions._update(
+        job_id,
+        state="completed",
+        completed_at=additions._utc_now(),
+        error="",
+    )
+    return job
 
 
 def _run_full(job_id: str, manager: Any) -> None:
