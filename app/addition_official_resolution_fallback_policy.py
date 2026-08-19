@@ -138,16 +138,19 @@ def install_addition_official_resolution_fallback_policy() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    # A resolução por buscadores HTTP locais foi aposentada porque era instável e bloqueava o fluxo.
-    # O Chat 1 resolve a página oficial; a policy final envia Chat 1 e Chat 2 antes de esperar e
-    # monitora os dois em paralelo, com fallback visual quando a página oficial não abre no ChatGPT.
+    # A resolução por buscadores HTTP locais foi aposentada. As policies finais enviam dois chats em
+    # paralelo e a última camada prende cada leitura à URL exata da conversa de descrição/imagem.
     from app.addition_chat1_official_resolution_policy import (
         install_addition_chat1_official_resolution_policy,
     )
     from app.addition_parallel_generation_policy import (
         install_addition_parallel_generation_policy,
     )
+    from app.addition_chat_binding_policy import (
+        install_addition_chat_binding_policy,
+    )
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
+    install_addition_chat_binding_policy()
     _INSTALLED = True
