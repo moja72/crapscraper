@@ -62,7 +62,13 @@ def _copy_to_clipboard(text: str) -> None:
         except Exception:
             try:
                 subprocess.run(
-                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", "Set-Clipboard -Value ([Console]::In.ReadToEnd())"],
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+                    ],
                     input=text,
                     text=True,
                     check=True,
@@ -70,9 +76,12 @@ def _copy_to_clipboard(text: str) -> None:
                 )
                 return
             except Exception as error:
-                raise ValueError(f"Não foi possível copiar o prompt para a área de transferência: {error}") from None
+                raise ValueError(
+                    f"Não foi possível copiar o prompt para a área de transferência: {error}"
+                ) from None
     try:
         import tkinter as tk
+
         root = tk.Tk()
         root.withdraw()
         root.clipboard_clear()
@@ -80,7 +89,9 @@ def _copy_to_clipboard(text: str) -> None:
         root.update()
         root.destroy()
     except Exception as error:
-        raise ValueError(f"Não foi possível copiar o prompt para a área de transferência: {error}") from None
+        raise ValueError(
+            f"Não foi possível copiar o prompt para a área de transferência: {error}"
+        ) from None
 
 
 def _chrome_candidates() -> list[str]:
@@ -92,14 +103,25 @@ def _chrome_candidates() -> list[str]:
         local = os.getenv("LOCALAPPDATA", "")
         program_files = os.getenv("ProgramFiles", r"C:\Program Files")
         program_files_x86 = os.getenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
-        values.extend([
-            str(Path(program_files) / "Google" / "Chrome" / "Application" / "chrome.exe"),
-            str(Path(program_files_x86) / "Google" / "Chrome" / "Application" / "chrome.exe"),
-            str(Path(local) / "Google" / "Chrome" / "Application" / "chrome.exe") if local else "",
-            str(Path(program_files) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
-            str(Path(program_files_x86) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
-        ])
-    for name in ("google-chrome", "chrome", "chromium", "chromium-browser", "msedge"):
+        values.extend(
+            [
+                str(Path(program_files) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+                str(Path(program_files_x86) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+                str(Path(local) / "Google" / "Chrome" / "Application" / "chrome.exe") if local else "",
+                str(Path(program_files) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+                str(Path(program_files_x86) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+                str(Path(local) / "Programs" / "Opera" / "opera.exe") if local else "",
+                str(Path(local) / "Programs" / "Opera GX" / "opera.exe") if local else "",
+            ]
+        )
+    for name in (
+        "google-chrome",
+        "chrome",
+        "chromium",
+        "chromium-browser",
+        "msedge",
+        "opera",
+    ):
         found = shutil.which(name)
         if found:
             values.append(found)
@@ -111,7 +133,7 @@ def _find_browser() -> str:
         if Path(candidate).exists() or shutil.which(candidate):
             return candidate
     raise ValueError(
-        "Chrome/Edge não encontrado. Defina SCRAPER_CHATGPT_BROWSER_PATH com o caminho do navegador."
+        "Chrome, Edge ou Opera não encontrado. Defina SCRAPER_CHATGPT_BROWSER_PATH com o caminho do navegador."
     )
 
 
@@ -142,7 +164,12 @@ def open_for_job(job_id: str) -> dict[str, Any]:
         stdin=subprocess.DEVNULL,
         creationflags=creationflags,
     )
-    _save_config({"last_opened_at": int(time.time()), "last_job_id": str(job.get("job_id") or job_id)})
+    _save_config(
+        {
+            "last_opened_at": int(time.time()),
+            "last_job_id": str(job.get("job_id") or job_id),
+        }
+    )
     return {
         "ok": True,
         "message": (
@@ -154,16 +181,39 @@ def open_for_job(job_id: str) -> dict[str, Any]:
     }
 
 
+def _normalize_structured_text(text: str) -> str:
+    lines: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.rstrip()
+        line = re.sub(r"^\s*#{1,6}\s*", "", line)
+        line = re.sub(r"^\s*[-•]\s+", "", line)
+        line = line.replace("**", "").replace("__", "")
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _clean_value(value: str) -> str:
+    text = str(value or "").strip()
+    fenced = re.match(r"(?is)^```(?:html|text|markdown)?\s*(.*?)\s*```$", text)
+    if fenced:
+        return str(fenced.group(1) or "").strip()
+    return text
+
+
 def _section(text: str, label: str, next_labels: list[str]) -> str:
     escaped = re.escape(label)
     tail = "|".join(re.escape(item) for item in next_labels)
-    pattern = rf"(?ims)^\s*{escaped}\s*:\s*(.*?)(?=^\s*(?:{tail})\s*:|\Z)" if tail else rf"(?ims)^\s*{escaped}\s*:\s*(.*)\Z"
+    pattern = (
+        rf"(?ims)^\s*{escaped}\s*:\s*(.*?)(?=^\s*(?:{tail})\s*:|\Z)"
+        if tail
+        else rf"(?ims)^\s*{escaped}\s*:\s*(.*)\Z"
+    )
     match = re.search(pattern, text)
-    return str(match.group(1) if match else "").strip()
+    return _clean_value(str(match.group(1) if match else ""))
 
 
 def parse_chatgpt_text(text: str) -> dict[str, str]:
-    raw = str(text or "").strip()
+    raw = _normalize_structured_text(text)
     if not raw:
         raise ValueError("Cole ou copie primeiro a resposta textual do ChatGPT.")
     labels = [
@@ -226,7 +276,8 @@ def _latest_image() -> Path:
     opened_at = int(config.get("last_opened_at") or 0)
     minimum_mtime = max(opened_at - 60, int(time.time()) - 3 * 60 * 60)
     candidates = [
-        path for path in root.iterdir()
+        path
+        for path in root.iterdir()
         if path.is_file()
         and path.suffix.lower() in _ALLOWED_IMAGE_SUFFIXES
         and int(path.stat().st_mtime) >= minimum_mtime
