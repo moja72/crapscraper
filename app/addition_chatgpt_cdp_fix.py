@@ -18,6 +18,7 @@ import app.new_product_workflow_policy as additions
 
 _INSTALLED = False
 _ORIGINAL_PUBLIC_CONFIG = None
+_ORIGINAL_CREATE_DRAFT = None
 _PROJECT_ID = "g-p-6a852af976708191937e4a92648e2095"
 _PROJECT_URL = f"https://chatgpt.com/g/{_PROJECT_ID}/project"
 _CDP_PROFILE_DIR = Path(settings.DATA_DIR) / "browser_profiles" / "chatgpt-cdp"
@@ -234,6 +235,45 @@ def _ensure_project_page(page: Any, job_id: str, url: str) -> None:
         raise RuntimeError("O ChatGPT abriu, mas não confirmou a navegação dentro do projeto configurado.")
 
 
+def _wait_complete_answer(page: Any, before_count: int, job_id: str, timeout_seconds: int = 360) -> str:
+    deadline = time.time() + timeout_seconds
+    latest = ""
+    required = (
+        "TÍTULO",
+        "BREVE DESCRIÇÃO",
+        "DESCRIÇÃO",
+        "TAGS",
+        "CATEGORIA",
+    )
+
+    while time.time() < deadline:
+        messages = one_click._assistant_messages(page)
+        try:
+            count = messages.count()
+        except Exception:
+            count = 0
+
+        if count > before_count:
+            try:
+                latest = str(messages.nth(count - 1).inner_text() or "").strip()
+            except Exception:
+                latest = ""
+
+            normalized = latest.upper()
+            if all(label in normalized for label in required):
+                parsed = chatgpt.parse_chatgpt_text(latest)
+                if str(parsed.get("category_name") or "").strip():
+                    return latest
+
+        page.wait_for_timeout(1200)
+
+    if latest:
+        raise RuntimeError(
+            "O ChatGPT respondeu, mas o bloco final ainda não trouxe todos os campos, incluindo CATEGORIA."
+        )
+    raise RuntimeError("Tempo esgotado aguardando a resposta do ChatGPT.")
+
+
 def _automatic_chatgpt(job_id: str) -> None:
     job = additions._row(job_id)
     if additions._content_complete(job) and str(job.get("image_path") or "").strip():
@@ -291,7 +331,7 @@ def _automatic_chatgpt(job_id: str) -> None:
             )
 
             before_count, before_images = one_click._send_message(page, prompt, job_id)
-            answer = one_click._wait_structured_answer(page, before_count, job_id)
+            answer = _wait_complete_answer(page, before_count, job_id)
             one_click._save_text(job_id, answer)
             one_click._emit(
                 job_id,
@@ -337,14 +377,45 @@ def _automatic_chatgpt(job_id: str) -> None:
                     pass
 
 
+def _create_draft_with_required_media(job_id: str, confirmation: str) -> dict[str, Any]:
+    job = additions._row(job_id)
+    image_path = Path(str(job.get("image_path") or ""))
+    if not image_path.exists():
+        raise ValueError("A imagem do produto ainda não foi gerada/salva; o cadastro não será criado sem capa.")
+
+    category_name = str(job.get("category_name") or "").strip()
+    if not category_name:
+        raise ValueError("A categoria do produto não foi definida pelo conteúdo gerado; gere o conteúdo novamente.")
+
+    media_id = int(job.get("media_id") or 0)
+    if not media_id:
+        media_id = int(
+            additions._wp_media_upload(
+                str(image_path),
+                str(job.get("title") or job.get("source_name") or "Produto"),
+            )
+            or 0
+        )
+        if not media_id:
+            raise RuntimeError(
+                "A imagem foi gerada, mas o WordPress não confirmou o upload para a Biblioteca de Mídia. "
+                "Confira SCRAPER_WP_BASE_URL, SCRAPER_WP_USERNAME e SCRAPER_WP_APPLICATION_PASSWORD."
+            )
+        additions._update(job_id, media_id=media_id, error="")
+
+    return _ORIGINAL_CREATE_DRAFT(job_id, confirmation)
+
+
 def install_addition_chatgpt_cdp_fix() -> None:
-    global _INSTALLED, _ORIGINAL_PUBLIC_CONFIG
+    global _INSTALLED, _ORIGINAL_PUBLIC_CONFIG, _ORIGINAL_CREATE_DRAFT
     if _INSTALLED:
         return
 
     _ORIGINAL_PUBLIC_CONFIG = chatgpt.public_config
+    _ORIGINAL_CREATE_DRAFT = additions._create_or_resume_draft
     chatgpt._DEFAULT_URL = _PROJECT_URL
     chatgpt.public_config = _public_config
     chatgpt.open_for_job = _open_for_job
     one_click._automatic_chatgpt = _automatic_chatgpt
+    additions._create_or_resume_draft = _create_draft_with_required_media
     _INSTALLED = True
