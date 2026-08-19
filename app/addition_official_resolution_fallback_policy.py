@@ -138,8 +138,8 @@ def install_addition_official_resolution_fallback_policy() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    # As policies finais enviam dois chats em paralelo, prendem cada leitura à conversa real /c/<id>
-    # e, por último, usam marcadores únicos no conteúdo visível para sobreviver a mudanças no DOM.
+    # As policies finais enviam dois chats em paralelo, prendem cada leitura à conversa real /c/<id>,
+    # usam marcadores únicos no conteúdo e, por último, concluem o produto real com ZIP/versão/variações.
     from app.addition_chat1_official_resolution_policy import (
         install_addition_chat1_official_resolution_policy,
     )
@@ -155,10 +155,14 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_unique_chat_marker_policy import (
         install_addition_unique_chat_marker_policy,
     )
+    from app.addition_full_product_creation_policy import (
+        install_addition_full_product_creation_policy,
+    )
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
     install_addition_chat_binding_policy()
     install_addition_real_chat_url_policy()
     install_addition_unique_chat_marker_policy()
+    install_addition_full_product_creation_policy()
     _INSTALLED = True
