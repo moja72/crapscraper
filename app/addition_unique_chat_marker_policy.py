@@ -52,11 +52,20 @@ def _image_prompt_named(job: Mapping[str, Any]) -> str:
 
 
 def _main_text(page: Any) -> str:
+    # textContent inclui trechos recolhidos pelo "Mostrar mais"; isso garante que o marcador
+    # final continue encontrável mesmo quando o prompt longo não está visualmente expandido.
     try:
-        return str(page.locator("main").inner_text(timeout=3000) or "")
+        node = page.locator("main")
+        raw = str(node.text_content(timeout=3000) or "")
+        if raw:
+            return raw
+    except Exception:
+        pass
+    try:
+        return str(page.evaluate("() => String(document.querySelector('main')?.textContent || '')") or "")
     except Exception:
         try:
-            return str(page.evaluate("() => String(document.querySelector('main')?.innerText || '')") or "")
+            return str(page.locator("main").inner_text(timeout=3000) or "")
         except Exception:
             return ""
 
@@ -170,7 +179,6 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
     if not desired or not real_url._is_real_conversation_url(real_url._page_url(page)):
         return False
     try:
-        # Primeiro tente um botão de renomear exposto diretamente no cabeçalho.
         buttons = page.locator("button")
         for i in range(min(buttons.count(), 80)):
             button = buttons.nth(i)
@@ -189,7 +197,6 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
             except Exception:
                 continue
 
-        # Fallback: use o item da conversa no sidebar e o menu contextual correspondente.
         current = real_url._page_url(page)
         path = re.sub(r"^https?://[^/]+", "", current)
         link = page.locator(f'a[href="{path}"]').first
