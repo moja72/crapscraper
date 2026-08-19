@@ -55,6 +55,7 @@ from app.update_queue_lifecycle_policy import install_update_queue_lifecycle_pol
 from app.update_queue_execution_reliability_policy import install_update_queue_execution_reliability_policy
 from app.update_retry_safety_policy import install_update_retry_safety_policy
 from app.process_observability_policy import install_process_observability_policy
+from app.process_history_credits_policy import install_process_history_credits_policy
 from app.store_category_table_policy import install_store_category_table_policy
 from app.store_pack_variation_policy import install_store_pack_variation_policy
 from app.store_pack_variation_ui_policy import install_store_pack_variation_ui_policy
@@ -110,6 +111,8 @@ install_update_queue_execution_reliability_policy()
 install_update_retry_safety_policy()
 # Observabilidade: projeta logs vivos sem persistir cada linha e adiciona a central de processos ativos.
 install_process_observability_policy()
+# Processos: mostra créditos de download e mantém histórico persistente de operações concluídas.
+install_process_history_credits_policy()
 # Adições: materializa aprovações de novos produtos, prepara ZIP/conteúdo, cria rascunho e publica somente com confirmação explícita.
 install_new_product_workflow_policy()
 # Adições: usa categoria específica existente e aplica tags no rascunho WooCommerce.
