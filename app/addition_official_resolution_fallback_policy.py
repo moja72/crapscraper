@@ -161,6 +161,9 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_chat_title_policy import (
         install_addition_chat_title_policy,
     )
+    from app.addition_adaptive_chat_monitor_policy import (
+        install_addition_adaptive_chat_monitor_policy,
+    )
     from app.addition_full_product_creation_policy import (
         install_addition_full_product_creation_policy,
     )
@@ -175,6 +178,7 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_addition_unique_chat_marker_policy()
     install_addition_active_chat_capture_policy()
     install_addition_chat_title_policy()
+    install_addition_adaptive_chat_monitor_policy()
     install_addition_full_product_creation_policy()
     install_addition_full_product_integrity_policy()
     _INSTALLED = True
