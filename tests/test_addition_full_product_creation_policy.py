@@ -13,6 +13,12 @@ class _Woo:
             "status": status,
             "type": product_type,
             "categories": [{"id": 77, "name": "Tema"}],
+            "attributes": [{
+                "name": "Plano",
+                "variation": True,
+                "visible": True,
+                "options": ["Anual", "Vitalício"],
+            }],
             "meta_data": [{"key": "pt_versao", "value": version}],
         }
         self.variations = variations or [
@@ -76,6 +82,12 @@ class AdditionFullProductCreationPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "pt_versao"):
             self._validate(_Woo(version="1.5.1"))
 
+    def test_rejects_missing_plan_attribute(self):
+        woo = _Woo()
+        woo.product["attributes"] = []
+        with self.assertRaisesRegex(RuntimeError, "atributo Plano"):
+            self._validate(woo)
+
     def test_rejects_missing_variation(self):
         woo = _Woo()
         woo.variations = woo.variations[:1]
@@ -96,6 +108,38 @@ class AdditionFullProductCreationPolicyTests(unittest.TestCase):
 
     def test_price_normalization_accepts_comma(self):
         self.assertEqual(policy._price("R$ 39,80"), "39.80")
+
+    def test_resolve_current_prices_overwrites_old_job_values(self):
+        current = dict(self.job)
+        current.update({
+            "annual_regular": "1.00",
+            "annual_sale": "0.50",
+            "lifetime_regular": "2.00",
+            "lifetime_sale": "1.00",
+        })
+        defaults = {
+            "annual_regular": "33.90",
+            "annual_sale": "19.90",
+            "lifetime_regular": "39.80",
+            "lifetime_sale": "24.90",
+        }
+        captured = {}
+
+        def update(_job_id, **values):
+            captured.update(values)
+            merged = dict(current)
+            merged.update(values)
+            return merged
+
+        with patch.object(policy.additions, "_row", return_value=current), \
+             patch.object(policy.two_stage, "_price_defaults_for_kind", return_value=(defaults, {"id": 88, "name": "Tema referência"})), \
+             patch.object(policy.additions, "_update", side_effect=update), \
+             patch.object(policy.one_click, "_emit"):
+            job = policy._resolve_current_prices("add-test")
+
+        self.assertEqual(job["annual_regular"], "33.90")
+        self.assertEqual(job["lifetime_sale"], "24.90")
+        self.assertEqual(captured["annual_sale"], "19.90")
 
 
 if __name__ == "__main__":
