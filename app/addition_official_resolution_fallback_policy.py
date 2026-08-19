@@ -138,8 +138,8 @@ def install_addition_official_resolution_fallback_policy() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    # A resolução por buscadores HTTP locais foi aposentada. As policies finais enviam dois chats em
-    # paralelo, prendem cada leitura à conversa correta e só persistem URLs reais /c/<id>.
+    # As policies finais enviam dois chats em paralelo, prendem cada leitura à conversa real /c/<id>
+    # e, por último, usam marcadores únicos no conteúdo visível para sobreviver a mudanças no DOM.
     from app.addition_chat1_official_resolution_policy import (
         install_addition_chat1_official_resolution_policy,
     )
@@ -152,9 +152,13 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_real_chat_url_policy import (
         install_addition_real_chat_url_policy,
     )
+    from app.addition_unique_chat_marker_policy import (
+        install_addition_unique_chat_marker_policy,
+    )
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
     install_addition_chat_binding_policy()
     install_addition_real_chat_url_policy()
+    install_addition_unique_chat_marker_policy()
     _INSTALLED = True
