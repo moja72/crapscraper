@@ -16,6 +16,8 @@ def test_addition_chatgpt_assist_ui_contract() -> None:
     assert "/adicoes/chatgpt/abrir" in script
     assert "/adicoes/chatgpt/importar-texto" in script
     assert "/adicoes/chatgpt/importar-imagem" in script
+    assert "line.textContent!==nextText" in script
+    assert 'byId("addition_workflow_root")||document.documentElement' in script
     assert "data-addition-chatgpt-assist" in policy
     assert "/adicoes/chatgpt/config" in server
     assert "chatgpt_assist.open_for_job" in server
