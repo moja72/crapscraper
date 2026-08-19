@@ -19,7 +19,7 @@ _BASE_PLUGINTHEME_DOWNLOAD: Callable[..., Any] | None = None
 _LOCK = threading.RLock()
 _USAGE_PATH = Path(settings.DATA_DIR) / "download_credit_usage.json"
 _DEFAULT_LIMITS = {
-    "ultrapackv2": 50,
+    "ultrapackv2": 40,
     "plugintheme": 50,
 }
 _ENV_LIMITS = {
