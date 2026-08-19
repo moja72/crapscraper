@@ -139,8 +139,10 @@ class AdditionUniqueChatMarkerPolicyTests(unittest.TestCase):
         with patch.object(policy.additions, "_row", return_value=job):
             desc = policy._desired_chat_name("add-test", "Chat 1")
             image = policy._desired_chat_name("add-test", "Chat 2")
-        self.assertTrue(desc.startswith("Descrição 123 Medicine"))
-        self.assertTrue(image.startswith("Imagem 123 Medicine"))
+        self.assertTrue(desc.startswith("Descrição [123 Medicine"))
+        self.assertTrue(image.startswith("Imagem [123 Medicine"))
+        self.assertTrue(desc.endswith("]"))
+        self.assertTrue(image.endswith("]"))
         self.assertNotIn("CSADD", desc)
         self.assertNotIn("CSADD", image)
 
