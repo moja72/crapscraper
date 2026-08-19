@@ -212,22 +212,18 @@ def _last_turn_text_candidates(page: Any) -> list[str]:
 
 
 def _description_candidates_resilient(page: Any) -> list[str]:
-    # 1) strongest path: explicit marker tail when ChatGPT keeps the full prompt in DOM.
     values = _visible_description_candidates(page)
     if values:
         return values
 
-    # 2) current ChatGPT DOM layouts: final assistant/conversation turn.
     values = _latest_conversation_description_candidates(page)
     if values:
         return values
 
-    # 3) layout-agnostic final visible blocks from the exact mapped /c/<id> conversation.
     values = _last_turn_text_candidates(page)
     if values:
         return values
 
-    # 4) preserve the pre-existing readers as the last fallback.
     return binding._description_candidates_legacy(page) if hasattr(binding, "_description_candidates_legacy") else []
 
 
@@ -275,12 +271,7 @@ def _images_after_image_marker(page: Any, before: set[str]) -> list[dict[str, An
 
 
 def _new_large_images_anywhere(page: Any, before: set[str]) -> list[dict[str, Any]]:
-    """Fallback independent of assistant-role classification.
-
-    The attached reference is already part of `before`; therefore a large new image
-    in the mapped image conversation is the generated result, even if ChatGPT changes
-    the turn wrapper or author-role attributes again.
-    """
+    """Fallback independent of assistant-role classification."""
     try:
         result = page.evaluate(
             """
@@ -369,7 +360,7 @@ def _desired_chat_name(job_id: str, label: str) -> str:
     if len(name) > 92:
         name = name[:89].rstrip() + "..."
     prefix = "Descrição" if "chat 1" in str(label).lower() else "Imagem" if "chat 2" in str(label).lower() else "Chat"
-    return f"{prefix} {name}".strip()
+    return f"{prefix} [{name}]".strip()
 
 
 def _best_effort_name_chat(page: Any, desired: str) -> bool:
@@ -378,8 +369,6 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
     current = real_url._page_url(page)
     path = re.sub(r"^https?://[^/]+", "", current)
     try:
-        # Prefer the sidebar entry for this exact conversation. ChatGPT currently exposes
-        # rename through its row menu rather than a stable button on the conversation header.
         link = page.locator(f'a[href="{path}"], a[href$="{path}"]').first
         if link.count():
             containers = [
@@ -419,7 +408,9 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
                             return True
                         except Exception:
                             continue
-        # Fallback for layouts that expose Rename directly in a button/menu on the page.
+                except Exception:
+                    continue
+
         buttons = page.locator("button")
         for i in range(min(buttons.count(), 100)):
             button = buttons.nth(i)
