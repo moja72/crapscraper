@@ -74,6 +74,45 @@ class AdditionOfficialResolutionFallbackPolicyTests(unittest.TestCase):
             "https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701",
         )
 
+    def test_extracts_third_party_result_from_bing_rss(self) -> None:
+        rss = """
+        <rss><channel><item>
+          <title>123 Medicine Theme</title>
+          <link>https://themes.example.test/123-medicine-theme</link>
+        </item></channel></rss>
+        """
+        links = policy._extract_search_result_links(
+            rss,
+            "https://www.ultrapackv2.com/item/themeforest-123-medicine/",
+            "themeforest",
+        )
+        self.assertIn("https://themes.example.test/123-medicine-theme", links)
+
+    def test_indirect_page_can_reveal_official_sale_link(self) -> None:
+        intermediary = """
+        <h1>123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme</h1>
+        <a href="https://1.envato.market/c/example?u=https%3A%2F%2Fthemeforest.net%2Fitem%2F123-medicine-pharmacy-shop-hospital-medical-health-service-theme%2F6552701">
+          Order on ThemeForest
+        </a>
+        """
+        result = policy._best_marketplace_candidate(
+            "123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme",
+            "themeforest",
+            [intermediary],
+        )
+        self.assertEqual(
+            result,
+            "https://themeforest.net/item/123-medicine-pharmacy-shop-hospital-medical-health-service-theme/6552701",
+        )
+
+    def test_short_search_name_uses_product_prefix(self) -> None:
+        self.assertEqual(
+            policy._short_search_name(
+                "123 Medicine - Pharmacy Shop & Hospital / Medical / Health Service Theme"
+            ),
+            "123 Medicine",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
