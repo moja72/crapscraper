@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from typing import Any, Mapping
 
 import app.addition_chat_binding_policy as binding
 import app.addition_real_chat_url_policy as real_url
 import app.addition_final_validation_policy as final_validation
-import app.addition_simple_creation_policy as simple
+import app.addition_one_click_policy as one_click
 import app.new_product_workflow_policy as additions
 
 
@@ -24,7 +25,8 @@ _IMG_MARKER_RE = re.compile(r"CSADD-[A-Z0-9-]+-IMG-END", re.I)
 def _run_token(job: Mapping[str, Any], kind: str) -> str:
     job_id = re.sub(r"[^A-Za-z0-9]", "", str(job.get("job_id") or "ADD"))[-8:] or "ADD"
     stamp = time.strftime("%H%M%S")
-    return f"CSADD-{job_id.upper()}-{stamp}-{kind.upper()}"
+    nonce = uuid.uuid4().hex[:6].upper()
+    return f"CSADD-{job_id.upper()}-{stamp}-{nonce}-{kind.upper()}"
 
 
 def _description_prompt_named(job: Mapping[str, Any]) -> str:
@@ -168,6 +170,7 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
     if not desired or not real_url._is_real_conversation_url(real_url._page_url(page)):
         return False
     try:
+        # Primeiro tente um botão de renomear exposto diretamente no cabeçalho.
         buttons = page.locator("button")
         for i in range(min(buttons.count(), 80)):
             button = buttons.nth(i)
@@ -185,6 +188,23 @@ def _best_effort_name_chat(page: Any, desired: str) -> bool:
                 return True
             except Exception:
                 continue
+
+        # Fallback: use o item da conversa no sidebar e o menu contextual correspondente.
+        current = real_url._page_url(page)
+        path = re.sub(r"^https?://[^/]+", "", current)
+        link = page.locator(f'a[href="{path}"]').first
+        if link.count():
+            container = link.locator("xpath=ancestor-or-self::*[self::li or self::div][1]")
+            menu = container.locator("button").last
+            if menu.count():
+                menu.click(timeout=1200)
+                rename_item = page.get_by_text(re.compile(r"^(Renomear|Rename)$", re.I)).last
+                if rename_item.count():
+                    rename_item.click(timeout=1200)
+                    field = page.locator("input").last
+                    field.fill(desired, timeout=1500)
+                    field.press("Enter")
+                    return True
     except Exception:
         return False
     return False
@@ -199,8 +219,7 @@ def _bind_chat_page_named(context: Any, current: Any, chat_url: str, project_url
         try:
             if not getattr(page, key, False):
                 if _best_effort_name_chat(page, desired):
-                    one_click = __import__("app.addition_one_click_policy", fromlist=["_emit"])
-                    one_click._emit(job_id, f"{label}: conversa identificada como {desired}.", step="chatgpt")
+                    one_click._emit(job_id, f"{label}: conversa renomeada para {desired}.", step="chatgpt")
                 setattr(page, key, True)
         except Exception:
             pass
