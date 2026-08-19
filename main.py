@@ -69,6 +69,7 @@ from app.addition_content_enrichment_policy import install_addition_content_enri
 from app.addition_chatgpt_assist_policy import install_addition_chatgpt_assist_policy
 from app.addition_server_integration_fix import install_addition_server_integration_fix
 from app.addition_one_click_policy import install_addition_one_click_policy
+from app.addition_chatgpt_cdp_fix import install_addition_chatgpt_cdp_fix
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -127,6 +128,8 @@ install_addition_chatgpt_assist_policy()
 install_addition_server_integration_fix()
 # Adições: reduz a operação a um único botão e encadeia ChatGPT, imagem, ZIP, rascunho e publicação com logs ao vivo.
 install_addition_one_click_policy()
+# Adições: conecta ao Chrome por CDP dentro do projeto ChatGPT e evita o crash do launch_persistent_context/perfil em uso.
+install_addition_chatgpt_cdp_fix()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
