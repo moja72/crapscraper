@@ -77,10 +77,20 @@ def _patched_prompt(job: Mapping[str, Any]) -> str:
 
 
 def _patched_save_content(payload: Mapping[str, Any]) -> dict[str, Any]:
-    result = _BASE_SAVE_CONTENT(payload)
     job_id = additions._normalize(payload.get("job_id"))
-    category_name = additions._normalize(payload.get("category_name"))
+    previous_category = ""
     if job_id:
+        try:
+            previous_category = additions._normalize(additions._row(job_id).get("category_name"))
+        except Exception:
+            previous_category = ""
+    result = _BASE_SAVE_CONTENT(payload)
+    if job_id:
+        category_name = (
+            additions._normalize(payload.get("category_name"))
+            if "category_name" in payload
+            else previous_category
+        )
         additions._update(job_id, category_name=category_name)
         job = additions._recalculate_state(job_id)
         result["job"] = additions._public_job(job)
@@ -104,9 +114,13 @@ def _find_specific_category(woo: Any, requested: str) -> int:
 
 
 def _patched_category_id(woo: Any, kind: str) -> int:
-    requested = str(getattr(_CONTEXT, "category_name", "") or "")
-    category_id = _find_specific_category(woo, requested)
-    if category_id:
+    requested = str(getattr(_CONTEXT, "category_name", "") or "").strip()
+    if requested:
+        category_id = _find_specific_category(woo, requested)
+        if not category_id:
+            raise ValueError(
+                f'A categoria "{requested}" não existe mais no WooCommerce. Revise o conteúdo antes de criar o rascunho.'
+            )
         return category_id
     return _BASE_CATEGORY_ID(woo, kind)
 
