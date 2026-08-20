@@ -48,12 +48,26 @@ class AdditionCustomFieldsPolicyTests(unittest.TestCase):
     def test_non_marketplace_domain_can_be_used_as_brand_fallback(self) -> None:
         self.assertEqual(policy._domain_developer("https://elementor.com/pro/"), "Elementor")
 
+    def test_template_path_is_humanized(self) -> None:
+        self.assertEqual(policy._normalize_developer_display("template_path"), "Template Path")
+
+    def test_lowercase_hyphenated_slug_is_humanized(self) -> None:
+        self.assertEqual(policy._normalize_developer_display("bold-themes"), "Bold Themes")
+
+    def test_already_styled_brand_is_preserved(self) -> None:
+        self.assertEqual(policy._normalize_developer_display("YITH-WooCommerce"), "YITH-WooCommerce")
+        self.assertEqual(policy._normalize_developer_display("AwesomeAuthor"), "AwesomeAuthor")
+
+    def test_developer_from_job_is_normalized(self) -> None:
+        job = {"developer": "template_path"}
+        self.assertEqual(policy._developer(job, ""), "Template Path")
+
     def test_apply_writes_exact_custom_field_keys(self) -> None:
         job = {
             "woo_product_id": 123,
             "source_official_url": "https://example.dev/plugin/",
             "source_product_url": "https://www.ultrapackv2.com/item/example/",
-            "developer": "Example Dev",
+            "developer": "template_path",
         }
         woo = _Woo()
 
@@ -76,7 +90,18 @@ class AdditionCustomFieldsPolicyTests(unittest.TestCase):
 
         values = {item["key"]: item["value"] for item in woo.meta_data}
         self.assertEqual(values["site_oficial"], "https://example.dev/plugin/")
-        self.assertEqual(values["desenvolvedor"], "Example Dev")
+        self.assertEqual(values["desenvolvedor"], "Template Path")
+
+    def test_existing_metadata_id_is_reused(self) -> None:
+        product = {
+            "meta_data": [
+                {"id": 77, "key": "desenvolvedor", "value": "template_path"},
+            ]
+        }
+        self.assertEqual(
+            policy._meta_payload_item(product, "desenvolvedor", "Template Path"),
+            {"id": 77, "key": "desenvolvedor", "value": "Template Path"},
+        )
 
 
 if __name__ == "__main__":
