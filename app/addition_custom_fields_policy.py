@@ -26,13 +26,59 @@ _GENERIC_DEVELOPERS = {
     "themeforest",
     "codecanyon",
     "wordpress",
-    "wordpress.org",
+    "wordpressorg",
     "woocommerce",
+}
+_DISPLAY_TOKEN_MAP = {
+    "ai": "AI",
+    "api": "API",
+    "css": "CSS",
+    "html": "HTML",
+    "js": "JS",
+    "php": "PHP",
+    "seo": "SEO",
+    "ui": "UI",
+    "ux": "UX",
+    "wp": "WP",
 }
 
 
 def _clean(value: Any) -> str:
     return " ".join(html_lib.unescape(str(value or "")).split()).strip()
+
+
+def _developer_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _clean(value).lower())
+
+
+def _display_token(token: str) -> str:
+    clean = str(token or "").strip()
+    if not clean:
+        return ""
+    mapped = _DISPLAY_TOKEN_MAP.get(clean.lower())
+    if mapped:
+        return mapped
+    return clean[:1].upper() + clean[1:].lower()
+
+
+def _normalize_developer_display(value: Any) -> str:
+    """Transforma slugs/usernames técnicos em nome legível sem estragar marcas já formatadas."""
+    cleaned = _clean(value)
+    if not cleaned:
+        return ""
+
+    # Underscore é um sinal inequívoco de slug técnico: template_path -> Template Path.
+    if "_" in cleaned:
+        tokens = [item for item in re.split(r"_+", cleaned) if item]
+        return " ".join(_display_token(item) for item in tokens).strip()
+
+    # Hífen só é convertido quando o valor inteiro parece username/slug minúsculo.
+    # Isso preserva marcas já estilizadas como YITH-WooCommerce.
+    if "-" in cleaned and cleaned == cleaned.lower() and " " not in cleaned:
+        tokens = [item for item in re.split(r"-+", cleaned) if item]
+        return " ".join(_display_token(item) for item in tokens).strip()
+
+    return cleaned
 
 
 def _host(url: str) -> str:
@@ -106,7 +152,7 @@ def _developer_ok(value: str) -> bool:
     cleaned = _clean(value)
     if len(cleaned) < 2 or len(cleaned) > 120:
         return False
-    return cleaned.lower() not in _GENERIC_DEVELOPERS
+    return _developer_key(cleaned) not in _GENERIC_DEVELOPERS
 
 
 def _json_developer(value: Any) -> str:
@@ -211,7 +257,7 @@ def _developer(job: Mapping[str, Any], official_url: str) -> str:
     for key in ("desenvolvedor", "developer", "author", "vendor"):
         value = _clean(job.get(key))
         if _developer_ok(value):
-            return value
+            return _normalize_developer_display(value)
 
     documents: list[str] = []
     if official_url:
@@ -223,8 +269,23 @@ def _developer(job: Mapping[str, Any], official_url: str) -> str:
     for document in documents:
         found = _developer_from_html(document)
         if found:
-            return found
-    return _domain_developer(official_url)
+            return _normalize_developer_display(found)
+    return _normalize_developer_display(_domain_developer(official_url))
+
+
+def _meta_item(product: Mapping[str, Any], key: str) -> Mapping[str, Any] | None:
+    for item in product.get("meta_data", []) or []:
+        if isinstance(item, Mapping) and str(item.get("key") or "") == key:
+            return item
+    return None
+
+
+def _meta_payload_item(product: Mapping[str, Any], key: str, value: str) -> dict[str, Any]:
+    item: dict[str, Any] = {"key": key, "value": value}
+    existing = _meta_item(product, key)
+    if existing and existing.get("id"):
+        item["id"] = int(existing["id"])
+    return item
 
 
 def _apply_custom_fields(job_id: str) -> None:
@@ -234,12 +295,15 @@ def _apply_custom_fields(job_id: str) -> None:
         return
 
     official = _official_url(job)
-    developer = _developer(job, official)
-    meta_data: list[dict[str, str]] = []
+    developer = _normalize_developer_display(_developer(job, official))
+    woo = additions.web._build_store_woocommerce_client()
+    current = woo.get_product_fresh(product_id)
+
+    meta_data: list[dict[str, Any]] = []
     if official:
-        meta_data.append({"key": "site_oficial", "value": official})
+        meta_data.append(_meta_payload_item(current, "site_oficial", official))
     if developer:
-        meta_data.append({"key": "desenvolvedor", "value": developer})
+        meta_data.append(_meta_payload_item(current, "desenvolvedor", developer))
     if not meta_data:
         one_click._emit(
             job_id,
@@ -248,7 +312,6 @@ def _apply_custom_fields(job_id: str) -> None:
         )
         return
 
-    woo = additions.web._build_store_woocommerce_client()
     additions._wc_request(
         woo,
         "PUT",
