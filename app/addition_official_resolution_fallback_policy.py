@@ -152,6 +152,8 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_product_contract_policy import install_addition_product_contract_policy
     from app.addition_image_delivery_policy import install_addition_image_delivery_policy
     from app.addition_image_validation_policy import install_addition_image_validation_policy
+    from app.addition_chat_reliability_policy import install_addition_chat_reliability_policy
+    from app.addition_custom_fields_policy import install_addition_custom_fields_policy
     from app.comparison_operation_status_policy import install_comparison_operation_status_policy
 
     install_addition_chat1_official_resolution_policy()
@@ -171,6 +173,10 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_addition_image_delivery_policy()
     # Delivery validation replaces the old minimum-size heuristic for optimized WebP files.
     install_addition_image_validation_policy()
+    # Runtime guard: persistent chat titles + safe handling of ChatGPT request-limit dialogs.
+    install_addition_chat_reliability_policy()
+    # Store metadata: external official URL and developer custom fields.
+    install_addition_custom_fields_policy()
     # Final comparison projection: operation outcomes + source-neutral wording.
     install_comparison_operation_status_policy()
     _INSTALLED = True
