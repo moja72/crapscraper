@@ -185,15 +185,24 @@ def _protected_publish_complete(job_id: str) -> dict[str, Any]:
     if _BASE_PUBLISH_COMPLETE is None:
         raise RuntimeError("Publicação base indisponível")
 
+    job_before = additions._row(job_id)
+    product_id_before = int(job_before.get("woo_product_id") or 0)
+    woo = additions.web._build_store_woocommerce_client() if product_id_before else None
+    preserved: dict[str, str] = {}
+    if woo is not None:
+        preserved = _current_values(woo.get_product_fresh(product_id_before))
+
     result = _BASE_PUBLISH_COMPLETE(job_id)
     job = additions._row(job_id)
-    product_id = int(job.get("woo_product_id") or 0)
+    product_id = int(job.get("woo_product_id") or product_id_before or 0)
     if not product_id:
         return result
 
-    woo = additions.web._build_store_woocommerce_client()
-    current_product = woo.get_product_fresh(product_id)
-    preserved = _current_values(current_product)
+    if woo is None:
+        woo = additions.web._build_store_woocommerce_client()
+    if not preserved:
+        preserved = _current_values(woo.get_product_fresh(product_id))
+
     expected_version = _clean(job.get("source_version")) or preserved.get("pt_versao", "")
     desired = _desired_values(
         job,
