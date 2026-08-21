@@ -10,6 +10,45 @@ def test_disconnect_errors_are_classified_as_normal_client_disconnects():
     assert not resilience._is_client_disconnect(RuntimeError("application failure"))
 
 
+def test_server_guard_does_not_retry_a_dead_connection(monkeypatch):
+    writes = {"count": 0}
+
+    class BaseHandler:
+        def __init__(self, *_args, **_kwargs):
+            self.close_connection = False
+
+        def _send_bytes(self, *_args, **_kwargs):
+            writes["count"] += 1
+            raise ConnectionAbortedError(10053, "aborted")
+
+        def _send_empty(self, *_args, **_kwargs):
+            raise BrokenPipeError(32, "broken pipe")
+
+        def do_GET(self):
+            return self._send_bytes(b"payload")
+
+        def do_POST(self):
+            return self._send_bytes(b"payload")
+
+        def do_OPTIONS(self):
+            return self._send_empty()
+
+        def finish(self):
+            return None
+
+    class FakeServer:
+        def __init__(self, _address, handler_class, *_args, **_kwargs):
+            self.handler_class = handler_class
+
+    monkeypatch.setattr(resilience, "_BASE_SERVER", FakeServer)
+    server = resilience._server_factory(("127.0.0.1", 0), BaseHandler)
+    handler = server.handler_class()
+
+    assert handler.do_GET() is None
+    assert handler.close_connection is True
+    assert writes["count"] == 1
+
+
 def test_pack_reads_are_short_cached_and_invalidated_after_write(monkeypatch):
     calls = {"reads": 0, "writes": 0}
 
