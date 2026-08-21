@@ -176,6 +176,7 @@ def _set_enabled(enabled: bool, manager: Any) -> dict[str, Any]:
 
 def _patched_make_handler(app: Any, *, include_inline_assets: bool = False):
     base_factory = _BASE_MAKE_HANDLER or web.make_handler
+    manager = web._ensure_manager(app)
     BaseHandler = base_factory(app, include_inline_assets=include_inline_assets)
 
     class StoreManualMonitorControlHandler(BaseHandler):
@@ -189,7 +190,7 @@ def _patched_make_handler(app: Any, *, include_inline_assets: bool = False):
             if path == "/loja/wordpress-manual/control":
                 try:
                     self._send_json(
-                        _set_enabled(bool(payload.get("enabled")), app)
+                        _set_enabled(bool(payload.get("enabled")), manager)
                     )
                 except ValueError as error:
                     self._send_json({"ok": False, "message": str(error)}, code=400)
