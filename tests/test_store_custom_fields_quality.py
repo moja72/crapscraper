@@ -50,7 +50,7 @@ def test_lists_only_products_with_selected_missing_fields():
 
 def test_all_mode_requires_every_selected_field_to_be_missing():
     woo = FakeWoo([
-        product(10, "Só versão", version="1.0.0"),
+        product(10, "Tem link", version="1.0.0", official="https://example.com"),
         product(11, "Só desenvolvedor", developer="Acme"),
         product(12, "Sem os dois"),
     ])
