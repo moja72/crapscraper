@@ -84,6 +84,42 @@ def test_pack_reads_are_short_cached_and_invalidated_after_write(monkeypatch):
     assert calls == {"reads": 2, "writes": 1}
 
 
+def test_hidden_additions_are_not_mounted_or_synced_during_principal_boot():
+    source = "\n".join(
+        (
+            '<script data-addition-operational-ui>',
+            resilience._ADDITION_TAB_REFRESH_LISTENER.rstrip("\n"),
+            resilience._ADDITION_BACKGROUND_SYNC_START + "/* body */}",
+            resilience._ADDITION_BOOT,
+            "</script>",
+        )
+    )
+
+    patched = resilience._patch_hidden_addition_boot(source)
+
+    assert resilience._ADDITION_BOOT not in patched
+    assert resilience._ADDITION_TAB_REFRESH_LISTENER.rstrip("\n") not in patched
+    assert "function activateOperationalUi()" in patched
+    assert 'if(!panelVisible())return;' in patched
+    assert 'if(!$("#addition_operational_root"))installUi();' in patched
+    assert 'setTimeout(activateOperationalUi,0)' in patched
+    assert resilience._ADDITION_BACKGROUND_SYNC_GUARDED in patched
+
+
+def test_frontend_guard_throttles_state_and_process_pollers():
+    source = Path("app/static/frontend_request_resilience.js").read_text(encoding="utf-8")
+
+    assert "upstreamSetInterval" in source
+    assert "isMainStatePoll" in source
+    assert "STATE_POLL_ACTIVE_MS = 4000" in source
+    assert "STATE_POLL_IDLE_MS = 15000" in source
+    assert "collectionLooksActive" in source
+    assert "isActiveProcessesPoll" in source
+    assert "PROCESS_POLL_MS = 6000" in source
+    assert "isAdditionProcessesPoll" in source
+    assert "ADDITION_PROCESS_POLL_MS = 8000" in source
+
+
 def test_frontend_guard_defers_hidden_store_and_coalesces_pack_gets():
     source = Path("app/static/frontend_request_resilience.js").read_text(encoding="utf-8")
 
