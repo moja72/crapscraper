@@ -53,6 +53,84 @@ _ADDITION_LAZY_BOOT = '''  function activateOperationalUi(){
     if(panelVisible())activateOperationalUi();
   }'''
 
+# Three different scripts were independently polling the same runtime endpoints
+# while the Processos modal was closed. On a large runtime, parsing/rendering those
+# payloads can monopolize the browser main thread. The final HTML layer turns all
+# three monitors into on-demand observers without editing the user's panel.js.
+_ACTIVE_PROCESSES_OPEN = '''  function openModal() {
+    ensureUi();
+    modalOpen = true;
+    $("#cs_processes_overlay")?.classList.remove("hidden");
+    render();
+  }'''
+_ACTIVE_PROCESSES_OPEN_LAZY = '''  function openModal() {
+    ensureUi();
+    modalOpen = true;
+    $("#cs_processes_overlay")?.classList.remove("hidden");
+    render();
+    pollBackend();
+  }'''
+_ACTIVE_PROCESSES_START = '''  function start() {
+    ensureUi();
+    pollBackend();
+    window.setInterval(pollBackend, 2200);
+    window.setInterval(() => { if (modalOpen) render(); else { cleanRecent(); render(); } }, 1000);
+  }'''
+_ACTIVE_PROCESSES_START_LAZY = '''  function start() {
+    ensureUi();
+    window.setInterval(() => { if (modalOpen) pollBackend(); }, 5000);
+    window.setInterval(() => { if (modalOpen) render(); else cleanRecent(); }, 1000);
+  }'''
+
+_PROCESS_HISTORY_START = '''  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    observeUi();
+    window.setTimeout(pollCredits, 900);
+    window.setInterval(pollCredits, 60000);
+    window.setTimeout(pollBackendHistory, 1400);
+    window.setInterval(pollBackendHistory, 2600);
+    window.setInterval(() => { ensureCreditsNode(); decorateModal(); }, 1200);
+  }'''
+_PROCESS_HISTORY_START_LAZY = '''  function processMonitorVisible() {
+    const overlay = $("#cs_processes_overlay");
+    return !!overlay && !overlay.classList.contains("hidden");
+  }
+
+  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    $("#cs_processes_button")?.addEventListener("click", () => {
+      window.setTimeout(() => {
+        pollCredits();
+        pollBackendHistory();
+        decorateModal();
+      }, 0);
+    });
+    window.setInterval(() => { if (processMonitorVisible()) pollBackendHistory(); }, 5000);
+    window.setInterval(() => { if (processMonitorVisible()) decorateModal(); }, 1500);
+  }'''
+
+_ADDITION_PROCESS_START = '''  function start() {
+    setTimeout(poll, 900);
+    setInterval(poll, 4000);
+    $("#cs_processes_button")?.addEventListener("click", () => setTimeout(() => decorate(true), 0));
+  }'''
+_ADDITION_PROCESS_START_LAZY = '''  function additionProcessMonitorVisible() {
+    const overlay = $("#cs_processes_overlay");
+    return !!overlay && !overlay.classList.contains("hidden");
+  }
+
+  function start() {
+    $("#cs_processes_button")?.addEventListener("click", () => setTimeout(() => {
+      poll();
+      decorate(true);
+    }, 0));
+    setInterval(() => { if (additionProcessMonitorVisible()) poll(); }, 5000);
+  }'''
+
 
 def _clone_rows(rows: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in (rows or []) if isinstance(item, dict)]
@@ -176,9 +254,20 @@ def _patch_hidden_addition_boot(html: str) -> str:
     return result
 
 
+def _patch_hidden_process_monitors(html: str) -> str:
+    """Keep Processos/history bridges dormant until the Processos modal is opened."""
+    result = str(html or "")
+    result = result.replace(_ACTIVE_PROCESSES_OPEN, _ACTIVE_PROCESSES_OPEN_LAZY)
+    result = result.replace(_ACTIVE_PROCESSES_START, _ACTIVE_PROCESSES_START_LAZY)
+    result = result.replace(_PROCESS_HISTORY_START, _PROCESS_HISTORY_START_LAZY)
+    result = result.replace(_ADDITION_PROCESS_START, _ADDITION_PROCESS_START_LAZY)
+    return result
+
+
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = _patch_hidden_addition_boot(base(*args, **kwargs))
+    html = _patch_hidden_process_monitors(html)
     try:
         script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
     except OSError:
@@ -198,7 +287,7 @@ def install_local_ui_resilience_policy() -> None:
     _BASE_SERVER = web.PTThreadingHTTPServer
     web.PTThreadingHTTPServer = _server_factory
 
-    # store_pack_variation_policy já foi instalado antes desta policy e, por
+    # store_pack_variation_policy já foi installed antes desta policy e, por
     # isso, estas bases preservam packs, planos e variações sem remover recurso.
     _BASE_PACK_LIST = store_pricing.list_store_pack_products
     _BASE_PACK_UPDATE = store_pricing.update_store_pack_price
