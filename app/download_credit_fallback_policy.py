@@ -172,6 +172,9 @@ def _refresh_remote_credits(manager: Any) -> None:
             if usable["ok"]:
                 _REMOTE_STATE["payload"] = usable
                 _REMOTE_STATE["at"] = time.monotonic()
+    except Exception:
+        # Falha remota não derruba o cabeçalho; o ledger local continua disponível.
+        pass
     finally:
         with _LOCK:
             _REMOTE_STATE["refreshing"] = False
@@ -207,12 +210,21 @@ def _patched_credit_snapshot(manager: Any) -> dict[str, Any]:
     remote_payload = _remote_payload_snapshot()
     ultrapack = _fallback("ultrapackv2", remote_payload.get("ultrapackv2"))
     plugintheme = _fallback("plugintheme", remote_payload.get("plugintheme"))
+    with _LOCK:
+        refreshing = bool(_REMOTE_STATE.get("refreshing"))
     return {
         "ok": True,
-        "remote_refreshing": bool(_REMOTE_STATE.get("refreshing")),
+        "remote_refreshing": refreshing,
         "ultrapackv2": ultrapack,
         "plugintheme": plugintheme,
     }
+
+
+def _invalidate_remote_credit() -> None:
+    with _LOCK:
+        _REMOTE_STATE["payload"] = None
+        _REMOTE_STATE["at"] = 0.0
+        _REMOTE_STATE["attempt_at"] = 0.0
 
 
 def _patched_ultrapack_download(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -221,8 +233,7 @@ def _patched_ultrapack_download(self: Any, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("Downloader UltraPackV2 não inicializado")
     result = base(self, *args, **kwargs)
     _record_download("ultrapackv2")
-    with _LOCK:
-        _REMOTE_STATE["at"] = 0.0
+    _invalidate_remote_credit()
     return result
 
 
@@ -232,8 +243,7 @@ def _patched_plugintheme_download(self: Any, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("Downloader PluginTheme não inicializado")
     result = base(self, *args, **kwargs)
     _record_download("plugintheme")
-    with _LOCK:
-        _REMOTE_STATE["at"] = 0.0
+    _invalidate_remote_credit()
     return result
 
 
