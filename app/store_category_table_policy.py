@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import app.web as web
+from app.store_custom_fields_quality_policy import install_store_custom_fields_quality_policy
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
@@ -28,3 +29,4 @@ def install_store_category_table_policy() -> None:
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
+    install_store_custom_fields_quality_policy()
