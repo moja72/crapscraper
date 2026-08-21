@@ -142,8 +142,9 @@ def _fallback(site_key: str, current: Any = None) -> dict[str, Any]:
         "estimated": True,
         "source": "crapscraper-local-ledger",
         "message": (
-            f"{label}: estimativa local enquanto o saldo remoto é consultado em segundo plano. "
-            "O valor desconta apenas downloads registrados por este CrapScraper."
+            f"{label}: estimativa local do CrapScraper; desconta apenas downloads registrados "
+            "por esta instalação. A sondagem remota fica desativada por padrão para não disputar "
+            "sessões com comparação, coleta ou atualização."
         ),
     }
 
@@ -173,7 +174,6 @@ def _refresh_remote_credits(manager: Any) -> None:
                 _REMOTE_STATE["payload"] = usable
                 _REMOTE_STATE["at"] = time.monotonic()
     except Exception:
-        # Falha remota não derruba o cabeçalho; o ledger local continua disponível.
         pass
     finally:
         with _LOCK:
@@ -204,16 +204,20 @@ def _schedule_remote_refresh(manager: Any) -> None:
 
 
 def _patched_credit_snapshot(manager: Any) -> dict[str, Any]:
-    # Nunca bloqueia o GET do cabeçalho em autenticação remota. A consulta real
-    # acontece em background e o último saldo confirmado é reutilizado.
-    _schedule_remote_refresh(manager)
-    remote_payload = _remote_payload_snapshot()
+    remote_enabled = _env_enabled("SCRAPER_DOWNLOAD_CREDITS_REMOTE_PROBE", False)
+    if remote_enabled:
+        _schedule_remote_refresh(manager)
+        remote_payload = _remote_payload_snapshot()
+    else:
+        remote_payload = {}
+
     ultrapack = _fallback("ultrapackv2", remote_payload.get("ultrapackv2"))
     plugintheme = _fallback("plugintheme", remote_payload.get("plugintheme"))
     with _LOCK:
-        refreshing = bool(_REMOTE_STATE.get("refreshing"))
+        refreshing = remote_enabled and bool(_REMOTE_STATE.get("refreshing"))
     return {
         "ok": True,
+        "remote_probe_enabled": remote_enabled,
         "remote_refreshing": refreshing,
         "ultrapackv2": ultrapack,
         "plugintheme": plugintheme,
@@ -267,8 +271,6 @@ def _wordpress_manual_configured() -> bool:
 
 
 def _fast_manual_monitor_snapshot(manager: Any) -> dict[str, Any]:
-    # Esta rota é deliberadamente local: não consulta WooCommerce nem WordPress.
-    # Se o worker tiver morrido, apenas dispara sua reinicialização em background.
     restart_error = ""
     if _wordpress_manual_configured() and not _monitor_worker_alive() and manager is not None:
         try:
@@ -341,12 +343,9 @@ def install_download_credit_fallback_policy() -> None:
     UltrapackDownloader.download = _patched_ultrapack_download
     PluginThemeDownloader.download = _patched_plugintheme_download
 
-    # Fast-path do monitor: evita que uma cadeia de rotas pesada transforme uma
-    # leitura de memória em timeout de 8 segundos no painel.
     _BASE_SERVER = web.PTThreadingHTTPServer
     web.PTThreadingHTTPServer = _server_factory
 
-    # Complemento visual para deixar explícito quando o saldo ainda é estimado.
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
