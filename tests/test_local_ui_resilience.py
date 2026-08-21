@@ -10,7 +10,7 @@ def test_disconnect_errors_are_classified_as_normal_client_disconnects():
     assert not resilience._is_client_disconnect(RuntimeError("application failure"))
 
 
-def test_server_guard_does_not_retry_a_dead_connection(monkeypatch):
+def test_server_guard_prevents_route_error_handler_from_writing_twice(monkeypatch):
     writes = {"count": 0}
 
     class BaseHandler:
@@ -24,11 +24,19 @@ def test_server_guard_does_not_retry_a_dead_connection(monkeypatch):
         def _send_empty(self, *_args, **_kwargs):
             raise BrokenPipeError(32, "broken pipe")
 
+        def _send_json(self, payload, code=200):
+            return self._send_bytes((str(payload) * 1000).encode("utf-8"), code=code)
+
         def do_GET(self):
-            return self._send_bytes(b"payload")
+            try:
+                self._send_json({"ok": True, "products": ["item"] * 1000})
+            except Exception:
+                # Reproduz o padrão antigo de web.py: o erro do primeiro write
+                # entrava no except e tentava enviar um JSON 500 no mesmo socket.
+                self._send_json({"ok": False, "message": "erro"}, code=500)
 
         def do_POST(self):
-            return self._send_bytes(b"payload")
+            return self.do_GET()
 
         def do_OPTIONS(self):
             return self._send_empty()
