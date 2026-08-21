@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import app.web as web
+from app.comparison_runtime_performance import install_comparison_runtime_performance
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
@@ -33,6 +34,7 @@ def install_comparison_actions_layout_policy() -> None:
     global _INSTALLED, _BASE_RENDER
     if _INSTALLED:
         return
+    install_comparison_runtime_performance()
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
