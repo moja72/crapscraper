@@ -23,6 +23,8 @@
   }
 
   function findHeaderTextNode() {
+    const existingGroup = document.getElementById("cs_processes_header_group");
+    if (existingGroup?.parentElement) return existingGroup.parentElement;
     const matches = Array.from(document.body?.querySelectorAll("*") || [])
       .filter(node => !["SCRIPT", "STYLE", "BUTTON"].includes(node.tagName))
       .filter(node => normalize(node.textContent) === HEADER_TEXT);
