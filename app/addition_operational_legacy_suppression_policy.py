@@ -43,6 +43,7 @@ def install_addition_operational_legacy_suppression_policy() -> None:
         return
     from app.addition_processes_bridge_policy import install_addition_processes_bridge_policy
     from app.addition_operational_performance_policy import install_addition_operational_performance_policy
+    from app.addition_tab_diagnostics_policy import install_addition_tab_diagnostics_policy
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
@@ -51,4 +52,6 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     install_addition_operational_performance_policy()
     # Esta bridge só decora o modal global Processos existente.
     install_addition_processes_bridge_policy()
+    # Instrumentação read-only da troca de aba. Usada somente nesta branch de diagnóstico.
+    install_addition_tab_diagnostics_policy()
     _INSTALLED = True
