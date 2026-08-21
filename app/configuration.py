@@ -40,6 +40,8 @@ ENVIRONMENT_VARIABLES: Final[tuple[EnvironmentVariable, ...]] = (
     EnvironmentVariable("SCRAPER_WP_BASE_URL", "wordpress", frozenset({"prepare", "execute"})),
     EnvironmentVariable("SCRAPER_WP_USERNAME", "wordpress", frozenset({"execute"})),
     EnvironmentVariable("SCRAPER_WP_APPLICATION_PASSWORD", "wordpress", frozenset({"execute"}), True),
+    EnvironmentVariable("SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED", "wordpress_manual"),
+    EnvironmentVariable("SCRAPER_WORDPRESS_MANUAL_SECRET", "wordpress_manual", secret=True),
     EnvironmentVariable("SCRAPER_WC_CONSUMER_KEY", "woocommerce", frozenset({"prepare", "execute"}), True),
     EnvironmentVariable("SCRAPER_WC_CONSUMER_SECRET", "woocommerce", frozenset({"prepare", "execute"}), True),
     EnvironmentVariable("SCRAPER_ULTRAPACKV2_COPRODUCAOLANCAMENTOS_EMAIL", "ultrapack", frozenset({"prepare", "execute"})),
