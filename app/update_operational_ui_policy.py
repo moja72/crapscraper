@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 import app.web as web
 import app.operations.runtime as runtime
+from app.shared_environment_panel_policy import install_shared_environment_panel_policy
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
@@ -48,3 +49,4 @@ def install_update_operational_ui_policy() -> None:
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
+    install_shared_environment_panel_policy()
