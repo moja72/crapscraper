@@ -21,6 +21,10 @@
     "executing", "installing", "filesystem_validated", "updating_wordpress",
     "validating_wordpress", "validated", "rolling_back"
   ]);
+  const MANUAL_ACTIVE_STATES = new Set([
+    "processing", "locating", "comparing", "preparing", "downloading",
+    "executing", "installing", "validating", "updating_wordpress"
+  ]);
 
   function installStyles() {
     if ($("#cs-active-processes-style")) return;
@@ -77,7 +81,7 @@
       overlay.innerHTML = `
         <section class="cs-process-modal" role="dialog" aria-modal="true" aria-labelledby="cs_processes_title">
           <header class="cs-process-modal-head">
-            <div><div class="cs-process-modal-title" id="cs_processes_title">Processos ativos</div><div class="cs-process-modal-subtitle">Atualizações, preparações, comparações, coletas e operações da Loja que estão acontecendo agora.</div></div>
+            <div><div class="cs-process-modal-title" id="cs_processes_title">Processos ativos</div><div class="cs-process-modal-subtitle">Coletas, comparações, atualizações, adições, downloads, auditorias e operações da Loja que estão acontecendo agora.</div></div>
             <button class="cs-process-close" id="cs_processes_close" type="button" aria-label="Fechar">×</button>
           </header>
           <div class="cs-process-modal-body" id="cs_processes_body"></div>
@@ -113,20 +117,47 @@
     return text(init?.method || (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase() || "GET";
   }
 
+  function genericOperationTitle(path) {
+    const last = text(path.split("/").filter(Boolean).at(-1) || "operação").replace(/[-_]+/g, " ");
+    return last ? last.charAt(0).toUpperCase() + last.slice(1) : "Operação";
+  }
+
   function requestDefinition(path, method) {
     const write = method !== "GET" && method !== "HEAD";
     if (path.endsWith("/comparacao/data")) return {kind:"comparison", title:"Comparação de catálogos"};
     if (write && path.endsWith("/plugintema/catalogo/gerar")) return {kind:"catalog", title:"Atualização do catálogo PluginTema"};
     if (write && path.endsWith("/plugintema/catalogo/exportar")) return {kind:"catalog", title:"Exportação do catálogo PluginTema"};
     if (write && path.endsWith("/catalogos/download")) return {kind:"catalog", title:"Coleta de catálogo"};
-    if (write && path.endsWith("/atualizacoes/preparar")) return {kind:"update", title:"Preparação de atualização"};
+    if (write && path.endsWith("/atualizacoes/materializar")) return {kind:"update", title:"Sincronização da fila de atualização"};
+    if (write && path.endsWith("/atualizacoes/prerequisitos")) return {kind:"update", title:"Verificação do Ambiente"};
+    if (write && path.endsWith("/atualizacoes/preparar")) return {kind:"update", title:"Preparação e download de atualização"};
     if (write && path.endsWith("/atualizacoes/plano")) return {kind:"update", title:"Geração do plano de atualização"};
-    if (write && /\/atualizacoes\/fila\/(?:iniciar|continuar|adicionar)$/.test(path)) return {kind:"update", title:"Operação da fila de atualização"};
+    if (write && /\/atualizacoes\/fila\/(?:iniciar|continuar|adicionar|pausar|parar|limpar)$/.test(path)) return {kind:"update", title:"Operação da fila de atualização"};
     if (write && path.endsWith("/loja/precos")) return {kind:"store", title:"Alteração de preços da Loja"};
     if (write && path.endsWith("/loja/pacotes/precos")) return {kind:"store", title:"Alteração de preço de produto"};
+    if (write && path.endsWith("/loja/produtos/campos-ausentes")) return {kind:"store", title:"Auditoria de qualidade da Loja"};
     if (write && path.endsWith("/loja/produtos/sem-breve-descricao")) return {kind:"store", title:"Verificação de descrições da Loja"};
-    if (write && /\/(?:start|continue|resume)$/.test(path)) return {kind:"collection", title:"Coleta / processamento de catálogo"};
-    return null;
+    if (write && path.endsWith("/loja/wordpress-manual/control")) return {kind:"store", title:"Controle do monitor WordPress"};
+    if (write && path.endsWith("/adicoes/automatico")) return {kind:"addition", title:"Cadastro automático de produto"};
+    if (write && path.endsWith("/adicoes/preparar-arquivo")) return {kind:"addition", title:"Download e preparação do ZIP"};
+    if (write && path.endsWith("/adicoes/criar-rascunho")) return {kind:"addition", title:"Criação de rascunho WooCommerce"};
+    if (write && path.endsWith("/adicoes/publicar")) return {kind:"addition", title:"Publicação de novo produto"};
+    if (write && path.endsWith("/adicoes/conteudo")) return {kind:"addition", title:"Gravação de conteúdo do produto"};
+    if (write && path.endsWith("/adicoes/sincronizar")) return {kind:"addition", title:"Sincronização de adições aprovadas"};
+    if (write && path.endsWith("/adicoes/resetar")) return {kind:"addition", title:"Reinicialização de cadastro"};
+    if (write && /\/(?:start|continue|resume|pause|stop)$/.test(path)) return {kind:"collection", title:"Coleta / processamento de catálogo"};
+    if (!write) return null;
+
+    const families = [
+      ["/comparacao/", "comparison", "Operação de comparação"],
+      ["/plugintema/catalogo/", "catalog", "Operação do catálogo PluginTema"],
+      ["/catalogos/", "catalog", "Operação de catálogo"],
+      ["/atualizacoes/", "update", "Operação de atualização"],
+      ["/adicoes/", "addition", "Operação de adição"],
+      ["/loja/", "store", "Operação da Loja"],
+    ];
+    const family = families.find(([prefix]) => path.includes(prefix));
+    return family ? {kind:family[1], title:`${family[2]} · ${genericOperationTitle(path)}`} : null;
   }
 
   function startClientProcess(definition, path) {
@@ -169,6 +200,11 @@
     return response.json();
   }
 
+  function parsedTime(value, fallback = Date.now()) {
+    const parsed = Date.parse(text(value));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
   function jobLogs(job) {
     const live = Array.isArray(job?.live_execution_logs) ? job.live_execution_logs : [];
     const persisted = Array.isArray(job?.execution_logs) ? job.execution_logs : [];
@@ -187,9 +223,9 @@
 
     if (text(queue.status) === "running" || executing) {
       const logs = jobLogs(executing);
-      target.set("backend:update-queue", {
-        id:"backend:update-queue", title:`Fila de atualização · ${activeName === "default" ? "Padrão" : activeName}`,
-        kind:"update", status:"Executando", active:true, startedAt: Date.parse(executing?.executing_at || "") || Date.now(),
+      target.set(`backend:update-queue:${activeName}`, {
+        id:`backend:update-queue:${activeName}`, title:`Fila de atualização · ${activeName === "default" ? "Padrão" : activeName}`,
+        kind:"update", status:"Executando", active:true, startedAt: parsedTime(executing?.executing_at),
         detail: executing ? `${executing.name} · ${executing.plugintema_version || "-"} → ${executing.effective_source_version || executing.approved_source_version || executing.ultrapack_version || "-"}` : `${queued} item(ns) aguardando execução`,
         latestLog: text(logs.at(-1) || executing?.live_log_tail || ""),
         progress: listJobs.length ? Math.round((completed / listJobs.length) * 100) : null,
@@ -197,11 +233,11 @@
       });
     }
 
-    preparing.slice(0, 6).forEach(job => {
+    preparing.slice(0, 12).forEach(job => {
       const logs = jobLogs(job);
       target.set(`backend:prepare:${job.job_id}`, {
         id:`backend:prepare:${job.job_id}`, title:"Preparação de atualização", kind:"update",
-        status:text(job.state) || "Preparando", active:true, startedAt:Date.parse(job.updated_at || job.created_at || "") || Date.now(),
+        status:text(job.state) || "Preparando", active:true, startedAt:parsedTime(job.updated_at || job.created_at),
         detail:`${job.name} · Woo #${job.woo_product_id}`,
         latestLog:text(logs.at(-1) || job.live_log_tail || job.diagnostics?.at?.(-1) || ""), progress:null,
         meta:`${job.plugintema_version || "-"} → ${job.effective_source_version || job.approved_source_version || job.ultrapack_version || "-"}`
@@ -229,9 +265,58 @@
     });
   }
 
+  function storeQualityProcess(data, target) {
+    if (text(data?.status) !== "running") return;
+    const phase = text(data?.phase);
+    const variationDone = Number(data?.variation_completed || 0);
+    const variationTotal = Number(data?.variation_total || 0);
+    const progress = phase === "variations" && variationTotal > 0
+      ? Math.round((variationDone / variationTotal) * 100)
+      : null;
+    target.set("backend:store-quality", {
+      id:"backend:store-quality", title:"Auditoria de qualidade da Loja", kind:"store", status:"Executando", active:true,
+      startedAt:Date.now(), detail:text(data.current_product || data.message || "Verificando produtos"),
+      latestLog:text(data.message || ""), progress,
+      meta:phase === "variations" && variationTotal > 0
+        ? `${variationDone} de ${variationTotal} variações`
+        : `${Number(data.examined || 0)} verificados · ${Number(data.found || 0)} encontrados`
+    });
+  }
+
+  function additionAutomaticProcesses(data, target) {
+    const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+    tasks.filter(task => task?.running === true).forEach(task => {
+      const jobId = text(task?.job_id || task?.job?.job_id || "addition");
+      const job = task?.job || {};
+      const logs = Array.isArray(task?.logs) ? task.logs : [];
+      target.set(`backend:addition-auto:${jobId}`, {
+        id:`backend:addition-auto:${jobId}`, title:"Cadastro automático de produto", kind:"addition",
+        status:text(task?.step || "Executando"), active:true, startedAt:parsedTime(task?.started_at),
+        detail:text(job?.title || job?.source_name || `Cadastro ${jobId}`),
+        latestLog:text(logs.at(-1) || ""), progress:Number.isFinite(Number(task?.progress)) ? Number(task.progress) : null,
+        meta:job?.woo_product_id ? `Woo #${job.woo_product_id}` : ""
+      });
+    });
+  }
+
+  function wordpressManualProcess(data, target) {
+    const status = text(data?.monitor_status).toLowerCase();
+    const requestId = text(data?.request_id);
+    if (!requestId || !MANUAL_ACTIVE_STATES.has(status)) return;
+    const productId = Number(data?.product_id || 0);
+    const versions = [text(data?.current_version), text(data?.new_version)].filter(Boolean).join(" → ");
+    target.set(`backend:wordpress-manual:${requestId}`, {
+      id:`backend:wordpress-manual:${requestId}`, title:"Atualização solicitada pelo WordPress", kind:"update",
+      status:text(data?.state || data?.monitor_status || "Processando"), active:true,
+      startedAt:parsedTime(data?.last_check), detail:text(data?.product || (productId ? `Woo #${productId}` : requestId)),
+      latestLog:text((Array.isArray(data?.logs) ? data.logs.at(-1) : "") || ""), progress:null,
+      meta:versions
+    });
+  }
+
   function collectionProcesses(data, target) {
     const runs = Array.isArray(data?.runs) ? data.runs : Array.isArray(data) ? data : [];
-    runs.filter(run => run?.running === true || /rodando|running|iniciando|processando/i.test(text(run?.status))).slice(0, 8).forEach(run => {
+    runs.filter(run => run?.running === true || /rodando|running|iniciando|processando/i.test(text(run?.status))).slice(0, 16).forEach(run => {
       const id = text(run.run_id || run.id || "run");
       target.set(`backend:run:${id}`, {
         id:`backend:run:${id}`, title:"Coleta de catálogo", kind:"collection", status:text(run.status || "Rodando"), active:true,
@@ -243,6 +328,10 @@
     });
   }
 
+  function preservePrefix(target, prefix) {
+    for (const [id, process] of backendProcesses) if (id.startsWith(prefix)) target.set(id, process);
+  }
+
   async function pollBackend() {
     if (polling || document.hidden) return;
     polling = true;
@@ -252,12 +341,19 @@
         getJson("/atualizacoes/jobs"),
         getJson("/loja/precos/status"),
         getJson("/loja/produtos/sem-breve-descricao"),
-        getJson("/runs")
+        getJson("/runs"),
+        getJson("/loja/produtos/campos-ausentes"),
+        getJson("/adicoes/automatico/status"),
+        getJson("/loja/wordpress-manual/status")
       ]);
       if (results[0].status === "fulfilled") updateBackendProcesses(results[0].value, next);
-      if (results[1].status === "fulfilled") storePriceProcess(results[1].value, next);
-      if (results[2].status === "fulfilled") storeDescriptionProcess(results[2].value, next);
-      if (results[3].status === "fulfilled") collectionProcesses(results[3].value, next);
+      else { preservePrefix(next, "backend:update-queue:"); preservePrefix(next, "backend:prepare:"); }
+      if (results[1].status === "fulfilled") storePriceProcess(results[1].value, next); else preservePrefix(next, "backend:store-price");
+      if (results[2].status === "fulfilled") storeDescriptionProcess(results[2].value, next); else preservePrefix(next, "backend:store-description");
+      if (results[3].status === "fulfilled") collectionProcesses(results[3].value, next); else preservePrefix(next, "backend:run:");
+      if (results[4].status === "fulfilled") storeQualityProcess(results[4].value, next); else preservePrefix(next, "backend:store-quality");
+      if (results[5].status === "fulfilled") additionAutomaticProcesses(results[5].value, next); else preservePrefix(next, "backend:addition-auto:");
+      if (results[6].status === "fulfilled") wordpressManualProcess(results[6].value, next); else preservePrefix(next, "backend:wordpress-manual:");
 
       for (const [id, previous] of backendProcesses) {
         if (next.has(id)) continue;
