@@ -5,9 +5,14 @@
   window.__crapScraperFrontendRequestResilienceInstalled = true;
 
   const upstreamFetch = window.fetch.bind(window);
+  const upstreamSetInterval = window.setInterval.bind(window);
   const PACK_PATH = "/loja/pacotes/precos";
   const PACK_CACHE_MS = 4000;
   const PACK_TIMEOUT_MS = 30000;
+  const STATE_POLL_ACTIVE_MS = 4000;
+  const STATE_POLL_IDLE_MS = 15000;
+  const PROCESS_POLL_MS = 6000;
+  const ADDITION_PROCESS_POLL_MS = 8000;
 
   let packRequest = null;
   let packCache = null;
@@ -23,6 +28,72 @@
   const methodOf = (input, init = {}) => String(
     init?.method || (typeof input === "object" && input?.method) || "GET"
   ).toUpperCase();
+
+  const functionSource = callback => {
+    try { return Function.prototype.toString.call(callback); }
+    catch (_error) { return ""; }
+  };
+
+  const collectionLooksActive = () => {
+    const values = [
+      document.getElementById("status_text")?.textContent,
+      document.getElementById("head_status_badge")?.textContent,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return /rodando|running|iniciando|processando|em andamento/.test(values);
+  };
+
+  const isMainStatePoll = (callback, delay) => {
+    if (typeof callback !== "function") return false;
+    const ms = Number(delay || 0);
+    if (!(ms >= 500 && ms <= 2500)) return false;
+    const source = functionSource(callback);
+    return source.includes("loadState") && source.includes("document.hidden");
+  };
+
+  const isActiveProcessesPoll = (callback, delay) => {
+    if (typeof callback !== "function" || Number(delay || 0) > 3000) return false;
+    const source = functionSource(callback);
+    return callback.name === "pollBackend" || (
+      source.includes("/atualizacoes/jobs") && source.includes("/loja/precos/status")
+    );
+  };
+
+  const isAdditionProcessesPoll = (callback, delay) => {
+    if (typeof callback !== "function" || Number(delay || 0) > 5000) return false;
+    return functionSource(callback).includes("/adicoes/operacoes?scope=processes");
+  };
+
+  // panel.js used to repaint a large part of the page roughly every 1.2s even
+  // while the scraper was idle. On large catalogs one repaint can itself take
+  // >1s, starving click handlers while compositor scrolling still works.
+  window.setInterval = function resilientSetInterval(callback, delay, ...args) {
+    if (isMainStatePoll(callback, delay)) {
+      let lastRunAt = Date.now();
+      const tick = () => {
+        if (document.hidden) return;
+        const targetInterval = collectionLooksActive() ? STATE_POLL_ACTIVE_MS : STATE_POLL_IDLE_MS;
+        const now = Date.now();
+        if (now - lastRunAt < targetInterval) return;
+        lastRunAt = now;
+        callback(...args);
+      };
+      return upstreamSetInterval(tick, 1000);
+    }
+
+    // The global Processos button queries seven backend endpoints. Keep it live,
+    // but do not compete with the main page every 2.2 seconds while idle.
+    if (isActiveProcessesPoll(callback, delay)) {
+      return upstreamSetInterval(callback, PROCESS_POLL_MS, ...args);
+    }
+
+    // The additions bridge only feeds the global Processos counter/modal and can
+    // use a lower cadence without changing queue execution itself.
+    if (isAdditionProcessesPoll(callback, delay)) {
+      return upstreamSetInterval(callback, ADDITION_PROCESS_POLL_MS, ...args);
+    }
+
+    return upstreamSetInterval(callback, delay, ...args);
+  };
 
   const storeVisible = () => {
     const panel = document.getElementById("tab_panel_loja");
