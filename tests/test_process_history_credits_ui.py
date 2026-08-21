@@ -10,6 +10,13 @@ def test_process_history_and_credit_labels_exist():
     assert "Fim:" in script
     assert "crapscraper.process.history.v1" in script
     assert "/processos/creditos" in script
+    assert "/loja/produtos/campos-ausentes" in script
+    assert "/adicoes/automatico/status" in script
+    assert "/loja/wordpress-manual/status" in script
+    assert '"/comparacao/", "comparison"' in script
+    assert '"/atualizacoes/", "update"' in script
+    assert '"/adicoes/", "addition"' in script
+    assert '"/loja/", "store"' in script
 
 
 def test_recent_transient_cards_are_hidden_in_favor_of_history():
