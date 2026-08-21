@@ -13,6 +13,7 @@
   let active = new Map();
   let seen = new Map();
   let polling = false;
+  let renderedSignature = "";
 
   function parsedTime(value, fallback = Date.now()) {
     const parsed = Date.parse(text(value));
@@ -46,6 +47,17 @@
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT))); } catch (_error) {}
   }
 
+  function stateSignature() {
+    return JSON.stringify([...active.values()].map(process => ({
+      id: text(process.id),
+      status: text(process.status),
+      detail: text(process.detail),
+      progress: Number.isFinite(Number(process.progress)) ? Number(process.progress) : null,
+      latest_log: text(process.latest_log),
+      meta: text(process.meta),
+    })));
+  }
+
   async function poll() {
     if (polling || document.hidden) return;
     polling = true;
@@ -69,10 +81,10 @@
       }
       active = next;
       seen = next;
-      decorate();
+      syncButtonCount();
+      decorate(false);
     } catch (_error) {
-      // Preserve the last known active set on a transient status-read failure.
-      decorate();
+      syncButtonCount();
     } finally { polling = false; }
   }
 
@@ -104,15 +116,25 @@
     const displayed = Math.max(0, Number.parseInt(count.textContent || "0", 10) || 0);
     const nativeCount = Math.max(0, displayed - previousExtra);
     const extra = active.size;
-    count.textContent = String(nativeCount + extra);
+    const total = nativeCount + extra;
+    if (count.textContent !== String(total)) count.textContent = String(total);
     button.dataset.additionOperationalCount = String(extra);
-    button.classList.toggle("has-active", nativeCount + extra > 0);
+    button.classList.toggle("has-active", total > 0);
   }
 
-  function decorate() {
-    syncButtonCount();
+  function modalVisible() {
+    const overlay = $("#cs_processes_overlay");
+    return !!overlay && !overlay.classList.contains("hidden");
+  }
+
+  function decorate(force = false) {
+    if (!modalVisible()) return;
     const body = $("#cs_processes_body");
     if (!body) return;
+    const signature = stateSignature();
+    if (!force && signature === renderedSignature) return;
+    renderedSignature = signature;
+
     body.querySelectorAll(".cs-addition-operational-process").forEach(node => node.remove());
     if (!active.size) return;
     body.querySelectorAll(":scope > .cs-process-empty, :scope > #cs_process_active_empty").forEach(node => node.remove());
@@ -123,9 +145,9 @@
   }
 
   function start() {
-    setTimeout(poll, 650);
-    setInterval(poll, 2400);
-    setInterval(decorate, 900);
+    setTimeout(poll, 900);
+    setInterval(poll, 4000);
+    $("#cs_processes_button")?.addEventListener("click", () => setTimeout(() => decorate(true), 0));
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once:true});
