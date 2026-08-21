@@ -8,20 +8,24 @@ import app.web as web
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 
-# A UI operacional substitui apenas os renderizadores legados. Os endpoints e
-# funções de backend continuam disponíveis para ações manuais/compatibilidade.
+# A UI operacional substitui os renderizadores antigos da aba Adicionar, mas os
+# endpoints/funcoes de backend continuam disponiveis para o motor de cadastro.
 #
-# IMPORTANTE: new_product_workflow_policy injeta o JavaScript com o atributo
-# data-new-product-workflow-script (e o CSS com data-new-product-workflow).
-# A versão anterior desta policy procurava data-new-product-workflow no <script>,
-# então o JavaScript antigo continuava ativo e fazia panel.innerHTML=... ao abrir
-# Adicionar, concorrendo diretamente com addition_operational_ui.js.
+# IMPORTANTE: existem tres camadas antigas que mexem no mesmo DOM:
+# - new_product_workflow.js recria tab_panel_adicoes com innerHTML;
+# - addition_one_click.js observa o documento e decora a lista antiga;
+# - addition_chatgpt_assist.js observa o documento e consulta /adicoes/data
+#   periodicamente mesmo quando a UI antiga ja nao existe.
+#
+# A ultima delas foi a causa comprovada do polling legado de /adicoes/data que
+# continuava ativo apos a refatoracao operacional.
 _LEGACY_RENDER_PATTERNS = (
     re.compile(r"\s*<style\s+data-new-product-workflow(?:=[^>]*)?>.*?</style>\s*", re.I | re.S),
     re.compile(r"\s*<script\s+data-new-product-workflow-script(?:=[^>]*)?>.*?</script>\s*", re.I | re.S),
     # Compatibilidade com builds antigos que eventualmente tenham usado o nome sem -script.
     re.compile(r"\s*<script\s+data-new-product-workflow(?:=[^>]*)?>.*?</script>\s*", re.I | re.S),
     re.compile(r"\s*<script\s+data-addition-one-click(?:=[^>]*)?>.*?</script>\s*", re.I | re.S),
+    re.compile(r"\s*<script\s+data-addition-chatgpt-assist(?:=[^>]*)?>.*?</script>\s*", re.I | re.S),
 )
 
 
@@ -47,11 +51,11 @@ def install_addition_operational_legacy_suppression_policy() -> None:
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
-    # O cache/deduplicação é instalado depois da fila operacional, portanto não
-    # muda o motor de cadastro; apenas evita leituras/sincronizações repetidas.
+    # O cache/deduplicacao e instalado depois da fila operacional, portanto nao
+    # muda o motor de cadastro; apenas evita leituras/sincronizacoes repetidas.
     install_addition_operational_performance_policy()
-    # Esta bridge só decora o modal global Processos existente.
+    # Esta bridge apenas projeta processos operacionais no modal global existente.
     install_addition_processes_bridge_policy()
-    # Instrumentação read-only da troca de aba. Usada somente nesta branch de diagnóstico.
+    # Instrumentacao read-only mantida nesta branch ate a validacao final do bug.
     install_addition_tab_diagnostics_policy()
     _INSTALLED = True
