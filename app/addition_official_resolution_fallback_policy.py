@@ -156,6 +156,7 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_custom_fields_policy import install_addition_custom_fields_policy
     from app.comparison_operation_status_policy import install_comparison_operation_status_policy
     from app.product_custom_fields_guard_policy import install_product_custom_fields_guard_policy
+    from app.addition_operational_ui_policy import install_addition_operational_ui_policy
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
@@ -182,4 +183,6 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_comparison_operation_status_policy()
     # Final guard: after every update/addition, preserve or resolve the three catalog metadata fields.
     install_product_custom_fields_guard_policy()
+    # Operational UI/queue is installed last so it observes the final, fully wrapped addition flow.
+    install_addition_operational_ui_policy()
     _INSTALLED = True
