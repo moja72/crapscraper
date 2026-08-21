@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from app import settings
 import app.process_history_credits_policy as credits
+import app.web as web
 from app.integrations.ultrapack_download import UltrapackDownloader
 from app.integrations.plugintheme_download import PluginThemeDownloader
 
@@ -16,8 +18,11 @@ _INSTALLED = False
 _BASE_CREDIT_SNAPSHOT: Callable[..., dict[str, Any]] | None = None
 _BASE_ULTRAPACK_DOWNLOAD: Callable[..., Any] | None = None
 _BASE_PLUGINTHEME_DOWNLOAD: Callable[..., Any] | None = None
+_BASE_SERVER: Any = None
+_BASE_RENDER: Callable[..., str] | None = None
 _LOCK = threading.RLock()
 _USAGE_PATH = Path(settings.DATA_DIR) / "download_credit_usage.json"
+_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "download_credit_accuracy.js"
 _DEFAULT_LIMITS = {
     "ultrapackv2": 40,
     "plugintheme": 50,
@@ -25,6 +30,14 @@ _DEFAULT_LIMITS = {
 _ENV_LIMITS = {
     "ultrapackv2": "SCRAPER_ULTRAPACKV2_DAILY_DOWNLOAD_LIMIT",
     "plugintheme": "SCRAPER_PLUGINTHEME_DAILY_DOWNLOAD_LIMIT",
+}
+_REMOTE_TTL_SECONDS = 300.0
+_REMOTE_RETRY_SECONDS = 45.0
+_REMOTE_STATE: dict[str, Any] = {
+    "payload": None,
+    "at": 0.0,
+    "attempt_at": 0.0,
+    "refreshing": False,
 }
 
 
@@ -85,23 +98,37 @@ def _record_download(site_key: str) -> None:
             data[today] = day
         day[site_key] = _safe_int(day.get(site_key), 0) + 1
 
-        # O contador é diário. Mantemos apenas os 14 dias mais recentes para o
-        # arquivo continuar pequeno e útil para diagnóstico.
         keys = sorted(str(key) for key in data.keys())
         for old in keys[:-14]:
             data.pop(old, None)
         _write_usage(data)
 
 
-def _fallback(site_key: str, current: Any) -> dict[str, Any]:
-    if isinstance(current, dict):
-        remaining = current.get("remaining")
-        limit = current.get("limit")
-        try:
-            if current.get("ok") and remaining is not None and limit is not None:
-                return dict(current)
-        except Exception:
-            pass
+def _exact_credit(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not value.get("ok"):
+        return None
+    remaining = value.get("remaining")
+    limit = value.get("limit")
+    try:
+        remaining_number = int(remaining)
+        limit_number = int(limit)
+    except (TypeError, ValueError):
+        return None
+    if remaining_number < 0 or limit_number <= 0:
+        return None
+    result = dict(value)
+    result["remaining"] = min(remaining_number, limit_number)
+    result["limit"] = limit_number
+    result["used"] = max(0, limit_number - result["remaining"])
+    result["estimated"] = False
+    result.setdefault("source", "remote")
+    return result
+
+
+def _fallback(site_key: str, current: Any = None) -> dict[str, Any]:
+    exact = _exact_credit(current)
+    if exact:
+        return exact
 
     limit = _daily_limit(site_key)
     used = min(_used_today(site_key), limit)
@@ -115,34 +142,89 @@ def _fallback(site_key: str, current: Any) -> dict[str, Any]:
         "estimated": True,
         "source": "crapscraper-local-ledger",
         "message": (
-            f"{label}: estimativa local do CrapScraper. O painel não faz login remoto para consultar créditos, "
-            "evitando travar a interface; o contador desconta os downloads feitos pelo CrapScraper neste computador."
+            f"{label}: estimativa local enquanto o saldo remoto é consultado em segundo plano. "
+            "O valor desconta apenas downloads registrados por este CrapScraper."
         ),
     }
 
 
-def _patched_credit_snapshot(manager: Any) -> dict[str, Any]:
-    # O contador do cabeçalho precisa ser instantâneo. A implementação remota
-    # anterior podia iniciar autenticação/navegador durante um simples GET do
-    # painel, segurando a resposta e dando a impressão de que toda a interface
-    # estava travada. Por padrão usamos o ledger local, que é atualizado pelos
-    # próprios downloaders. A sondagem remota continua disponível apenas como
-    # opt-in explícito para diagnóstico.
-    remote_payload: dict[str, Any] = {}
-    if _env_enabled("SCRAPER_DOWNLOAD_CREDITS_REMOTE_PROBE", False):
-        base = _BASE_CREDIT_SNAPSHOT or credits._credit_snapshot
-        try:
-            candidate = base(manager)
-            if isinstance(candidate, dict):
-                remote_payload = candidate
-        except Exception:
-            remote_payload = {}
+def _remote_payload_snapshot() -> dict[str, Any]:
+    with _LOCK:
+        payload = _REMOTE_STATE.get("payload")
+        return dict(payload) if isinstance(payload, dict) else {}
 
+
+def _refresh_remote_credits(manager: Any) -> None:
+    try:
+        base = _BASE_CREDIT_SNAPSHOT or credits._credit_snapshot
+        candidate = base(manager)
+        if not isinstance(candidate, dict):
+            candidate = {}
+        usable = {
+            "ok": bool(
+                _exact_credit(candidate.get("ultrapackv2"))
+                or _exact_credit(candidate.get("plugintheme"))
+            ),
+            "ultrapackv2": candidate.get("ultrapackv2", {}),
+            "plugintheme": candidate.get("plugintheme", {}),
+        }
+        with _LOCK:
+            if usable["ok"]:
+                _REMOTE_STATE["payload"] = usable
+                _REMOTE_STATE["at"] = time.monotonic()
+    except Exception:
+        # Falha remota não derruba o cabeçalho; o ledger local continua disponível.
+        pass
+    finally:
+        with _LOCK:
+            _REMOTE_STATE["refreshing"] = False
+
+
+def _schedule_remote_refresh(manager: Any) -> None:
+    if manager is None:
+        return
+    now = time.monotonic()
+    with _LOCK:
+        cached_at = float(_REMOTE_STATE.get("at") or 0.0)
+        attempt_at = float(_REMOTE_STATE.get("attempt_at") or 0.0)
+        refreshing = bool(_REMOTE_STATE.get("refreshing"))
+        fresh = bool(_REMOTE_STATE.get("payload")) and now - cached_at < _REMOTE_TTL_SECONDS
+        retry_wait = attempt_at and now - attempt_at < _REMOTE_RETRY_SECONDS
+        if fresh or refreshing or retry_wait:
+            return
+        _REMOTE_STATE["refreshing"] = True
+        _REMOTE_STATE["attempt_at"] = now
+
+    threading.Thread(
+        target=_refresh_remote_credits,
+        args=(manager,),
+        name="download-credit-remote-refresh",
+        daemon=True,
+    ).start()
+
+
+def _patched_credit_snapshot(manager: Any) -> dict[str, Any]:
+    # Nunca bloqueia o GET do cabeçalho em autenticação remota. A consulta real
+    # acontece em background e o último saldo confirmado é reutilizado.
+    _schedule_remote_refresh(manager)
+    remote_payload = _remote_payload_snapshot()
+    ultrapack = _fallback("ultrapackv2", remote_payload.get("ultrapackv2"))
+    plugintheme = _fallback("plugintheme", remote_payload.get("plugintheme"))
+    with _LOCK:
+        refreshing = bool(_REMOTE_STATE.get("refreshing"))
     return {
         "ok": True,
-        "ultrapackv2": _fallback("ultrapackv2", remote_payload.get("ultrapackv2")),
-        "plugintheme": _fallback("plugintheme", remote_payload.get("plugintheme")),
+        "remote_refreshing": refreshing,
+        "ultrapackv2": ultrapack,
+        "plugintheme": plugintheme,
     }
+
+
+def _invalidate_remote_credit() -> None:
+    with _LOCK:
+        _REMOTE_STATE["payload"] = None
+        _REMOTE_STATE["at"] = 0.0
+        _REMOTE_STATE["attempt_at"] = 0.0
 
 
 def _patched_ultrapack_download(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -151,6 +233,7 @@ def _patched_ultrapack_download(self: Any, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("Downloader UltraPackV2 não inicializado")
     result = base(self, *args, **kwargs)
     _record_download("ultrapackv2")
+    _invalidate_remote_credit()
     return result
 
 
@@ -160,17 +243,96 @@ def _patched_plugintheme_download(self: Any, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("Downloader PluginTheme não inicializado")
     result = base(self, *args, **kwargs)
     _record_download("plugintheme")
+    _invalidate_remote_credit()
     return result
 
 
+def _monitor_worker_alive() -> bool:
+    worker = getattr(web, "_WORDPRESS_MANUAL_WORKER", None)
+    try:
+        return bool(worker and worker.is_alive())
+    except Exception:
+        return False
+
+
+def _wordpress_manual_configured() -> bool:
+    enabled = os.getenv("SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    return bool(
+        enabled
+        and os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET", "").strip()
+        and os.getenv("SCRAPER_WP_BASE_URL", "").strip()
+    )
+
+
+def _fast_manual_monitor_snapshot(manager: Any) -> dict[str, Any]:
+    # Esta rota é deliberadamente local: não consulta WooCommerce nem WordPress.
+    # Se o worker tiver morrido, apenas dispara sua reinicialização em background.
+    restart_error = ""
+    if _wordpress_manual_configured() and not _monitor_worker_alive() and manager is not None:
+        try:
+            web._start_wordpress_manual_worker(manager)
+        except Exception as error:
+            restart_error = str(error)
+
+    from app.wordpress_manual_update import manual_monitor_snapshot
+
+    payload = dict(manual_monitor_snapshot())
+    payload["worker_alive"] = _monitor_worker_alive()
+    payload["fast_path"] = True
+    if restart_error:
+        payload["worker_restart_error"] = restart_error
+    return payload
+
+
+def _manager_from_handler(handler_class: type) -> Any:
+    try:
+        return credits._manager_from_handler(handler_class)
+    except Exception:
+        return None
+
+
+def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwargs: Any) -> Any:
+    manager = _manager_from_handler(handler_class)
+
+    class CreditMonitorFastHandler(handler_class):
+        def do_GET(self) -> None:
+            path = self._request_path()
+            if path == "/loja/wordpress-manual/status":
+                try:
+                    self._send_json(_fast_manual_monitor_snapshot(manager))
+                except Exception as error:
+                    self._send_json({"ok": False, "message": str(error)}, code=500)
+                return
+            return super().do_GET()
+
+    return _BASE_SERVER(server_address, CreditMonitorFastHandler, *args, **kwargs)
+
+
+def _script_block() -> str:
+    try:
+        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+    except OSError:
+        return ""
+    return f"\n<script data-download-credit-accuracy>\n{script}\n</script>\n"
+
+
+def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
+    base = _BASE_RENDER or web.render_panel_page
+    html = base(*args, **kwargs)
+    block = _script_block()
+    if not block:
+        return html
+    return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
+
+
 def install_download_credit_fallback_policy() -> None:
-    global _INSTALLED, _BASE_CREDIT_SNAPSHOT
+    global _INSTALLED, _BASE_CREDIT_SNAPSHOT, _BASE_SERVER, _BASE_RENDER
     global _BASE_ULTRAPACK_DOWNLOAD, _BASE_PLUGINTHEME_DOWNLOAD
     if _INSTALLED:
         return
 
-    # A rota /processos/creditos chama esta função global em tempo de execução,
-    # portanto o patch vale também para o handler já instalado.
     _BASE_CREDIT_SNAPSHOT = credits._credit_snapshot
     credits._credit_snapshot = _patched_credit_snapshot
 
@@ -178,4 +340,13 @@ def install_download_credit_fallback_policy() -> None:
     _BASE_PLUGINTHEME_DOWNLOAD = PluginThemeDownloader.download
     UltrapackDownloader.download = _patched_ultrapack_download
     PluginThemeDownloader.download = _patched_plugintheme_download
+
+    # Fast-path do monitor: evita que uma cadeia de rotas pesada transforme uma
+    # leitura de memória em timeout de 8 segundos no painel.
+    _BASE_SERVER = web.PTThreadingHTTPServer
+    web.PTThreadingHTTPServer = _server_factory
+
+    # Complemento visual para deixar explícito quando o saldo ainda é estimado.
+    _BASE_RENDER = web.render_panel_page
+    web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
