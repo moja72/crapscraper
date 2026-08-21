@@ -48,6 +48,7 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     from app.addition_processes_bridge_policy import install_addition_processes_bridge_policy
     from app.addition_operational_performance_policy import install_addition_operational_performance_policy
     from app.addition_tab_diagnostics_policy import install_addition_tab_diagnostics_policy
+    from app.local_ui_resilience_policy import install_local_ui_resilience_policy
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
@@ -58,4 +59,7 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     install_addition_processes_bridge_policy()
     # Instrumentacao read-only mantida nesta branch ate a validacao final do bug.
     install_addition_tab_diagnostics_policy()
+    # Resiliencia final do painel: dedupe de packs/planos e desconexoes normais
+    # do navegador nao podem virar um segundo write/traceback no servidor.
+    install_local_ui_resilience_policy()
     _INSTALLED = True
