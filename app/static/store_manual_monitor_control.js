@@ -9,6 +9,11 @@
   let timer = null;
 
   const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
+  const setText = (node, value) => {
+    if (!node) return;
+    const next = String(value ?? "");
+    if (node.textContent !== next) node.textContent = next;
+  };
 
   function installStyle() {
     if (document.getElementById("cs-store-monitor-control-style")) return;
@@ -93,12 +98,10 @@
       button.setAttribute("aria-checked", enabled ? "true" : "false");
       button.setAttribute("title", enabled ? "Desativar monitor" : "Ativar monitor");
     }
-    if (label) label.textContent = busy ? "Salvando…" : (enabled ? "Ativado" : "Desativado");
-    if (copy) {
-      if (!configured) copy.textContent = "Configuração incompleta: URL ou segredo do WordPress não estão disponíveis.";
-      else if (enabled) copy.textContent = state.worker_alive ? "Ativo · consultando novos pedidos a cada 5 segundos." : "Ativo · iniciando o monitor…";
-      else copy.textContent = "Desativado · nenhum novo pedido do WordPress será consultado.";
-    }
+    setText(label, busy ? "Salvando…" : (enabled ? "Ativado" : "Desativado"));
+    if (!configured) setText(copy, "Configuração incompleta: URL ou segredo do WordPress não estão disponíveis.");
+    else if (enabled) setText(copy, state.worker_alive ? "Ativo · consultando novos pedidos a cada 5 segundos." : "Ativo · iniciando o monitor…");
+    else setText(copy, "Desativado · nenhum novo pedido do WordPress será consultado.");
   }
 
   async function load() {
@@ -110,8 +113,7 @@
       render();
     } catch (_error) {
       const root = ensureControl();
-      const copy = root?.querySelector(".cs-store-monitor-state");
-      if (copy) copy.textContent = "Não foi possível consultar o estado do monitor.";
+      setText(root?.querySelector(".cs-store-monitor-state"), "Não foi possível consultar o estado do monitor.");
     }
   }
 
@@ -146,11 +148,15 @@
   function start() {
     ensureControl();
     load();
+
+    const panel = document.getElementById("tab_panel_loja") || document.body;
     const observer = new MutationObserver(() => {
+      // Apenas garante que o controle exista. Não chama render() aqui:
+      // render altera texto/classes e poderia alimentar o próprio observer.
       ensureControl();
-      if (visibleStore()) render();
     });
-    observer.observe(document.body, {childList: true, subtree: true});
+    observer.observe(panel, {childList: true, subtree: true});
+
     timer = window.setInterval(() => {
       if (visibleStore()) load();
     }, 5000);
