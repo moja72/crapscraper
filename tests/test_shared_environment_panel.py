@@ -7,6 +7,8 @@ def test_shared_environment_script_reuses_single_card() -> None:
     assert '.updates-environment-card' in source
     assert 'tab_panel_atualizacoes' in source
     assert 'tab_panel_adicoes' in source
+    assert 'tab_panel_loja' in source
+    assert 'tab_btn_loja' in source
     assert 'insertBefore(card, target.firstElementChild)' in source
     assert 'cloneNode' not in source
     assert 'attributeFilter: ["class"]' in source
