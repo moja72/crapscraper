@@ -27,9 +27,13 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     if _INSTALLED:
         return
     from app.addition_processes_bridge_policy import install_addition_processes_bridge_policy
+    from app.addition_operational_performance_policy import install_addition_operational_performance_policy
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
-    # This bridge only decorates the existing global Processes modal; it does not create another monitor UI.
+    # O cache/deduplicação é instalado depois da fila operacional, portanto não
+    # muda o motor de cadastro; apenas evita leituras/sincronizações repetidas.
+    install_addition_operational_performance_policy()
+    # Esta bridge só decora o modal global Processos existente.
     install_addition_processes_bridge_policy()
     _INSTALLED = True
