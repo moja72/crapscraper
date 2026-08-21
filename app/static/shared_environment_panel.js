@@ -14,8 +14,10 @@
   }
 
   function targetPanel() {
+    const store = byId("tab_panel_loja");
     const additions = byId("tab_panel_adicoes");
     const updates = byId("tab_panel_atualizacoes");
+    if (panelVisible(store)) return store;
     if (panelVisible(additions)) return additions;
     return updates;
   }
@@ -38,15 +40,13 @@
   function start() {
     placeEnvironment();
 
-    const updateButton = byId("tab_btn_atualizacoes");
-    const additionButton = byId("tab_btn_adicoes");
-    updateButton?.addEventListener("click", schedulePlacement);
-    additionButton?.addEventListener("click", schedulePlacement);
+    ["tab_btn_atualizacoes", "tab_btn_adicoes", "tab_btn_loja"].forEach(id => {
+      byId(id)?.addEventListener("click", schedulePlacement);
+    });
 
-    const updatePanel = byId("tab_panel_atualizacoes");
-    const additionPanel = byId("tab_panel_adicoes");
     const observer = new MutationObserver(placeEnvironment);
-    [updatePanel, additionPanel].forEach(panel => {
+    ["tab_panel_atualizacoes", "tab_panel_adicoes", "tab_panel_loja"].forEach(id => {
+      const panel = byId(id);
       if (panel) observer.observe(panel, {attributes: true, attributeFilter: ["class"]});
     });
   }

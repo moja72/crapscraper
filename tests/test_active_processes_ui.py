@@ -15,10 +15,20 @@ def test_active_processes_modal_tracks_main_operational_flows() -> None:
     assert "cs_processes_button" in script
     assert "/comparacao/data" in script
     assert "/atualizacoes/jobs" in script
+    assert "/atualizacoes/materializar" in script
+    assert "/atualizacoes/prerequisitos" in script
     assert "/loja/precos/status" in script
     assert "/loja/produtos/sem-breve-descricao" in script
+    assert "/loja/produtos/campos-ausentes" in script
+    assert "/loja/wordpress-manual/status" in script
+    assert "/adicoes/automatico/status" in script
+    assert "/adicoes/automatico" in script
     assert "/runs" in script
     assert "live_execution_logs" in script
+    assert '"/comparacao/", "comparison"' in script
+    assert '"/atualizacoes/", "update"' in script
+    assert '"/adicoes/", "addition"' in script
+    assert '"/loja/", "store"' in script
 
 
 def test_process_observability_is_installed_at_startup() -> None:
