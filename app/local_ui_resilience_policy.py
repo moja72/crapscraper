@@ -27,6 +27,32 @@ _CLIENT_DISCONNECT_ERRORS = (
     ConnectionAbortedError,
 )
 
+# addition_operational_ui.js is intentionally not edited here. The user's Windows
+# checkout can carry local UI work, so the final resilience layer patches only the
+# known boot snippet in the rendered HTML. This keeps the correction compatible
+# with a dirty worktree while preventing a hidden tab from doing expensive work.
+_ADDITION_TAB_REFRESH_LISTENER = '    $("#tab_btn_adicoes")?.addEventListener("click",()=>setTimeout(()=>{if(panelVisible())refreshAll({history:false,silent:true});},0));\n'
+_ADDITION_BACKGROUND_SYNC_START = '  async function backgroundSyncOnce(){try{'
+_ADDITION_BACKGROUND_SYNC_GUARDED = '  async function backgroundSyncOnce(){if(!panelVisible())return;try{'
+_ADDITION_BOOT = '  function boot(){if(state.started)return;state.started=true;installUi();if(!$("#addition_operational_root"))return;if(panelVisible())refreshAll({history:false});setTimeout(backgroundSyncOnce,350);setInterval(poll,3000);}'
+_ADDITION_LAZY_BOOT = '''  function activateOperationalUi(){
+    if(!panelVisible())return;
+    if(!$("#addition_operational_root"))installUi();
+    if(!$("#addition_operational_root"))return;
+    if(!state.started){
+      state.started=true;
+      refreshAll({history:false});
+      setTimeout(()=>{if(panelVisible())backgroundSyncOnce();},350);
+      setInterval(poll,3000);
+      return;
+    }
+    refreshAll({history:false,silent:true});
+  }
+  function boot(){
+    $("#tab_btn_adicoes")?.addEventListener("click",()=>setTimeout(activateOperationalUi,0));
+    if(panelVisible())activateOperationalUi();
+  }'''
+
 
 def _clone_rows(rows: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in (rows or []) if isinstance(item, dict)]
@@ -141,9 +167,18 @@ def _server_factory(server_address: Any, handler_class: type, *args: Any, **kwar
     return _BASE_SERVER(server_address, LocalUiResilientHandler, *args, **kwargs)
 
 
+def _patch_hidden_addition_boot(html: str) -> str:
+    """Do not mount/sync the Adições UI until the user actually opens that tab."""
+    result = str(html or "")
+    result = result.replace(_ADDITION_TAB_REFRESH_LISTENER, "")
+    result = result.replace(_ADDITION_BACKGROUND_SYNC_START, _ADDITION_BACKGROUND_SYNC_GUARDED)
+    result = result.replace(_ADDITION_BOOT, _ADDITION_LAZY_BOOT)
+    return result
+
+
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
-    html = base(*args, **kwargs)
+    html = _patch_hidden_addition_boot(base(*args, **kwargs))
     try:
         script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
     except OSError:
