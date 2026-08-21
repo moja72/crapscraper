@@ -31,7 +31,7 @@
       .store-custom-fields-options{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
       .store-custom-field-option{display:inline-flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--line,#2a2f3a);border-radius:12px;background:rgba(255,255,255,.02);font-size:12px;font-weight:700}
       .store-custom-field-option input{width:auto;margin:0}
-      .store-custom-fields-controls{display:grid;grid-template-columns:minmax(240px,1fr) 220px auto;gap:10px;align-items:end}
+      .store-custom-fields-controls{display:grid;grid-template-columns:minmax(220px,1fr) 210px 220px 280px auto;gap:10px;align-items:end}
       .store-custom-fields-controls label{display:grid;gap:6px;font-size:12px;font-weight:700}
       .store-custom-fields-results-toolbar{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px;margin:14px 0 10px}
       .store-custom-fields-results-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
@@ -40,11 +40,14 @@
       .store-custom-field-state{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:999px;border:1px solid var(--line,#2a2f3a);font-size:11px;font-weight:800}
       .store-custom-field-state.is-ok{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.10);color:#6ee7b7}
       .store-custom-field-state.is-missing{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#fcd34d}
+      .store-custom-field-state.is-info{border-color:rgba(59,130,246,.35);background:rgba(59,130,246,.10);color:#93c5fd}
       .store-custom-field-value{display:block;margin-top:5px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-muted,#9aa3b2)}
       .store-custom-field-value a{text-decoration:underline;text-underline-offset:2px}
       .store-custom-pending{display:flex;flex-wrap:wrap;gap:6px}
       .store-custom-fields-pagination{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-top:12px}
       .store-custom-fields-progress{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid var(--line,#2a2f3a);border-radius:12px;background:rgba(255,255,255,.018)}
+      .store-custom-structure-note{margin-top:8px;color:var(--text-muted,#9aa3b2);font-size:11px}
+      @media(max-width:1200px){.store-custom-fields-controls{grid-template-columns:1fr 1fr}.store-custom-fields-controls button{grid-column:1/-1}}
       @media(max-width:900px){.store-custom-fields-controls{grid-template-columns:1fr}.store-custom-fields-results-toolbar{align-items:stretch}.store-custom-fields-results-filters{width:100%}}
     `;
     document.head.appendChild(style);
@@ -56,7 +59,7 @@
         <div class="store-section-head">
           <div>
             <div class="section-title" id="store_custom_fields_quality_title">Campos personalizados dos produtos</div>
-            <div class="small">Localize produtos publicados sem versão, desenvolvedor ou link oficial. A verificação lê somente os metadados necessários e não altera o WooCommerce.</div>
+            <div class="small">Localize somente Plugins e Temas variáveis que possuem variações filhas e estão sem versão, desenvolvedor ou link oficial. Planos, membros, packs e outros tipos são ignorados.</div>
           </div>
         </div>
 
@@ -65,10 +68,23 @@
             <label for="store_custom_fields_search">Filtrar por nome ou ID
               <input id="store_custom_fields_search" type="search" autocomplete="off" placeholder="Ex.: Elementor ou 92038">
             </label>
-            <label for="store_custom_fields_match_mode">Condição
+            <label for="store_custom_fields_match_mode">Condição dos campos
               <select id="store_custom_fields_match_mode">
                 <option value="any">Qualquer campo selecionado ausente</option>
                 <option value="all">Todos os campos selecionados ausentes</option>
+              </select>
+            </label>
+            <label for="store_custom_fields_category_mode">Categorias
+              <select id="store_custom_fields_category_mode">
+                <option value="all">Todos os Plugins e Temas</option>
+                <option value="root_only">Somente categoria raiz Plugin/Tema</option>
+              </select>
+            </label>
+            <label for="store_custom_fields_variation_mode">Variações filhas
+              <select id="store_custom_fields_variation_mode">
+                <option value="all">Todas</option>
+                <option value="nonstandard">Com termo fora de 1 ano / Vitalício / Gratuito</option>
+                <option value="none_standard">Sem nenhum termo 1 ano / Vitalício / Gratuito</option>
               </select>
             </label>
             <button class="btn-secondary" id="store_custom_fields_submit" type="submit">Verificar campos</button>
@@ -79,10 +95,11 @@
             <label class="store-custom-field-option"><input type="checkbox" value="developer" checked> Desenvolvedor</label>
             <label class="store-custom-field-option"><input type="checkbox" value="official" checked> Link oficial</label>
           </div>
+          <div class="store-custom-structure-note">“Categoria raiz” mostra produtos cuja única categoria é Plugin/Plugins ou Tema/Temas. O filtro de variações analisa as variações filhas reais do WooCommerce.</div>
         </form>
 
         <div class="store-table-wrap" id="store_custom_fields_results" aria-live="polite">
-          <div class="small">Clique em “Verificar campos” para consultar os produtos publicados.</div>
+          <div class="small">Clique em “Verificar campos” para consultar Plugins e Temas.</div>
         </div>
       </section>
     `;
@@ -95,11 +112,8 @@
 
     const shortForm = $("#store_missing_description_form");
     const shortCard = shortForm?.closest(".card");
-    if (shortCard) {
-      shortCard.insertAdjacentHTML("afterend", cardHtml());
-    } else {
-      panel.insertAdjacentHTML("beforeend", cardHtml());
-    }
+    if (shortCard) shortCard.insertAdjacentHTML("afterend", cardHtml());
+    else panel.insertAdjacentHTML("beforeend", cardHtml());
 
     bindEvents();
     return true;
@@ -113,21 +127,15 @@
     return ({ version: "Versão", developer: "Desenvolvedor", official: "Link oficial" })[key] || key;
   }
 
-  function typeLabel(value) {
-    const normalized = text(value).toLowerCase();
-    if (normalized === "variable") return "Variável";
-    if (normalized === "simple") return "Simples";
-    if (normalized === "bundle") return "Pack";
-    return text(value) || "—";
+  function kindLabel(value) {
+    return ({ plugin: "Plugin", theme: "Tema" })[text(value).toLowerCase()] || text(value) || "—";
   }
 
   function cellState(product, key) {
     const values = product.values || {};
     const value = text(values[key]);
     const missing = Array.isArray(product.missing_fields) && product.missing_fields.includes(key);
-    if (missing || !value) {
-      return `<span class="store-custom-field-state is-missing">⚠ Ausente</span>`;
-    }
+    if (missing || !value) return `<span class="store-custom-field-state is-missing">⚠ Ausente</span>`;
 
     let visible = esc(value);
     if (key === "official" && /^https?:\/\//i.test(value)) {
@@ -136,19 +144,29 @@
     return `<span class="store-custom-field-state is-ok">✓ Preenchido</span><span class="store-custom-field-value" title="${esc(value)}">${visible}</span>`;
   }
 
+  function structureCell(product) {
+    const bits = [];
+    if (product.root_category_only) bits.push('<span class="store-custom-field-state is-info">Só categoria raiz</span>');
+    const standard = Array.isArray(product.standard_labels) ? product.standard_labels : [];
+    const nonstandard = Number(product.nonstandard_variation_count || 0);
+    if (standard.length) bits.push(`<span class="store-custom-field-value">Padrão: ${esc(standard.join(" · "))}</span>`);
+    if (nonstandard) bits.push(`<span class="store-custom-field-state is-missing">${nonstandard} fora do padrão</span>`);
+    const count = Number(product.variation_count || 0);
+    bits.push(`<span class="store-custom-field-value">${count} variação(ões) filha(s)</span>`);
+    return bits.join("");
+  }
+
   function rowHtml(product) {
     const id = Number(product.product_id || 0);
     const pending = Array.isArray(product.missing_fields) ? product.missing_fields : [];
     return `
       <tr>
-        <td>
-          <strong>${esc(product.product_name || `Produto #${id}`)}</strong>
-          <span class="small">WooCommerce #${id}</span>
-        </td>
-        <td>${esc(typeLabel(product.product_type))}</td>
+        <td><strong>${esc(product.product_name || `Produto #${id}`)}</strong><span class="small">WooCommerce #${id}</span></td>
+        <td>${esc(kindLabel(product.catalog_kind))}</td>
         <td>${cellState(product, "version")}</td>
         <td>${cellState(product, "developer")}</td>
         <td>${cellState(product, "official")}</td>
+        <td>${structureCell(product)}</td>
         <td><div class="store-custom-pending">${pending.map((key) => `<span class="store-custom-field-state is-missing">${esc(missingLabel(key))}</span>`).join("") || "—"}</div></td>
         <td>${product.permalink ? `<a class="btn-secondary btn-sm" href="${esc(product.permalink)}" target="_blank" rel="noopener noreferrer">Abrir produto</a>` : "—"}</td>
       </tr>
@@ -177,12 +195,12 @@
     const end = total ? Math.min(start + state.pageSize, total) : 0;
 
     if (!state.products.length) {
-      root.innerHTML = `<div class="notice is-success">Varredura concluída: nenhum produto com os campos selecionados ausentes foi encontrado entre ${Number(state.examined || 0)} produtos publicados.</div>`;
+      root.innerHTML = `<div class="notice is-success">Varredura concluída: nenhum Plugin/Tema variável com variações filhas corresponde aos filtros entre ${Number(state.examined || 0)} verificados.</div>`;
       return;
     }
 
     root.innerHTML = `
-      <div class="store-quality-count"><strong>${state.products.length}</strong> produto(s) com pendências entre <strong>${Number(state.examined || 0)}</strong> verificados</div>
+      <div class="store-quality-count"><strong>${state.products.length}</strong> produto(s) com pendências entre <strong>${Number(state.examined || 0)}</strong> Plugins/Temas variáveis verificados</div>
       <div class="store-custom-fields-results-toolbar">
         <div class="store-custom-fields-results-filters">
           <label>Mostrar pendência
@@ -204,7 +222,7 @@
 
       ${total ? `
         <table class="store-data-table">
-          <thead><tr><th>Produto</th><th>Tipo</th><th>Versão</th><th>Desenvolvedor</th><th>Link oficial</th><th>Pendências</th><th>Acesso</th></tr></thead>
+          <thead><tr><th>Produto</th><th>Catálogo</th><th>Versão</th><th>Desenvolvedor</th><th>Link oficial</th><th>Estrutura</th><th>Pendências</th><th>Acesso</th></tr></thead>
           <tbody>${visible.map(rowHtml).join("")}</tbody>
         </table>
       ` : `<div class="notice">Nenhum produto corresponde ao filtro de pendência selecionado.</div>`}
@@ -224,14 +242,8 @@
       state.page = 1;
       renderResults();
     });
-    $("#store_custom_fields_prev")?.addEventListener("click", () => {
-      state.page -= 1;
-      renderResults();
-    });
-    $("#store_custom_fields_next")?.addEventListener("click", () => {
-      state.page += 1;
-      renderResults();
-    });
+    $("#store_custom_fields_prev")?.addEventListener("click", () => { state.page -= 1; renderResults(); });
+    $("#store_custom_fields_next")?.addEventListener("click", () => { state.page += 1; renderResults(); });
   }
 
   function renderProgress(data) {
@@ -241,7 +253,7 @@
       <div class="store-custom-fields-progress">
         <span class="inline-loading-spinner" aria-hidden="true"></span>
         <div>
-          <strong>Verificando campos personalizados…</strong>
+          <strong>${text(data.phase) === "variations" ? "Analisando variações filhas…" : "Verificando Plugins e Temas…"}</strong>
           <div class="small">${esc(data.message || "Consultando produtos publicados…")}</div>
         </div>
       </div>
@@ -267,9 +279,23 @@
     button.textContent = busy ? "Verificando…" : "Verificar campos";
   }
 
+  function syncControls(data) {
+    const values = {
+      store_custom_fields_search: data.query,
+      store_custom_fields_match_mode: data.match_mode,
+      store_custom_fields_category_mode: data.category_mode,
+      store_custom_fields_variation_mode: data.variation_mode,
+    };
+    Object.entries(values).forEach(([id, value]) => {
+      const node = $("#" + id);
+      if (node && value != null && text(value)) node.value = String(value);
+    });
+  }
+
   function consumeSnapshot(data) {
     state.status = text(data.status || "idle");
     state.examined = Number(data.examined || 0);
+    syncControls(data);
     if (state.status === "running") {
       setButtonBusy(true);
       renderProgress(data);
@@ -327,6 +353,8 @@
         query: text($("#store_custom_fields_search")?.value),
         selected_fields: fields,
         match_mode: text($("#store_custom_fields_match_mode")?.value || "any"),
+        category_mode: text($("#store_custom_fields_category_mode")?.value || "all"),
+        variation_mode: text($("#store_custom_fields_variation_mode")?.value || "all"),
       });
       consumeSnapshot(data);
     } catch (error) {
@@ -365,9 +393,6 @@
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
-    init();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
+  else init();
 })();
