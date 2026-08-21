@@ -7,6 +7,8 @@
   const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   let loading = false;
   let timer = null;
+  let lastPayload = null;
+  let reapplying = false;
 
   function creditText(payload) {
     const remaining = Number(payload?.remaining);
@@ -20,7 +22,8 @@
     const node = $(id);
     if (!node) return;
     const value = creditText(payload);
-    node.innerHTML = `${label}: <b>${value}</b>`;
+    const markup = `${label}: <b>${value}</b>`;
+    if (node.innerHTML !== markup) node.innerHTML = markup;
     if (payload?.estimated) {
       node.title = text(payload?.message || "Estimativa local; o saldo remoto ainda está sendo consultado.");
       node.dataset.creditAccuracy = "estimated";
@@ -34,8 +37,29 @@
   }
 
   function render(payload) {
-    renderOne("#cs_credit_ultrapack", "UltraPackV2", payload?.ultrapackv2 || {});
-    renderOne("#cs_credit_plugintheme", "PluginTheme", payload?.plugintheme || {});
+    if (!payload) return;
+    reapplying = true;
+    try {
+      renderOne("#cs_credit_ultrapack", "UltraPackV2", payload?.ultrapackv2 || {});
+      renderOne("#cs_credit_plugintheme", "PluginTheme", payload?.plugintheme || {});
+    } finally {
+      reapplying = false;
+    }
+  }
+
+  function payloadScore(payload) {
+    if (!payload) return -1;
+    const sites = [payload?.ultrapackv2, payload?.plugintheme];
+    return sites.reduce((score, site) => {
+      if (!site?.ok) return score;
+      return score + (site?.estimated ? 1 : 10);
+    }, 0);
+  }
+
+  function remember(payload) {
+    // Nunca deixa uma resposta estimada substituir um saldo remoto já confirmado.
+    if (!lastPayload || payloadScore(payload) >= payloadScore(lastPayload)) lastPayload = payload;
+    render(lastPayload);
   }
 
   async function refresh() {
@@ -47,7 +71,7 @@
         credentials: "same-origin",
       });
       const payload = await response.json().catch(() => ({}));
-      if (response.ok) render(payload);
+      if (response.ok) remember(payload);
     } catch (_error) {
       // O contador principal continua funcional mesmo se esta camada auxiliar falhar.
     } finally {
@@ -55,9 +79,22 @@
     }
   }
 
+  function protectRenderedValue() {
+    const root = $("#cs_download_credits");
+    if (!root || root.dataset.creditAccuracyObserver === "1") return;
+    root.dataset.creditAccuracyObserver = "1";
+    const observer = new MutationObserver(() => {
+      if (reapplying || !lastPayload) return;
+      window.setTimeout(() => render(lastPayload), 0);
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+  }
+
   function start() {
+    protectRenderedValue();
     window.setTimeout(refresh, 1500);
     timer = window.setInterval(refresh, 10000);
+    window.setInterval(protectRenderedValue, 1500);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refresh();
     });
