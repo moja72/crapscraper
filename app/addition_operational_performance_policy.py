@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any, Callable
+from urllib.parse import parse_qs
 
 import app.addition_operational_ui_policy as operational
 
@@ -18,6 +19,12 @@ _READ_TTL_SECONDS = 1.25
 _SYNC_DEDUP_SECONDS = 8.0
 
 
+def _is_processes_scope(path_query: str) -> bool:
+    query = parse_qs(str(path_query or ""), keep_blank_values=True)
+    values = query.get("scope") or []
+    return bool(values and str(values[0]).strip().lower() == "processes")
+
+
 def _cached_operations_payload(path_query: str) -> dict[str, Any]:
     if _BASE_OPERATIONS_PAYLOAD is None:
         raise RuntimeError("Leitor operacional base indisponível")
@@ -27,7 +34,16 @@ def _cached_operations_payload(path_query: str) -> dict[str, Any]:
         cached = _CACHE.get(key)
         if cached and now - cached[0] <= _READ_TTL_SECONDS:
             return dict(cached[1])
-    payload = _BASE_OPERATIONS_PAYLOAD(path_query)
+
+    # A bridge do botão Processos só consome `processes`. O caminho base montava
+    # primeiro o dashboard inteiro (counts + queue + processes) e só depois
+    # descartava o restante. Em Windows/SQLite isso ainda podia disputar lock e
+    # atrasar o boot da UI mesmo com a aba Adicionar fechada.
+    if _is_processes_scope(path_query):
+        payload = {"ok": True, "processes": operational._processes_snapshot()}
+    else:
+        payload = _BASE_OPERATIONS_PAYLOAD(path_query)
+
     with _CACHE_LOCK:
         _CACHE[key] = (time.monotonic(), dict(payload))
         if len(_CACHE) > 40:
