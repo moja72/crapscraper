@@ -49,6 +49,7 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     from app.addition_operational_performance_policy import install_addition_operational_performance_policy
     from app.addition_tab_diagnostics_policy import install_addition_tab_diagnostics_policy
     from app.local_ui_resilience_policy import install_local_ui_resilience_policy
+    from app.panel_layout_standardization_policy import install_panel_layout_standardization_policy
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
@@ -62,4 +63,7 @@ def install_addition_operational_legacy_suppression_policy() -> None:
     # Resiliencia final do painel: dedupe de packs/planos e desconexoes normais
     # do navegador nao podem virar um segundo write/traceback no servidor.
     install_local_ui_resilience_policy()
+    # Padronizacao visual aplicada por ultimo para nao interferir nos listeners,
+    # filas ou no lazy-load que estabilizou o painel.
+    install_panel_layout_standardization_policy()
     _INSTALLED = True
