@@ -62,26 +62,13 @@ _ADDITION_RENDER_PATCH = _ADDITION_RENDER_MARKER + '''    const additionProgress
       else if(additionProgressTotal>0&&additionProgressProcessed>=additionProgressTotal)additionNow.textContent="Processamento concluído";
       else additionNow.textContent="Nenhuma adição em execução";
     }
-    const additionHistorySummary=$("#addition_history_summary"),additionHistoryAccordion=$("#addition_history_accordion");
-    if(additionHistorySummary&&!additionHistoryAccordion?.open)additionHistorySummary.textContent=`${Math.max(0,Number(counts.completed||0)+Number(counts.error||0))} item(ns)`;
-    window.__crapScraperSyncAdditionHistoryTabs?.(counts);
 '''
-_ADDITION_HISTORY_FINAL_RENDER_MARKER = 'Object.assign(data,payload);if(scope==="history"){renderHistory();state.historyDirty=false;}else renderScope(scope);'
-_ADDITION_HISTORY_FINAL_RENDER_PATCH = 'Object.assign(data,payload);if(scope==="history"){state.loading.delete(scope);renderHistory();state.historyDirty=false;}else renderScope(scope);'
-
-
 def _patch_addition_progress(html: str) -> str:
     result = str(html or "")
     if 'id="addition_progress_block"' not in result and _ADDITION_PROGRESS_MARKER in result:
         result = result.replace(_ADDITION_PROGRESS_MARKER, _ADDITION_PROGRESS_MARKUP, 1)
     if "additionProgressTotal" not in result and _ADDITION_RENDER_MARKER in result:
         result = result.replace(_ADDITION_RENDER_MARKER, _ADDITION_RENDER_PATCH, 1)
-    if _ADDITION_HISTORY_FINAL_RENDER_MARKER in result:
-        result = result.replace(
-            _ADDITION_HISTORY_FINAL_RENDER_MARKER,
-            _ADDITION_HISTORY_FINAL_RENDER_PATCH,
-            1,
-        )
     return result
 
 
