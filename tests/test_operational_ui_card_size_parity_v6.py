@@ -11,10 +11,13 @@ def _read(path: Path) -> str:
 
 def test_update_and_addition_cards_use_same_explicit_desktop_geometry() -> None:
     source = _read(FRONTEND)
-    assert "#updates_summary" in source
-    assert "#addition_summary_grid" in source
-    assert "#addition_summary_grid>.addition-summary-chip" in source
-    assert "flex:0 0 200px" in source
+    assert "#tab_panel_atualizacoes #updates_summary" in source
+    assert "#addition_intro_card #addition_summary_grid" in source
+    assert "#addition_intro_card #addition_summary_grid>.addition-summary-chip" in source
+    assert "grid-template-columns:repeat(auto-fill,200px)" in source
+    assert "column-gap:8px" in source
+    assert "row-gap:8px" in source
+    assert "justify-content:start" in source
     assert "width:200px" in source
     assert "min-width:200px" in source
     assert "max-width:200px" in source
@@ -24,20 +27,29 @@ def test_update_and_addition_cards_use_same_explicit_desktop_geometry() -> None:
     assert "padding:9px 10px" in source
 
 
+def test_specificity_prevents_legacy_grid_from_redistributing_free_space() -> None:
+    source = _read(FRONTEND)
+    assert "#tab_panel_atualizacoes #updates_summary" in source
+    assert "#addition_intro_card #addition_summary_grid" in source
+    assert "grid-auto-columns:200px" in source
+    assert "justify-items:start" in source
+    assert "justify-self:start" in source
+
+
 def test_update_and_addition_cards_share_typography_footer_and_active_state() -> None:
     source = _read(FRONTEND)
-    assert "#updates_summary>*>strong" in source
-    assert "#addition_summary_grid>*>strong" in source
+    assert "#tab_panel_atualizacoes #updates_summary>*>strong" in source
+    assert "#addition_intro_card #addition_summary_grid>*>strong" in source
     assert "font-size:18px" in source
     assert ".operational-summary-footer" in source
-    assert "#updates_summary>.is-filter-active" in source
-    assert "#addition_summary_grid>.is-filter-active" in source
+    assert "#tab_panel_atualizacoes #updates_summary>.is-filter-active" in source
+    assert "#addition_intro_card #addition_summary_grid>.is-filter-active" in source
 
 
 def test_help_buttons_keep_identical_size() -> None:
     source = _read(FRONTEND)
-    assert "#updates_summary .comparison-help" in source
-    assert "#addition_summary_grid .comparison-help" in source
+    assert "#tab_panel_atualizacoes #updates_summary .comparison-help" in source
+    assert "#addition_intro_card #addition_summary_grid .comparison-help" in source
     assert "width:22px" in source
     assert "height:22px" in source
 
