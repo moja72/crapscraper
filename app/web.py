@@ -2287,19 +2287,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div id="updates_queue_jobs"></div>
   </div>
 
-    <details class="card updates-card-section updates-section updates-history-accordion" id="updates_history_accordion">
-      <summary><span class="updates-history-title"><span class="updates-disclosure-chevron" aria-hidden="true">▸</span><span class="section-title">Histórico</span></span><span class="small" id="updates_history_summary">Conteúdo recolhido</span></summary>
-      <div class="hidden updates-conditional-controls" id="updates_history_controls">
-      <div class="updates-history-toolbar"><div class="updates-history-filter-group"><label>Buscar no histórico<input id="updates_history_search" type="search" placeholder="Nome ou WooCommerce ID"></label><label>Estado<select id="updates_history_status_filter"><option value="">Todos</option><option value="completed">Concluído</option><option value="rolled_back">Rollback concluído</option><option value="error">Erro</option><option value="failed">Falhou</option><option value="blocked">Bloqueado</option><option value="canceled">Cancelado</option><option value="interrupted">Interrompido</option></select></label></div><div class="updates-history-actions"><button class="btn-secondary btn-sm" id="updates_history_download" type="button">Baixar histórico</button><button class="btn-danger btn-sm" id="updates_history_delete" type="button">Apagar histórico</button></div></div>
-      <div class="updates-history-tabs" role="tablist" aria-label="Tipo de histórico"><button class="updates-history-tab is-active" id="updates_history_completed" role="tab" aria-selected="true" type="button">Concluídos</button><button class="updates-history-tab" id="updates_history_errors" role="tab" aria-selected="false" type="button">Erros</button></div>
-      <div class="listing-meta-row updates-history-listing-meta">
-        <div class="small" id="updates_history_result_meta">Mostrando 0 de 0 itens</div>
-        <div class="listing-page-size"><label for="updates_history_page_size" class="small">Itens por página</label><input id="updates_history_page_size" class="listing-page-size-input" type="number" min="1" step="1" value="5" inputmode="numeric"></div>
-      </div>
-      <div class="listing-pagination"><button class="btn-secondary" id="updates_history_prev" type="button">← Anterior</button><span class="badge cs-page-jump" id="updates_history_page">Página <input data-cs-page-input type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span>1</span></span><button class="btn-secondary" id="updates_history_next" type="button">Próxima →</button></div>
-      </div>
-      <div class="updates-history-panel" id="updates_history" role="tabpanel" aria-live="polite"></div>
-    </details>
+    <div data-operational-history-host data-history-type="update"></div>
     <details class="card updates-card-section updates-technical-log"><summary><span class="updates-disclosure-chevron" aria-hidden="true">▸</span><span class="section-title">Log técnico da sessão</span></summary><pre id="updates_log" class="log-output" aria-live="polite">Nenhum evento nesta sessão.</pre><div class="log-copy-row"><button class="btn-success" id="updates_copy_log" type="button">📋 Copiar log completo</button></div></details>
 </section>
 
