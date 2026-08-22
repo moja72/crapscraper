@@ -90,13 +90,14 @@ def _addition_rows() -> list[dict[str, Any]]:
         source_url = _clean(row.get("source_product_url"))
         result.append(
             {
-                "kind": "addition",
+                "id": _clean(row.get("job_id")),
+                "operation_type": "addition",
                 "job_id": _clean(row.get("job_id")),
                 "name": _clean(row.get("source_name")) or _clean(row.get("job_id")),
                 "woo_product_id": _safe_int(row.get("woo_product_id")),
                 "attempt_no": _safe_int(row.get("attempt_no")),
-                "status": status,
-                "status_label": _STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
+                "state": status,
+                "state_label": _STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
                 "bucket": _bucket(status),
                 "result": _clean(row.get("result")),
                 "origin": addition_ui._origin_label(source_url),
@@ -105,12 +106,12 @@ def _addition_rows() -> list[dict[str, Any]]:
                 "developer": _clean(row.get("desenvolvedor")),
                 "category": _clean(row.get("category_name")),
                 "product_type": "Tema" if _clean(row.get("kind")) == "theme" else "Plugin",
-                "version_from": "",
-                "version_to": _clean(row.get("source_version")),
+                "previous_version": "",
+                "new_version": _clean(row.get("source_version")),
                 "started_at": started_at,
                 "finished_at": finished_at,
                 "date": finished_at or started_at,
-                "duration_seconds": _duration_seconds(started_at, finished_at),
+                "duration": _duration_seconds(started_at, finished_at),
                 "current_step": _clean(row.get("current_step")),
                 "progress": max(0, min(100, _safe_int(row.get("progress")))),
                 "final_state": _clean(row.get("final_state")) or status,
@@ -157,7 +158,8 @@ def _update_rows() -> list[dict[str, Any]]:
         result_text = error or _STATUS_LABELS.get(status, status.replace("_", " ").capitalize())
         rows.append(
             {
-                "kind": "update",
+                "id": _clean(row.get("job_id")),
+                "operation_type": "update",
                 "job_id": _clean(row.get("job_id")),
                 "name": _clean(row.get("name")) or _clean(row.get("source_name")) or _clean(row.get("job_id")),
                 "woo_product_id": _safe_int(row.get("woo_product_id")),
@@ -172,8 +174,8 @@ def _update_rows() -> list[dict[str, Any]]:
                 "developer": "",
                 "category": "",
                 "product_type": "Atualização",
-                "version_from": _clean(row.get("plugintema_version")),
-                "version_to": (
+                "previous_version": _clean(row.get("plugintema_version")),
+                "new_version": (
                     _clean(row.get("effective_source_version"))
                     or _clean(row.get("approved_source_version"))
                     or _clean(row.get("ultrapack_version"))
