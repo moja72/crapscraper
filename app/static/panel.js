@@ -6007,7 +6007,7 @@ function renderUpdateHistory(){
   const completedTab=byId("updates_history_completed"),errorsTab=byId("updates_history_errors"),completedActive=UPDATE_QUEUE.historyMode==="completed";
   const completedCount=UPDATE_QUEUE.jobs.filter(job=>["completed","rolled_back"].includes(job.state)).length;
   const errorCount=UPDATE_QUEUE.jobs.filter(job=>["error","failed","blocked","rollback_required","canceled","interrupted"].includes(job.state)).length;
-  if(completedTab)completedTab.textContent=`Concluídos (${completedCount})`;if(errorsTab)errorsTab.textContent=`Erros (${errorCount})`;
+  setText("updates_history_completed_count",completedCount);setText("updates_history_errors_count",errorCount);
   completedTab?.classList.toggle("is-active",completedActive);errorsTab?.classList.toggle("is-active",!completedActive);
   completedTab?.setAttribute("aria-selected",String(completedActive));errorsTab?.setAttribute("aria-selected",String(!completedActive));
   const hasHistory=UPDATE_QUEUE.jobs.some(job=>allHistoryStates.includes(job.state));
