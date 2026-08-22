@@ -50,6 +50,8 @@ def test_update_operational_filter_has_no_global_dom_observer() -> None:
     assert 'key === "atualizacoes"' in source
     assert "MutationObserver" not in source
     assert ".observe(document.body" not in source
+    assert "setInterval(" not in source
+    assert "scheduleAfterOperation" in source
     assert "if (panelVisible() && !document.hidden)" in source
 
 
