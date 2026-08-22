@@ -18,6 +18,7 @@ _SCRIPT_PATHS = (
     ("data-preparation-sections-canonical-v8", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8.js"),
     ("data-preparation-sections-canonical-v8-cleanup", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8_cleanup.js"),
     ("data-preparation-update-visibility-v9", Path(__file__).resolve().parent / "static" / "preparation_update_visibility_v9.js"),
+    ("data-preparation-flow-gate-v10", Path(__file__).resolve().parent / "static" / "preparation_flow_gate_v10.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
@@ -110,9 +111,11 @@ def install_panel_layout_standardization_policy() -> None:
     # workers, listeners ou polling.
     from app.addition_queue_lists_policy import install_addition_queue_lists_policy
     from app.operation_completion_visibility_policy import install_operation_completion_visibility_policy
+    from app.preparation_execution_gate_policy import install_preparation_execution_gate_policy
 
     install_addition_queue_lists_policy()
     install_operation_completion_visibility_policy()
+    install_preparation_execution_gate_policy()
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
