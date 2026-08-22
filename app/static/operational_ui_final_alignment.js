@@ -316,11 +316,9 @@
 
   function classSections() {
     [
-      "#updates_history_accordion",
       "#tab_panel_atualizacoes .updates-technical-log",
       "#addition_preparation_accordion",
       "#addition_queue_accordion",
-      "#addition_history_accordion",
       "#addition_technical_accordion",
     ].forEach(selector => $(selector)?.classList.add("cs-op-section"));
 
@@ -338,23 +336,18 @@
     [
       "#addition_preparation_accordion .addition-list-meta",
       "#addition_queue_accordion .addition-list-meta",
-      "#addition_history_accordion .addition-list-meta",
     ].forEach(selector => $(selector)?.classList.add("cs-op-list-meta"));
 
     [
       "#addition_preparation_accordion .addition-pagination",
       "#addition_queue_accordion .addition-pagination",
-      "#addition_history_accordion .addition-pagination",
       "#updates_queue_list_controls .listing-pagination",
-      "#updates_history_accordion .listing-pagination",
     ].forEach(selector => $(selector)?.classList.add("cs-op-pagination"));
 
     [
       "#addition_preparation_page",
       "#addition_queue_page",
-      "#addition_history_page",
       "#updates_queue_page",
-      "#updates_history_page",
     ].forEach(selector => $(selector)?.classList.add("cs-op-page-jump"));
 
     $$("#tab_panel_atualizacoes .notice, #tab_panel_adicoes .addition-empty").forEach(node => {
@@ -386,10 +379,8 @@
   }
 
   function normalizeAccordionsAndLogs() {
-    normalizeSummary($("#updates_history_accordion > summary"));
     normalizeSummary($("#addition_preparation_accordion > summary"));
     normalizeSummary($("#addition_queue_accordion > summary"));
-    normalizeSummary($("#addition_history_accordion > summary"));
 
     const updateLog = $("#tab_panel_atualizacoes .updates-technical-log");
     if (updateLog) {
