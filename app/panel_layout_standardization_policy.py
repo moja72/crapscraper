@@ -11,6 +11,7 @@ _SCRIPT_PATHS = (
     ("data-panel-layout-standardization", Path(__file__).resolve().parent / "static" / "panel_layout_standardization.js"),
     ("data-operational-ui-parity", Path(__file__).resolve().parent / "static" / "operational_ui_parity.js"),
     ("data-operational-ui-final-alignment", Path(__file__).resolve().parent / "static" / "operational_ui_final_alignment.js"),
+    ("data-operational-ui-consistency-v4", Path(__file__).resolve().parent / "static" / "operational_ui_consistency_v4.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
@@ -88,6 +89,14 @@ def install_panel_layout_standardization_policy() -> None:
     global _INSTALLED, _BASE_RENDER
     if _INSTALLED:
         return
+
+    # As listas da fila de Adições são instaladas aqui porque esta policy já é
+    # executada depois da UI operacional e da camada de cache/resiliência. Assim
+    # a seleção da lista ativa pode reaproveitar o mesmo motor sem duplicar
+    # workers, listeners ou polling.
+    from app.addition_queue_lists_policy import install_addition_queue_lists_policy
+
+    install_addition_queue_lists_policy()
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
