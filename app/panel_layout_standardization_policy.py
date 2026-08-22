@@ -14,6 +14,7 @@ _SCRIPT_PATHS = (
     ("data-operational-ui-consistency-v4", Path(__file__).resolve().parent / "static" / "operational_ui_consistency_v4.js"),
     ("data-operational-ui-card-parity-v5", Path(__file__).resolve().parent / "static" / "operational_ui_card_parity_v5.js"),
     ("data-operational-ui-card-size-parity-v6", Path(__file__).resolve().parent / "static" / "operational_ui_card_size_parity_v6.js"),
+    ("data-operation-completion-visibility", Path(__file__).resolve().parent / "static" / "operation_completion_visibility.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
@@ -56,6 +57,8 @@ _ADDITION_RENDER_PATCH = _ADDITION_RENDER_MARKER + '''    const additionProgress
     if(additionHistorySummary&&!additionHistoryAccordion?.open)additionHistorySummary.textContent=`${Math.max(0,Number(counts.completed||0)+Number(counts.error||0))} item(ns)`;
     window.__crapScraperSyncAdditionHistoryTabs?.(counts);
 '''
+_ADDITION_HISTORY_FINAL_RENDER_MARKER = 'Object.assign(data,payload);if(scope==="history"){renderHistory();state.historyDirty=false;}else renderScope(scope);'
+_ADDITION_HISTORY_FINAL_RENDER_PATCH = 'Object.assign(data,payload);if(scope==="history"){state.loading.delete(scope);renderHistory();state.historyDirty=false;}else renderScope(scope);'
 
 
 def _patch_addition_progress(html: str) -> str:
@@ -64,6 +67,12 @@ def _patch_addition_progress(html: str) -> str:
         result = result.replace(_ADDITION_PROGRESS_MARKER, _ADDITION_PROGRESS_MARKUP, 1)
     if "additionProgressTotal" not in result and _ADDITION_RENDER_MARKER in result:
         result = result.replace(_ADDITION_RENDER_MARKER, _ADDITION_RENDER_PATCH, 1)
+    if _ADDITION_HISTORY_FINAL_RENDER_MARKER in result:
+        result = result.replace(
+            _ADDITION_HISTORY_FINAL_RENDER_MARKER,
+            _ADDITION_HISTORY_FINAL_RENDER_PATCH,
+            1,
+        )
     return result
 
 
@@ -97,8 +106,10 @@ def install_panel_layout_standardization_policy() -> None:
     # a seleção da lista ativa pode reaproveitar o mesmo motor sem duplicar
     # workers, listeners ou polling.
     from app.addition_queue_lists_policy import install_addition_queue_lists_policy
+    from app.operation_completion_visibility_policy import install_operation_completion_visibility_policy
 
     install_addition_queue_lists_policy()
+    install_operation_completion_visibility_policy()
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
