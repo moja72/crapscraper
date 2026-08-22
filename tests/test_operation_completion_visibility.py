@@ -111,16 +111,18 @@ def test_backfill_completed_addition_history_is_idempotent(tmp_path, monkeypatch
     assert row["source_name"] == "Produto de teste"
 
 
-def test_visibility_script_is_event_driven_and_scoped():
+def test_visibility_script_is_event_driven_and_has_no_dom_observer_loop():
     script = (Path(__file__).parents[1] / "app" / "static" / "operation_completion_visibility.js").read_text(encoding="utf-8")
 
     assert 'fetch("/operacoes/conclusoes"' in script
     assert "setInterval(" not in script
-    assert "observe(document.body" not in script
-    assert "observe(document.documentElement" not in script
-    assert '"#comparison_rows"' in script
-    assert '"#updates_queue_jobs"' in script
-    assert '"#addition_history_rows"' in script
+    assert "MutationObserver" not in script
+    assert ".observe(" not in script
+    assert "completionSignature" in script
+    assert "scheduleDecorate" in script
+    assert "tab_btn_comparacao" in script
+    assert "tab_btn_atualizacoes" in script
+    assert "tab_btn_adicoes" in script
     assert "Já adicionado" in script
     assert "Já atualizado" in script
 
