@@ -304,12 +304,36 @@
   let timer = null;
   const schedule = () => {
     clearTimeout(timer);
-    timer = setTimeout(standardizeAll, 70);
+    timer = setTimeout(standardizeAll, 0);
   };
 
   const start = () => {
     standardizeAll();
-    new MutationObserver(schedule).observe(document.body, {childList:true, subtree:true, characterData:true});
+
+    /* Sem observer global: a preparação só é reajustada em eventos reais de UI. */
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest(
+        "#tab_btn_atualizacoes,#updates_refresh_btn,#updates_prepare_selected,#updates_enqueue_selected,#updates_clear_selection,#updates_select_page,#updates_select_filtered,#catalogos_refresh_btn"
+      )) schedule();
+    }, true);
+
+    document.addEventListener("crapscraper:main-tab-changed", (event) => {
+      const key = String(event?.detail?.key || document.body?.dataset?.activeTab || "");
+      if (key === "atualizacoes" || key === "principal") schedule();
+    });
+
+    /* Catálogo é a única área dinâmica deste arquivo que ainda precisa observar
+       inserções de linhas. O observer fica estritamente escopado ao tbody. */
+    const catalogBody = byId("catalogos_table_body");
+    if (catalogBody) {
+      let catalogTimer = null;
+      new MutationObserver(() => {
+        clearTimeout(catalogTimer);
+        catalogTimer = setTimeout(standardizeCatalogContexts, 40);
+      }).observe(catalogBody, {childList:true, subtree:true});
+    }
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once:true});
