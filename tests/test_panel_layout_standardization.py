@@ -47,6 +47,7 @@ def test_visual_standardization_does_not_add_background_activity() -> None:
     for path in (
         "app/static/panel_layout_standardization.js",
         "app/static/operational_ui_parity.js",
+        "app/static/operational_ui_final_alignment.js",
     ):
         source = Path(path).read_text(encoding="utf-8")
         assert "MutationObserver" not in source
@@ -56,10 +57,17 @@ def test_visual_standardization_does_not_add_background_activity() -> None:
 
 
 def test_update_preparation_empty_state_is_deduplicated() -> None:
-    source = Path("app/static/panel_layout_standardization.js").read_text(encoding="utf-8")
-    assert "dedupeUpdatePreparationEmpty" in source
-    assert 'seen.has(key)' in source
-    assert "node.remove()" in source
+    sources = "\n".join(
+        Path(path).read_text(encoding="utf-8")
+        for path in (
+            "app/static/panel_layout_standardization.js",
+            "app/static/operational_ui_parity.js",
+            "app/static/operational_ui_final_alignment.js",
+        )
+    )
+    assert "dedupeUpdatePreparationEmpty" in sources
+    assert "seen.has(key)" in sources
+    assert "node.remove()" in sources
 
 
 def test_addition_progress_is_patched_into_existing_operational_ui() -> None:
@@ -79,6 +87,7 @@ def test_addition_progress_is_patched_into_existing_operational_ui() -> None:
     assert "additionProgressTotal" in patched
     assert "additionProgressProcessed" in patched
     assert "aria-valuenow" in patched
+    assert "__crapScraperSyncAdditionHistoryTabs?.(counts)" in patched
     assert _patch_addition_progress(patched) == patched
 
 
@@ -97,12 +106,59 @@ def test_deeper_operational_parity_reuses_existing_nodes() -> None:
     assert "cloneNode" not in source
 
 
-def test_standardization_policy_injects_both_visual_layers() -> None:
+def test_addition_history_matches_update_history_structure() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert "standardizeAdditionHistory" in source
+    assert 'tabs.id = "addition_history_tabs"' in source
+    assert "updates-history-tabs cs-op-history-tabs" in source
+    assert "addition_history_completed_tab" in source
+    assert "addition_history_errors_tab" in source
+    assert 'activateHistoryFilter("completed")' in source
+    assert 'activateHistoryFilter("error")' in source
+    assert 'meta.insertAdjacentElement("afterend", pagination)' in source
+    assert 'filters?.removeAttribute("style")' in source
+
+
+def test_addition_history_counts_use_existing_overview_counts() -> None:
+    policy = Path("app/panel_layout_standardization_policy.py").read_text(encoding="utf-8")
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert "__crapScraperSyncAdditionHistoryTabs?.(counts)" in policy
+    assert "window.__crapScraperSyncAdditionHistoryTabs" in source
+    assert "counts.completed" in source
+    assert "counts.error" in source
+
+
+def test_addition_history_default_completed_waits_until_history_opens() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert 'accordion.addEventListener("toggle"' in source
+    assert "if (!accordion.open" in source
+    assert 'activateHistoryFilter("completed")' in source
+
+
+def test_shared_filters_pagination_cards_and_logs_are_styled_by_final_layer() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    for token in (
+        "cs-op-section",
+        "cs-op-filterbar",
+        "cs-op-history-toolbar",
+        "cs-op-actions",
+        "cs-op-list-meta",
+        "cs-op-pagination",
+        "cs-op-page-jump",
+        "cs-op-empty",
+        "updates-technical-log",
+    ):
+        assert token in source
+
+
+def test_standardization_policy_injects_all_visual_layers() -> None:
     source = Path("app/panel_layout_standardization_policy.py").read_text(encoding="utf-8")
     assert "panel_layout_standardization.js" in source
     assert "operational_ui_parity.js" in source
+    assert "operational_ui_final_alignment.js" in source
     assert "_patch_addition_progress" in source
     assert "data-operational-ui-parity" in source
+    assert "data-operational-ui-final-alignment" in source
 
 
 def test_process_header_keeps_credits_after_button() -> None:
