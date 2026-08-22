@@ -293,7 +293,8 @@
   function selectHistoryTab(status){const select=$("#addition_history_state"),accordion=$("#addition_history_accordion");state.history.state=status;state.history.page=1;if(select)select.value=status;syncHistoryTabs(status);if(accordion?.open)loadScope("history");else state.historyDirty=true;}
 
   function renderSummary() {
-    const counts=state.overview.counts||{},grid=$("#addition_summary_grid");if(!grid)return;updateHistoryTabCounts(counts);
+    const counts=state.overview.counts||{},grid=$("#addition_summary_grid");if(!grid)return;
+    updateHistoryTabCounts(counts);
     const chips=[["Total aprovado",counts.total||0,""],["Aguardando",counts.waiting||0,"waiting"],["Preparando",counts.preparing||0,"preparing"],["Pronto",counts.ready||0,"ready"],["Na fila",counts.queued||0,"queued"],["Em execução",counts.executing||0,"executing"],["Concluído",counts.completed||0,"completed"],["Com erro",(counts.error||0)+(counts.interrupted||0),counts.error?"error":"interrupted"],["Cancelado",counts.canceled||0,"canceled"]];
     grid.innerHTML=chips.map(([label,count,filter])=>{const tag=filter?"button":"div";return `<${tag} ${filter?`type="button" data-summary-state="${esc(filter)}"`:""} class="addition-summary-chip"><strong>${esc(count)}</strong><span>${esc(label)}</span></${tag}>`;}).join("");
     grid.querySelectorAll("[data-summary-state]").forEach(button=>button.addEventListener("click",()=>{const value=button.dataset.summaryState||"";$("#addition_queue_state").value=value;state.queue.state=value;state.queue.page=1;$("#addition_queue_accordion").open=true;loadScope("queue");$("#addition_queue_accordion")?.scrollIntoView({behavior:"smooth",block:"start"});}));
