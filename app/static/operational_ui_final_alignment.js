@@ -250,81 +250,6 @@
         line-height:1.45!important;
       }
 
-      /* Histórico de Adições replica a hierarquia do Histórico de Atualizar. */
-      #tab_panel_adicoes #addition_history_accordion .updates-history-toolbar {
-        display:grid!important;
-        grid-template-columns:minmax(0,1fr) auto!important;
-        align-items:end!important;
-        gap:12px!important;
-        margin:12px 0 10px!important;
-      }
-      #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group {
-        display:grid!important;
-        grid-template-columns:minmax(260px,1fr) minmax(170px,.55fr) minmax(220px,.75fr)!important;
-        gap:12px!important;
-        min-width:0;
-      }
-      #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group label {
-        display:grid;
-        gap:6px;
-        min-width:0;
-        margin:0;
-      }
-      #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group input,
-      #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group select,
-      #tab_panel_adicoes #addition_history_accordion .updates-history-actions button {
-        min-height:42px!important;
-      }
-      #tab_panel_adicoes #addition_history_accordion .updates-history-actions {
-        display:flex!important;
-        align-items:end!important;
-        justify-content:flex-end!important;
-        gap:8px!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs {
-        display:flex;
-        align-items:flex-end;
-        gap:4px;
-        margin:10px 0 8px;
-        border-bottom:1px solid var(--line);
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab {
-        min-height:38px;
-        padding:8px 12px;
-        border:1px solid var(--line);
-        border-bottom-color:transparent;
-        border-radius:8px 8px 0 0;
-        background:rgba(255,255,255,.025);
-        color:var(--text-muted);
-        font-weight:800;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active {
-        border-color:var(--accent);
-        border-bottom-color:var(--bg);
-        background:rgba(124,58,237,.09);
-        color:var(--text);
-      }
-      #tab_panel_adicoes #addition_history_rows {
-        margin-top:10px;
-        border:1px solid var(--line);
-        border-radius:10px;
-        overflow:hidden;
-        background:rgba(255,255,255,.008);
-      }
-      #tab_panel_adicoes #addition_history_rows:has(.addition-empty) {
-        border:0;
-        background:transparent;
-      }
-      #tab_panel_adicoes .addition-history-row {
-        margin:0;
-        padding:13px 14px;
-        border:0;
-        border-bottom:1px solid var(--line);
-        border-radius:0;
-        background:transparent;
-      }
-      #tab_panel_adicoes .addition-history-row:last-child { border-bottom:0; }
-
       /* Logs: mesmo cabeçalho e mesma área técnica. */
       #tab_panel_atualizacoes .updates-technical-log .log-output,
       #tab_panel_adicoes .updates-technical-log .log-output {
@@ -334,23 +259,12 @@
       }
       #addition_technical_summary[hidden] { display:none!important; }
 
-      @media(max-width:980px) {
-        #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group {
-          grid-template-columns:1fr 1fr!important;
-        }
-        #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group label:first-child { grid-column:1/-1; }
-      }
       @media(max-width:700px) {
         #tab_panel_atualizacoes .cs-op-filterbar,
         #tab_panel_adicoes .cs-op-filterbar,
-        #tab_panel_adicoes .addition-toolbar,
-        #tab_panel_adicoes #addition_history_accordion .updates-history-toolbar,
-        #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group {
+        #tab_panel_adicoes .addition-toolbar {
           grid-template-columns:1fr!important;
         }
-        #tab_panel_adicoes #addition_history_accordion .updates-history-filter-group label:first-child { grid-column:auto; }
-        #tab_panel_adicoes #addition_history_accordion .updates-history-actions { justify-content:stretch!important; }
-        #tab_panel_adicoes #addition_history_accordion .updates-history-actions>button { flex:1 1 0; }
 
         #tab_panel_atualizacoes .listing-pagination,
         #tab_panel_adicoes .addition-pagination,
@@ -502,109 +416,6 @@
     });
   }
 
-  function syncHistoryTabs(value = $("#addition_history_state")?.value || "") {
-    const completed = $("#addition_history_completed_tab");
-    const errors = $("#addition_history_errors_tab");
-    const normalized = String(value || "");
-    if (completed) {
-      const active = normalized === "completed";
-      completed.classList.toggle("is-active", active);
-      completed.setAttribute("aria-selected", String(active));
-    }
-    if (errors) {
-      const active = normalized === "error";
-      errors.classList.toggle("is-active", active);
-      errors.setAttribute("aria-selected", String(active));
-    }
-  }
-
-  function updateHistoryTabCounts(counts = {}) {
-    const completedCount = Math.max(0, Number(counts.completed || 0));
-    const errorCount = Math.max(0, Number(counts.error || 0));
-    const completed = $("#addition_history_completed_tab");
-    const errors = $("#addition_history_errors_tab");
-    if (completed) completed.textContent = `Concluídos (${completedCount})`;
-    if (errors) errors.textContent = `Erros (${errorCount})`;
-
-    const summary = $("#addition_history_summary");
-    if (summary && (normalize(summary.textContent).startsWith("Carregando") || !normalize(summary.textContent))) {
-      summary.textContent = `${completedCount + errorCount} item(ns)`;
-    }
-  }
-
-  window.__crapScraperSyncAdditionHistoryTabs = counts => {
-    updateHistoryTabCounts(counts || {});
-    syncHistoryTabs();
-  };
-
-  function activateHistoryFilter(status) {
-    const select = $("#addition_history_state");
-    if (!select) return;
-    select.value = status;
-    syncHistoryTabs(status);
-    select.dispatchEvent(new Event("change", { bubbles:true }));
-  }
-
-  function standardizeAdditionHistory() {
-    const accordion = $("#addition_history_accordion");
-    if (!accordion) return false;
-    const toolbar = $(".updates-history-toolbar", accordion);
-    const filters = $(".updates-history-filter-group", accordion);
-    const meta = $(".addition-list-meta", accordion);
-    const pagination = $(".addition-pagination", accordion);
-    const rows = $("#addition_history_rows", accordion);
-    const select = $("#addition_history_state", accordion);
-    if (!toolbar || !filters || !meta || !pagination || !rows || !select) return false;
-
-    filters.removeAttribute("style");
-    toolbar.classList.add("cs-op-history-toolbar");
-    filters.classList.add("cs-op-history-filters");
-    meta.classList.add("cs-op-list-meta");
-    pagination.classList.add("cs-op-pagination");
-    $("#addition_history_page")?.classList.add("cs-op-page-jump");
-
-    let tabs = $("#addition_history_tabs", accordion);
-    if (!tabs) {
-      tabs = document.createElement("div");
-      tabs.id = "addition_history_tabs";
-      tabs.className = "updates-history-tabs cs-op-history-tabs";
-      tabs.setAttribute("role", "tablist");
-      tabs.setAttribute("aria-label", "Tipo de histórico de adições");
-      tabs.innerHTML = `
-        <button class="updates-history-tab" id="addition_history_completed_tab" role="tab" aria-selected="false" type="button">Concluídos (0)</button>
-        <button class="updates-history-tab" id="addition_history_errors_tab" role="tab" aria-selected="false" type="button">Erros (0)</button>`;
-      toolbar.insertAdjacentElement("afterend", tabs);
-      $("#addition_history_completed_tab", tabs)?.addEventListener("click", () => activateHistoryFilter("completed"));
-      $("#addition_history_errors_tab", tabs)?.addEventListener("click", () => activateHistoryFilter("error"));
-    }
-
-    /* Igual ao Atualizar: filtros -> tabs -> meta -> paginação -> resultados. */
-    if (tabs.previousElementSibling !== toolbar) toolbar.insertAdjacentElement("afterend", tabs);
-    if (meta.previousElementSibling !== tabs) tabs.insertAdjacentElement("afterend", meta);
-    if (pagination.previousElementSibling !== meta) meta.insertAdjacentElement("afterend", pagination);
-    if (rows.previousElementSibling !== pagination) pagination.insertAdjacentElement("afterend", rows);
-
-    if (!select.dataset.csHistoryTabsBound) {
-      select.dataset.csHistoryTabsBound = "1";
-      select.addEventListener("change", () => syncHistoryTabs(select.value));
-    }
-
-    if (!accordion.dataset.csHistoryDefaultBound) {
-      accordion.dataset.csHistoryDefaultBound = "1";
-      accordion.addEventListener("toggle", () => {
-        if (!accordion.open || accordion.dataset.csHistoryDefaultApplied === "1") return;
-        accordion.dataset.csHistoryDefaultApplied = "1";
-        if (!select.value) activateHistoryFilter("completed");
-        else syncHistoryTabs(select.value);
-      }, true);
-    }
-
-    const currentSummary = $("#addition_history_summary");
-    if (currentSummary && normalize(currentSummary.textContent).startsWith("Carregando")) currentSummary.textContent = "0 item(ns)";
-    syncHistoryTabs(select.value);
-    return true;
-  }
-
   function normalizeAdditionTechnicalSummary() {
     const meta = $("#addition_technical_summary");
     if (!meta) return;
@@ -617,7 +428,6 @@
     classSections();
     normalizeAccordionsAndLogs();
     normalizeAdditionTechnicalSummary();
-    standardizeAdditionHistory();
     dedupeUpdatePreparationEmpty();
   }
 
@@ -638,13 +448,10 @@
     if (target.closest([
       "#addition_preparation_accordion > summary",
       "#addition_queue_accordion > summary",
-      "#addition_history_accordion > summary",
       "#addition_technical_accordion > summary",
-      "#updates_history_accordion > summary",
       "#tab_panel_atualizacoes .updates-technical-log > summary",
       "#addition_preparation_refresh",
       "#addition_queue_refresh",
-      "#addition_history_refresh",
     ].join(","))) {
       schedule([0, 60, 180, 500, 1100]);
     }
