@@ -115,8 +115,11 @@ def test_addition_history_matches_update_history_structure() -> None:
     assert "addition_history_errors_tab" in source
     assert 'activateHistoryFilter("completed")' in source
     assert 'activateHistoryFilter("error")' in source
+    assert 'filters.removeAttribute("style")' in source
+    assert 'toolbar.insertAdjacentElement("afterend", tabs)' in source
+    assert 'tabs.insertAdjacentElement("afterend", meta)' in source
     assert 'meta.insertAdjacentElement("afterend", pagination)' in source
-    assert 'filters?.removeAttribute("style")' in source
+    assert 'pagination.insertAdjacentElement("afterend", rows)' in source
 
 
 def test_addition_history_counts_use_existing_overview_counts() -> None:
@@ -126,6 +129,7 @@ def test_addition_history_counts_use_existing_overview_counts() -> None:
     assert "window.__crapScraperSyncAdditionHistoryTabs" in source
     assert "counts.completed" in source
     assert "counts.error" in source
+    assert 'summary.textContent = `${completedCount + errorCount} item(ns)`' in source
 
 
 def test_addition_history_default_completed_waits_until_history_opens() -> None:
@@ -133,6 +137,44 @@ def test_addition_history_default_completed_waits_until_history_opens() -> None:
     assert 'accordion.addEventListener("toggle"' in source
     assert "if (!accordion.open" in source
     assert 'activateHistoryFilter("completed")' in source
+
+
+def test_preparation_and_queue_pagination_use_same_grid_as_update() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert "#tab_panel_atualizacoes .listing-pagination" in source
+    assert "#tab_panel_adicoes .addition-pagination" in source
+    assert "grid-template-columns:minmax(180px,1fr) auto minmax(180px,1fr)!important" in source
+    for selector in (
+        "#addition_preparation_accordion .addition-pagination",
+        "#addition_queue_accordion .addition-pagination",
+        "#addition_history_accordion .addition-pagination",
+        "#updates_queue_list_controls .listing-pagination",
+        "#updates_history_accordion .listing-pagination",
+    ):
+        assert selector in source
+    assert "#addition_preparation_page" in source
+    assert "#addition_queue_page" in source
+    assert "#addition_history_page" in source
+
+
+def test_logs_have_consistent_left_aligned_titles_without_loading_meta() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert "normalizeAccordionsAndLogs" in source
+    assert "cs-op-summary-left" in source
+    assert '"Log técnico da atualização"' in source
+    assert '"Log técnico das adições"' in source
+    assert 'meta.hidden = true' in source
+    assert "addition_technical_summary" in source
+
+
+def test_lazy_addition_alignment_retries_are_finite_and_event_driven() -> None:
+    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    assert "6000" in source
+    assert 'document.addEventListener("click"' in source
+    assert '"#addition_preparation_accordion > summary"' in source
+    assert '"#addition_history_accordion > summary"' in source
+    assert "setInterval(" not in source
+    assert "MutationObserver" not in source
 
 
 def test_shared_filters_pagination_cards_and_logs_are_styled_by_final_layer() -> None:
