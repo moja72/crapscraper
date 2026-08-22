@@ -19,8 +19,7 @@
     updateByWoo: new Map(),
     inFlight: null,
     lastFetchedAt: 0,
-    observers: new Map(),
-    completionRefreshTimer: null,
+    decorateTimers: new Set(),
   };
 
   function installStyles() {
@@ -88,12 +87,16 @@
     return parts.join(" · ");
   }
 
+  function recordKey(record) {
+    return `${record.kind}:${record.job_id || record.comparison_item_id || record.woo_product_id}:${record.version}:${record.completed_at}`;
+  }
+
   function renderBadges(host, records) {
     if (!host) return;
     const unique = [];
     const seen = new Set();
     records.filter(Boolean).forEach(record => {
-      const key = `${record.kind}:${record.job_id || record.comparison_item_id || record.woo_product_id}`;
+      const key = recordKey(record);
       if (seen.has(key)) return;
       seen.add(key);
       unique.push(record);
@@ -104,17 +107,29 @@
       wrap?.remove();
       return;
     }
+
+    const signature = unique.map(recordKey).join("|");
+    if (wrap?.dataset?.completionSignature === signature) return;
+
     if (!wrap) {
       wrap = document.createElement("div");
       wrap.className = "cs-operation-completion-statuses";
       host.appendChild(wrap);
     }
-    wrap.innerHTML = unique.map(record => {
+
+    const markup = unique.map(record => {
       const label = record.label || (record.kind === "update" ? "Já atualizado" : "Já adicionado");
       const cls = record.kind === "update" ? " is-update" : "";
-      const title = tooltip(record).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const title = tooltip(record)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
       return `<span class="cs-operation-completion-badge${cls}" title="${title}">${label}</span>`;
     }).join("");
+
+    wrap.dataset.completionSignature = signature;
+    if (wrap.innerHTML !== markup) wrap.innerHTML = markup;
   }
 
   function comparisonRecords(row) {
@@ -132,18 +147,18 @@
   function decorateComparison() {
     const root = $("#comparison_rows");
     if (!root) return;
-    $$(`tr`, root).forEach(row => {
+    $$("tr", root).forEach(row => {
       const records = comparisonRecords(row).filter(Boolean);
       if (!records.length) return;
-      const host = row.querySelector("td") || row;
-      renderBadges(host, records);
+      renderBadges(row.querySelector("td") || row, records);
     });
   }
 
   function decorateUpdates() {
     const root = $("#tab_panel_atualizacoes");
     if (!root) return;
-    $$(`[data-update-detail]`, root).forEach(detail => {
+
+    $$("[data-update-detail]", root).forEach(detail => {
       const jobId = text(detail.dataset.updateDetail);
       const row = detail.closest(".update-queue-row, article, tr, .card") || detail.parentElement;
       const wooId = extractWooId(row?.textContent);
@@ -154,19 +169,19 @@
     });
 
     const history = $("#updates_history");
-    if (history) {
-      Array.from(history.children).forEach(row => {
-        const wooId = extractWooId(row.textContent);
-        const record = wooId ? state.updateByWoo.get(wooId) : null;
-        if (record) renderBadges(row, [record]);
-      });
-    }
+    if (!history) return;
+    Array.from(history.children).forEach(row => {
+      const wooId = extractWooId(row.textContent);
+      const record = wooId ? state.updateByWoo.get(wooId) : null;
+      if (record) renderBadges(row, [record]);
+    });
   }
 
   function decorateAdditions() {
     const root = $("#tab_panel_adicoes");
     if (!root) return;
-    $$(`[data-add-job]`, root).forEach(row => {
+
+    $$("[data-add-job]", root).forEach(row => {
       const jobId = text(row.dataset.addJob);
       const wooId = extractWooId(row.textContent);
       const record = state.addByJob.get(jobId) || (wooId ? state.addByWoo.get(wooId) : null);
@@ -176,29 +191,52 @@
     });
 
     const history = $("#addition_history_rows");
-    if (history) {
-      $$(".addition-history-row", history).forEach(row => {
-        const wooId = extractWooId(row.textContent);
-        const record = wooId ? state.addByWoo.get(wooId) : null;
-        if (record) renderBadges(row.firstElementChild || row, [record]);
-      });
-    }
+    if (!history) return;
+    $$(".addition-history-row", history).forEach(row => {
+      const wooId = extractWooId(row.textContent);
+      const record = wooId ? state.addByWoo.get(wooId) : null;
+      if (record) renderBadges(row.firstElementChild || row, [record]);
+    });
   }
 
-  function decorateAll() {
-    decorateComparison();
-    decorateUpdates();
-    decorateAdditions();
+  function currentTab() {
+    const declared = text(document.body?.dataset?.activeTab).toLowerCase();
+    if (["comparacao", "atualizacoes", "adicoes"].includes(declared)) return declared;
+    if (!$("#tab_panel_comparacao")?.classList.contains("hidden")) return "comparacao";
+    if (!$("#tab_panel_atualizacoes")?.classList.contains("hidden")) return "atualizacoes";
+    if (!$("#tab_panel_adicoes")?.classList.contains("hidden")) return "adicoes";
+    return "";
   }
 
-  async function refresh(force = false) {
+  function decorateTab(tab = currentTab()) {
+    if (tab === "comparacao") decorateComparison();
+    else if (tab === "atualizacoes") decorateUpdates();
+    else if (tab === "adicoes") decorateAdditions();
+  }
+
+  function scheduleDecorate(tab, delays = [80, 650, 2200]) {
+    delays.forEach(delay => {
+      const timer = setTimeout(() => {
+        state.decorateTimers.delete(timer);
+        decorateTab(tab);
+      }, delay);
+      state.decorateTimers.add(timer);
+    });
+  }
+
+  async function refresh(force = false, tab = currentTab()) {
     const now = Date.now();
     if (!force && now - state.lastFetchedAt < 1500 && state.additions.length + state.updates.length > 0) {
-      decorateAll();
-      return;
+      decorateTab(tab);
+      return null;
     }
-    if (state.inFlight) return state.inFlight;
-    state.inFlight = fetch("/operacoes/conclusoes", {cache:"no-store", credentials:"same-origin"})
+    if (state.inFlight) {
+      await state.inFlight;
+      decorateTab(tab);
+      return state.inFlight;
+    }
+
+    state.inFlight = fetch("/operacoes/conclusoes", {cache: "no-store", credentials: "same-origin"})
       .then(async response => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload?.ok === false) throw new Error(payload?.message || `HTTP ${response.status}`);
@@ -206,72 +244,53 @@
         state.updates = (Array.isArray(payload.updates) ? payload.updates : []).map(normalizeRecord);
         state.lastFetchedAt = Date.now();
         rebuildMaps();
-        decorateAll();
         return payload;
       })
       .catch(() => null)
       .finally(() => { state.inFlight = null; });
-    return state.inFlight;
-  }
 
-  function scheduleCompletionRefresh() {
-    if (state.completionRefreshTimer || Date.now() - state.lastFetchedAt < 1200) return;
-    state.completionRefreshTimer = setTimeout(() => {
-      state.completionRefreshTimer = null;
-      refresh(true);
-    }, 180);
-  }
-
-  function bindObserver(selector) {
-    const root = $(selector);
-    if (!root || state.observers.has(selector)) return;
-    const observer = new MutationObserver(mutations => {
-      let completionHint = false;
-      mutations.forEach(mutation => {
-        Array.from(mutation.addedNodes || []).forEach(node => {
-          if (!(node instanceof Element)) return;
-          if (node.matches?.(".cs-operation-completion-statuses") || node.closest?.(".cs-operation-completion-statuses")) return;
-          const content = text(node.textContent).toLowerCase();
-          if (content.includes("concluído") || content.includes("concluido")) completionHint = true;
-        });
-      });
-      decorateAll();
-      if (completionHint) scheduleCompletionRefresh();
-    });
-    observer.observe(root, {childList:true, subtree:true});
-    state.observers.set(selector, observer);
-  }
-
-  function bindObservers() {
-    [
-      "#comparison_rows",
-      "#updates_queue_jobs",
-      "#updates_history",
-      "#addition_preparation_rows",
-      "#addition_queue_rows",
-      "#addition_history_rows",
-    ].forEach(bindObserver);
+    const payload = await state.inFlight;
+    decorateTab(tab);
+    return payload;
   }
 
   function bindEvents() {
-    ["tab_btn_comparacao", "tab_btn_atualizacoes", "tab_btn_adicoes"].forEach(id => {
-      $(`#${id}`)?.addEventListener("click", () => setTimeout(() => {
-        bindObservers();
-        refresh(true);
-      }, 0));
+    const tabs = {
+      tab_btn_comparacao: "comparacao",
+      tab_btn_atualizacoes: "atualizacoes",
+      tab_btn_adicoes: "adicoes",
+    };
+
+    Object.entries(tabs).forEach(([id, tab]) => {
+      $(`#${id}`)?.addEventListener("click", () => {
+        setTimeout(() => refresh(true, tab), 0);
+        scheduleDecorate(tab);
+      });
     });
-    ["updates_refresh_btn", "addition_sync_approved", "addition_history_refresh"].forEach(id => {
-      $(`#${id}`)?.addEventListener("click", () => setTimeout(() => refresh(true), 250));
+
+    const actions = {
+      updates_refresh_btn: "atualizacoes",
+      addition_sync_approved: "adicoes",
+      addition_history_refresh: "adicoes",
+    };
+
+    Object.entries(actions).forEach(([id, tab]) => {
+      $(`#${id}`)?.addEventListener("click", () => {
+        setTimeout(() => refresh(true, tab), 250);
+        scheduleDecorate(tab, [300, 1000, 3000]);
+      });
     });
   }
 
   function boot() {
     installStyles();
     bindEvents();
-    bindObservers();
-    refresh(true);
+    refresh(true, currentTab());
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, {once:true});
+  window.__crapScraperRefreshOperationCompletion = (tab = currentTab()) => refresh(true, tab);
+  window.__crapScraperDecorateOperationCompletion = (tab = currentTab()) => decorateTab(tab);
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, {once: true});
   else boot();
 })();
