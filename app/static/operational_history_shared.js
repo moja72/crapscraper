@@ -1,14 +1,8 @@
-(() => {
+((scope) => {
   "use strict";
 
-  if (window.__crapScraperOperationalHistorySharedInstalled) return;
-  window.__crapScraperOperationalHistorySharedInstalled = true;
-
-  const CONFIG = {
-    update: { root: "#updates_history_accordion", label: "Atualizar" },
-    addition: { root: "#addition_history_accordion", label: "Adicionar" },
-  };
-
+  const COMPLETED_STATES = new Set(["completed", "rolled_back"]);
+  const ERROR_STATES = new Set(["error", "failed", "blocked", "rollback_required", "interrupted", "canceled"]);
   const STATUS_OPTIONS = [
     ["", "Todos"],
     ["completed", "Concluído"],
@@ -21,127 +15,263 @@
     ["canceled", "Cancelado"],
     ["running", "Em andamento"],
   ];
-
   const SORT_OPTIONS = [
     ["recent", "Mais recente"],
     ["old", "Mais antigo"],
-    ["az", "Alfabética (A–Z)"],
-    ["za", "Alfabética inversa (Z–A)"],
+    ["az", "Alfabética A–Z"],
+    ["za", "Alfabética Z–A"],
   ];
 
-  const state = {
-    update: freshState(),
-    addition: freshState(),
+  const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
+  const esc = value => String(value ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  const itemTime = item => {
+    const raw = text(item?.finished_at || item?.started_at);
+    const parsed = raw ? new Date(raw) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : 0;
   };
+  const bucketForState = value => COMPLETED_STATES.has(text(value))
+    ? "completed" : ERROR_STATES.has(text(value)) ? "errors" : "other";
 
   function freshState() {
     return {
       items: [], counts: {completed: 0, errors: 0}, mode: "completed",
       query: "", status: "", origin: "", dateFrom: "", dateTo: "", lastDays: "",
-      sort: "recent", page: 1, pageSize: 5, loading: false, loaded: false,
+      sort: "recent", page: 1, pageSize: 5, loading: false, loaded: false, error: "",
     };
   }
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-  const esc = value => String(value ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-  const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
-
-  function options(rows, selected = "") {
-    return rows.map(([value, label]) => `<option value="${esc(value)}"${value === selected ? " selected" : ""}>${esc(label)}</option>`).join("");
+  function normalizeItem(item = {}) {
+    const state = text(item.state || item.status);
+    return {
+      id: text(item.id || item.job_id),
+      operation_type: text(item.operation_type || item.kind),
+      name: text(item.name || item.id || item.job_id),
+      woo_product_id: Number(item.woo_product_id || 0),
+      state,
+      state_label: text(item.state_label || item.status_label || state),
+      bucket: text(item.bucket) || bucketForState(state),
+      origin: text(item.origin),
+      previous_version: text(item.previous_version || item.version_from),
+      new_version: text(item.new_version || item.version_to),
+      started_at: text(item.started_at),
+      finished_at: text(item.finished_at),
+      duration: Math.max(0, Number(item.duration ?? item.duration_seconds) || 0),
+      result: text(item.result),
+      error: text(item.error),
+      logs: Array.isArray(item.logs) ? item.logs.map(text).filter(Boolean) : [],
+      developer: text(item.developer),
+      category: text(item.category),
+      official_url: text(item.official_url),
+      source_url: text(item.source_url),
+      current_step: text(item.current_step),
+      progress: Math.max(0, Math.min(100, Number(item.progress) || 0)),
+      final_state: text(item.final_state || state),
+      attempt_no: Math.max(0, Number(item.attempt_no) || 0),
+      product_type: text(item.product_type),
+    };
   }
 
-  function compatibilityMarkup(kind) {
-    if (kind === "update") {
-      return `<div class="op-history-compat" aria-hidden="true">
-        <span id="updates_history_summary"></span>
-        <div id="updates_history_controls" class="hidden">
-          <input id="updates_history_search"><select id="updates_history_status_filter"><option value=""></option></select>
-          <button id="updates_history_download" type="button"></button><button id="updates_history_delete" type="button"></button>
-          <button id="updates_history_completed" type="button"></button><button id="updates_history_errors" type="button"></button>
-          <span id="updates_history_result_meta"></span><input id="updates_history_page_size" value="5">
-          <button id="updates_history_prev" type="button"></button><span id="updates_history_page"></span><button id="updates_history_next" type="button"></button>
-        </div>
-        <div id="updates_history"></div>
-      </div>`;
+  function normalizePayload(payload = {}) {
+    const items = Array.isArray(payload.items) ? payload.items.map(normalizeItem) : [];
+    const completed = Number(payload.counts?.completed);
+    const errors = Number(payload.counts?.errors);
+    return {
+      ok: payload.ok !== false,
+      total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : items.length,
+      counts: {
+        completed: Number.isFinite(completed) ? completed : items.filter(item => item.bucket === "completed").length,
+        errors: Number.isFinite(errors) ? errors : items.filter(item => item.bucket === "errors").length,
+      },
+      items,
+    };
+  }
+
+  function filterHistoryItems(items, filters, now = Date.now()) {
+    const query = text(filters.query).toLocaleLowerCase("pt-BR");
+    const origin = text(filters.origin).toLocaleLowerCase("pt-BR");
+    let from = null;
+    let to = null;
+    if (filters.lastDays) {
+      const days = Math.max(1, Number.parseInt(filters.lastDays, 10) || 0);
+      if (days) from = now - days * 86400000;
+    } else {
+      if (filters.dateFrom) {
+        const parsed = new Date(`${filters.dateFrom}T00:00:00`);
+        if (!Number.isNaN(parsed.getTime())) from = parsed.getTime();
+      }
+      if (filters.dateTo) {
+        const parsed = new Date(`${filters.dateTo}T23:59:59.999`);
+        if (!Number.isNaN(parsed.getTime())) to = parsed.getTime();
+      }
     }
-    return `<div class="op-history-compat" aria-hidden="true">
-      <span id="addition_history_summary"></span>
-      <input id="addition_history_search"><input id="addition_history_origin">
-      <select id="addition_history_state"><option value=""></option></select>
-      <button id="addition_history_download" type="button"></button><button id="addition_history_refresh" type="button"></button>
-      <span id="addition_history_meta"></span><input id="addition_history_page_size" value="5">
-      <button id="addition_history_prev" type="button"></button><span id="addition_history_page"></span><button id="addition_history_next" type="button"></button>
-      <div id="addition_history_rows"></div>
-    </div>`;
+
+    const result = items.filter(raw => {
+      const item = normalizeItem(raw);
+      if (item.bucket !== filters.mode) return false;
+      if (filters.status && item.state !== filters.status) return false;
+      if (query && !`${item.name} ${item.woo_product_id} ${item.id}`.toLocaleLowerCase("pt-BR").includes(query)) return false;
+      if (origin && !`${item.origin} ${item.source_url}`.toLocaleLowerCase("pt-BR").includes(origin)) return false;
+      const time = itemTime(item);
+      if (from !== null && (!time || time < from)) return false;
+      if (to !== null && (!time || time > to)) return false;
+      return true;
+    });
+
+    result.sort((left, right) => {
+      if (filters.sort === "old") return itemTime(left) - itemTime(right);
+      if (filters.sort === "az") return left.name.localeCompare(right.name, "pt-BR", {sensitivity: "base"});
+      if (filters.sort === "za") return right.name.localeCompare(left.name, "pt-BR", {sensitivity: "base"});
+      return itemTime(right) - itemTime(left);
+    });
+    return result;
   }
 
-  function shell(kind) {
-    const s = state[kind];
-    return `
-      <summary class="op-history-summary">
-        <span class="op-history-title"><span class="updates-disclosure-chevron" aria-hidden="true">▸</span><span class="section-title">Histórico</span></span>
-        <span class="small op-history-summary-count" data-oh-summary>0 registro(s)</span>
+  function paginateHistoryItems(items, page, pageSize) {
+    const size = Math.max(1, Math.min(500, Number.parseInt(pageSize, 10) || 5));
+    const pages = Math.max(1, Math.ceil(items.length / size));
+    const current = Math.min(Math.max(1, Number.parseInt(page, 10) || 1), pages);
+    const start = (current - 1) * size;
+    return {items: items.slice(start, start + size), page: current, pageSize: size, pages, start};
+  }
+
+  function optionMarkup(rows) {
+    return rows.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
+  }
+
+  function renderOperationalHistory(type) {
+    const kind = type === "addition" ? "addition" : "update";
+    return `<details class="cs-history card updates-card-section" data-operational-history data-history-type="${kind}">
+      <summary class="cs-history-summary">
+        <span class="cs-history-title"><span class="updates-disclosure-chevron" aria-hidden="true">▸</span><span class="section-title">Histórico</span></span>
+        <span class="small cs-history-summary-count" data-history-summary>0 registro(s)</span>
       </summary>
-      <div class="op-history-body" data-oh-body>
-        <div class="op-history-toolbar">
-          <div class="op-history-filter-grid">
-            <label>Buscar no histórico<input data-oh-filter="query" type="search" placeholder="Nome ou WooCommerce ID"></label>
-            <label>Estado<select data-oh-filter="status">${options(STATUS_OPTIONS, s.status)}</select></label>
-            <label>Origem<input data-oh-filter="origin" type="search" placeholder="UltraPack, PluginTheme ou domínio"></label>
-            <label>Ordenar<select data-oh-filter="sort">${options(SORT_OPTIONS, s.sort)}</select></label>
+      <div class="cs-history-body">
+        <div class="cs-history-toolbar">
+          <div class="cs-history-filters">
+            <label>Buscar no histórico<input data-history-search type="search" placeholder="Nome ou WooCommerce ID"></label>
+            <label>Estado<select data-history-status>${optionMarkup(STATUS_OPTIONS)}</select></label>
+            <label>Origem<input data-history-origin type="search" placeholder="UltraPack, PluginTheme ou domínio"></label>
+            <label>Ordenar<select data-history-sort>${optionMarkup(SORT_OPTIONS)}</select></label>
           </div>
-          <div class="op-history-actions">
-            <button class="btn-secondary btn-sm" data-oh-action="download" type="button">Baixar histórico</button>
-            <button class="btn-danger btn-sm" data-oh-action="delete" type="button">Apagar histórico</button>
+          <div class="cs-history-actions">
+            <button class="btn-secondary btn-sm" data-history-action="download" type="button">Baixar histórico</button>
+            <button class="btn-secondary btn-sm" data-history-action="refresh" type="button">Atualizar</button>
+            <button class="btn-danger btn-sm" data-history-action="delete" type="button">Apagar histórico</button>
           </div>
         </div>
-
-        <div class="op-history-period" aria-label="Filtro por período">
-          <label>Data inicial<input data-oh-filter="date-from" type="date"></label>
-          <label>Data final<input data-oh-filter="date-to" type="date"></label>
-          <label>Últimos X dias<div class="op-history-last-days"><input data-oh-filter="last-days" type="number" min="1" max="3650" step="1" inputmode="numeric" placeholder="30"><button class="btn-secondary btn-sm" data-oh-action="last-days" type="button">Aplicar</button></div></label>
-          <button class="btn-secondary btn-sm op-history-clear-period" data-oh-action="clear-period" type="button">Limpar período</button>
+        <div class="cs-history-period">
+          <label>Data inicial<input data-history-date-from type="date"></label>
+          <label>Data final<input data-history-date-to type="date"></label>
+          <label>Últimos X dias<input data-history-last-days type="number" min="1" max="3650" step="1" inputmode="numeric" placeholder="30"></label>
+          <button class="btn-secondary btn-sm" data-history-action="apply-period" type="button">Aplicar</button>
+          <button class="btn-secondary btn-sm" data-history-action="clear-period" type="button">Limpar período</button>
         </div>
-
-        <div class="op-history-tabs" role="tablist" aria-label="Tipo de histórico">
-          <button class="op-history-tab is-active" data-oh-mode="completed" role="tab" aria-selected="true" type="button">Concluídos (0)</button>
-          <button class="op-history-tab" data-oh-mode="errors" role="tab" aria-selected="false" type="button">Erros (0)</button>
+        <div class="cs-history-tabs" role="tablist" aria-label="Tipo de histórico">
+          <button class="cs-history-tab is-active" data-history-tab="completed" role="tab" aria-selected="true" type="button"><span>Concluídos</span> (<span data-history-count="completed">0</span>)</button>
+          <button class="cs-history-tab" data-history-tab="errors" role="tab" aria-selected="false" type="button"><span>Erros</span> (<span data-history-count="errors">0</span>)</button>
         </div>
-
-        <div class="op-history-listing-meta">
-          <div class="small" data-oh-meta>Mostrando 0 de 0 registros</div>
-          <div class="listing-page-size"><label class="small">Itens por página</label><input data-oh-filter="page-size" class="listing-page-size-input" type="number" min="1" max="500" step="1" value="5" inputmode="numeric"></div>
+        <div class="cs-history-meta">
+          <span class="small" data-history-meta>Mostrando 0 de 0 registros</span>
+          <label class="cs-history-page-size"><span class="small">Itens por página</span><input data-history-page-size type="number" min="1" max="500" step="1" value="5" inputmode="numeric"></label>
         </div>
-
-        <div class="op-history-pagination">
-          <button class="btn-secondary" data-oh-action="prev" type="button">← Anterior</button>
-          <span class="badge op-history-page">Página <input data-oh-filter="page" type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span data-oh-pages>1</span></span>
-          <button class="btn-secondary" data-oh-action="next" type="button">Próxima →</button>
+        <div class="cs-history-pagination">
+          <button class="btn-secondary" data-history-action="prev" type="button">← Anterior</button>
+          <span class="badge cs-history-page">Página <input data-history-page type="number" min="1" max="1" value="1" aria-label="Ir para página"> de <span data-history-pages>1</span></span>
+          <button class="btn-secondary" data-history-action="next" type="button">Próxima →</button>
         </div>
-
-        <div class="op-history-panel" data-oh-rows role="tabpanel" aria-live="polite"><div class="notice">Abra o histórico para carregar os registros.</div></div>
+        <div class="cs-history-list" data-history-list role="tabpanel" aria-live="polite"><div class="cs-history-empty">Abra o histórico para carregar os registros.</div></div>
       </div>
-      ${compatibilityMarkup(kind)}
-    `;
+    </details>`;
   }
 
-  function mount(kind) {
-    const config = CONFIG[kind];
-    const root = $(config.root);
-    if (!root || root.dataset.operationalHistoryShared === "1") return;
-    root.dataset.operationalHistoryShared = "1";
-    root.dataset.historyKind = kind;
-    root.classList.add("operational-history-shared");
-    root.innerHTML = shell(kind);
+  function formatDate(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return text(value);
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(date).replace(",", "");
+  }
+
+  function formatDuration(seconds) {
+    const total = Math.max(0, Number.parseInt(seconds, 10) || 0);
+    if (!total) return "—";
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return [days ? `${days}d` : "", (hours || days) ? `${hours}h` : "", `${minutes}m`].filter(Boolean).join(" ");
+  }
+
+  function stateClass(value) {
+    return COMPLETED_STATES.has(value) ? "is-success" : ERROR_STATES.has(value) ? "is-danger" : "is-active";
+  }
+
+  function renderHistoryRow(raw) {
+    const item = normalizeItem(raw);
+    const version = item.previous_version && item.new_version
+      ? `${item.previous_version} → ${item.new_version}` : (item.new_version || item.previous_version || "—");
+    const references = [
+      item.source_url ? `<a href="${esc(item.source_url)}" target="_blank" rel="noopener">origem</a>` : "",
+      item.official_url ? `<a href="${esc(item.official_url)}" target="_blank" rel="noopener">link oficial</a>` : "",
+    ].filter(Boolean).join(" · ");
+    const details = [
+      item.product_type ? `<span><b>Tipo:</b> ${esc(item.product_type)}</span>` : "",
+      item.category ? `<span><b>Categoria:</b> ${esc(item.category)}</span>` : "",
+      item.developer ? `<span><b>Desenvolvedor:</b> ${esc(item.developer)}</span>` : "",
+      item.previous_version ? `<span><b>Versão anterior:</b> ${esc(item.previous_version)}</span>` : "",
+      item.new_version ? `<span><b>Versão nova:</b> ${esc(item.new_version)}</span>` : "",
+      item.current_step ? `<span><b>Etapa:</b> ${esc(item.current_step)}</span>` : "",
+      `<span><b>Progresso:</b> ${esc(item.progress)}%</span>`,
+      references ? `<span><b>Referências:</b> ${references}</span>` : "",
+    ].filter(Boolean).join("");
+
+    return `<article class="cs-history-row" data-history-row="${esc(item.id)}">
+      <div class="cs-history-row-main"><strong>${esc(item.name || item.id)}</strong><span>Woo #${esc(item.woo_product_id || "—")}</span><span>Origem: ${esc(item.origin || "—")}</span><span>Versão: ${esc(version)}</span></div>
+      <div class="cs-history-row-status"><span class="cs-history-badge ${stateClass(item.state)}">${esc(item.state_label || item.state || "—")}</span></div>
+      <div class="cs-history-row-date"><span><b>Início:</b> ${esc(formatDate(item.started_at))}</span><span><b>Fim:</b> ${esc(formatDate(item.finished_at))}</span><span><b>Duração:</b> ${esc(formatDuration(item.duration))}</span></div>
+      <div class="cs-history-row-result"><span>${esc(item.result || item.final_state || "—")}</span><span>${esc(item.current_step || "Etapa não registrada")}</span><span>Progresso: ${esc(item.progress)}%</span></div>
+      <div class="cs-history-row-actions"><button class="btn-secondary" data-history-detail type="button" aria-expanded="false">Detalhes</button></div>
+      <div class="cs-history-details hidden" data-history-details><div class="cs-history-details-grid">${details}</div>${item.error ? `<div class="cs-history-error">${esc(item.error)}</div>` : ""}${item.logs.length ? `<pre class="cs-history-log">${item.logs.slice(-20).map(esc).join("\n")}</pre>` : ""}</div>
+    </article>`;
+  }
+
+  const core = Object.freeze({bucketForState, freshState, normalizeItem, normalizePayload, filterHistoryItems, paginateHistoryItems, renderOperationalHistory, renderHistoryRow});
+  if (typeof module === "object" && module.exports) module.exports = core;
+  if (typeof document === "undefined") return;
+  if (scope.__crapScraperOperationalHistorySharedInstalled) return;
+  scope.__crapScraperOperationalHistorySharedInstalled = true;
+
+  const states = new Map();
+  const roots = new Map();
+  const query = (selector, root = document) => root.querySelector(selector);
+  const queryAll = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+  function getState(kind) {
+    if (!states.has(kind)) states.set(kind, freshState());
+    return states.get(kind);
+  }
+
+  function mountHost(host) {
+    if (!host?.matches?.("[data-operational-history-host]")) return null;
+    const kind = host.dataset.historyType === "addition" ? "addition" : "update";
+    if (roots.has(kind) && document.contains(roots.get(kind))) {
+      host.remove();
+      return roots.get(kind);
+    }
+    const template = document.createElement("template");
+    template.innerHTML = renderOperationalHistory(kind).trim();
+    const root = template.content.firstElementChild;
+    host.replaceWith(root);
+    roots.set(kind, root);
     bind(kind, root);
     render(kind);
-    root.addEventListener("toggle", () => {
-      if (root.open) load(kind, true);
-    });
-    if (root.open) load(kind, true);
+    return root;
+  }
+
+  function mountAll(container = document) {
+    queryAll("[data-operational-history-host]", container).forEach(mountHost);
   }
 
   async function request(url, options = {}) {
@@ -157,306 +287,191 @@
   }
 
   async function load(kind, force = false) {
-    const s = state[kind];
-    if (s.loading || (s.loaded && !force)) return;
-    s.loading = true;
+    const root = roots.get(kind);
+    const state = getState(kind);
+    if (!root?.open || state.loading || (state.loaded && !force)) return;
+    state.loading = true;
+    state.error = "";
     render(kind);
     try {
-      const payload = await request(`/operacoes/historico?kind=${encodeURIComponent(kind)}`);
-      s.items = Array.isArray(payload.items) ? payload.items : [];
-      s.counts = payload.counts || {completed: 0, errors: 0};
-      s.loaded = true;
-      s.page = 1;
+      const payload = normalizePayload(await request(`/operacoes/historico?kind=${encodeURIComponent(kind)}`));
+      state.items = payload.items;
+      state.counts = payload.counts;
+      state.loaded = true;
+      state.page = 1;
     } catch (error) {
-      const root = $(CONFIG[kind].root);
-      const rows = root && $("[data-oh-rows]", root);
-      if (rows) rows.innerHTML = `<div class="notice is-error">${esc(error?.message || String(error))}</div>`;
+      state.error = text(error?.message || error);
     } finally {
-      s.loading = false;
+      state.loading = false;
       render(kind);
     }
   }
 
-  function itemTime(item) {
-    const raw = text(item?.date || item?.finished_at || item?.started_at);
-    const parsed = raw ? new Date(raw) : null;
-    return parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : 0;
+  function invalidate(kind) {
+    const state = getState(kind);
+    state.loaded = false;
   }
 
-  function filtered(kind) {
-    const s = state[kind];
-    const q = text(s.query).toLocaleLowerCase("pt-BR");
-    const origin = text(s.origin).toLocaleLowerCase("pt-BR");
-    const status = text(s.status);
-    let from = null;
-    let to = null;
-
-    if (s.lastDays) {
-      const days = Math.max(1, Number.parseInt(s.lastDays, 10) || 0);
-      if (days) from = Date.now() - days * 24 * 60 * 60 * 1000;
-    } else {
-      if (s.dateFrom) {
-        const parsed = new Date(`${s.dateFrom}T00:00:00`);
-        if (!Number.isNaN(parsed.getTime())) from = parsed.getTime();
-      }
-      if (s.dateTo) {
-        const parsed = new Date(`${s.dateTo}T23:59:59.999`);
-        if (!Number.isNaN(parsed.getTime())) to = parsed.getTime();
-      }
-    }
-
-    const items = s.items.filter(item => {
-      if (item.bucket !== s.mode) return false;
-      if (status && text(item.status) !== status) return false;
-      if (q) {
-        const hay = `${text(item.name)} ${text(item.woo_product_id)} ${text(item.job_id)}`.toLocaleLowerCase("pt-BR");
-        if (!hay.includes(q)) return false;
-      }
-      if (origin) {
-        const hay = `${text(item.origin)} ${text(item.source_url)}`.toLocaleLowerCase("pt-BR");
-        if (!hay.includes(origin)) return false;
-      }
-      const time = itemTime(item);
-      if (from !== null && (!time || time < from)) return false;
-      if (to !== null && (!time || time > to)) return false;
-      return true;
-    });
-
-    items.sort((a, b) => {
-      if (s.sort === "old") return itemTime(a) - itemTime(b);
-      if (s.sort === "az") return text(a.name).localeCompare(text(b.name), "pt-BR", {sensitivity: "base"});
-      if (s.sort === "za") return text(b.name).localeCompare(text(a.name), "pt-BR", {sensitivity: "base"});
-      return itemTime(b) - itemTime(a);
-    });
-    return items;
-  }
-
-  function formatDate(value) {
-    const raw = text(value);
-    if (!raw) return "—";
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) return raw;
-    return new Intl.DateTimeFormat("pt-BR", {
-      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
-    }).format(date).replace(",", "");
-  }
-
-  function formatDuration(seconds) {
-    const total = Math.max(0, Number.parseInt(seconds, 10) || 0);
-    if (!total) return "—";
-    const days = Math.floor(total / 86400);
-    const hours = Math.floor((total % 86400) / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const parts = [];
-    if (days) parts.push(`${days}d`);
-    if (hours || days) parts.push(`${hours}h`);
-    parts.push(`${minutes}m`);
-    return parts.join(" ");
-  }
-
-  function statusClass(status) {
-    if (["completed", "rolled_back"].includes(status)) return "is-success";
-    if (["error", "failed", "blocked", "rollback_required", "interrupted", "canceled"].includes(status)) return "is-danger";
-    return "is-active";
-  }
-
-  function rowMarkup(item) {
-    const from = text(item.version_from);
-    const to = text(item.version_to);
-    const version = from && to ? `${from} → ${to}` : (to || from || "—");
-    const woo = Number(item.woo_product_id || 0) > 0 ? `Woo #${esc(item.woo_product_id)} · ` : "";
-    const attempt = Number(item.attempt_no || 0) > 0 ? ` · Tentativa ${esc(item.attempt_no)}` : "";
-    const sourceLink = item.source_url ? `<a href="${esc(item.source_url)}" target="_blank" rel="noopener">origem</a>` : "";
-    const officialLink = item.official_url ? `<a href="${esc(item.official_url)}" target="_blank" rel="noopener">link oficial</a>` : "";
-    const references = [sourceLink, officialLink].filter(Boolean).join(" · ");
-    const logs = Array.isArray(item.logs) ? item.logs : [];
-    const details = [
-      item.product_type ? `<span><b>Tipo:</b> ${esc(item.product_type)}</span>` : "",
-      item.category ? `<span><b>Categoria:</b> ${esc(item.category)}</span>` : "",
-      item.developer ? `<span><b>Desenvolvedor:</b> ${esc(item.developer)}</span>` : "",
-      item.current_step ? `<span><b>Etapa final:</b> ${esc(item.current_step)}</span>` : "",
-      `<span><b>Progresso:</b> ${esc(item.progress || 0)}%</span>`,
-      `<span><b>Estado final:</b> ${esc(item.final_state || item.status || "—")}</span>`,
-      references ? `<span><b>Referências:</b> ${references}</span>` : "",
-    ].filter(Boolean).join("");
-    const technical = `${item.error ? `<div class="op-history-error">${esc(item.error)}</div>` : ""}${logs.length ? `<pre class="op-history-log">${logs.slice(-10).map(esc).join("\n")}</pre>` : ""}`;
-
-    return `<article class="op-history-row" data-oh-row="${esc(item.job_id)}">
-      <div class="op-history-main">
-        <strong class="op-history-name">${esc(item.name || item.job_id)}</strong>
-        <div class="op-history-meta">${woo}${esc(version)}</div>
-        <div class="op-history-meta">Origem: ${esc(item.origin || "—")}${attempt}</div>
-      </div>
-      <div class="op-history-state">
-        <span class="op-history-badge ${statusClass(text(item.status))}">${esc(item.status_label || item.status || "—")}</span>
-        <span class="op-history-result">${esc(item.result || "")}</span>
-      </div>
-      <div class="op-history-times">
-        <span><b>Início:</b> ${esc(formatDate(item.started_at))}</span>
-        <span><b>Fim:</b> ${esc(formatDate(item.finished_at))}</span>
-        <span><b>Duração:</b> ${esc(formatDuration(item.duration_seconds))}</span>
-      </div>
-      <div class="op-history-row-actions"><button class="btn-secondary" data-oh-detail type="button" aria-expanded="false">Detalhes</button></div>
-      <div class="op-history-detail hidden" data-oh-detail-panel><div class="op-history-detail-grid">${details}</div>${technical}</div>
-    </article>`;
+  function refresh(kind) {
+    invalidate(kind);
+    return load(kind, true);
   }
 
   function render(kind) {
-    const root = $(CONFIG[kind].root);
+    const root = roots.get(kind);
     if (!root) return;
-    const s = state[kind];
-    const summary = $("[data-oh-summary]", root);
-    const rows = $("[data-oh-rows]", root);
-    if (!summary || !rows) return;
-
-    const completedCount = Number(s.counts?.completed || 0);
-    const errorCount = Number(s.counts?.errors || 0);
-    summary.textContent = `${completedCount + errorCount} registro(s)`;
-    $$('[data-oh-mode]', root).forEach(button => {
-      const active = button.dataset.ohMode === s.mode;
+    const state = getState(kind);
+    const completed = Number(state.counts.completed || 0);
+    const errors = Number(state.counts.errors || 0);
+    query("[data-history-summary]", root).textContent = `${completed + errors} registro(s)`;
+    query('[data-history-count="completed"]', root).textContent = String(completed);
+    query('[data-history-count="errors"]', root).textContent = String(errors);
+    queryAll("[data-history-tab]", root).forEach(button => {
+      const active = button.dataset.historyTab === state.mode;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-selected", String(active));
-      const count = button.dataset.ohMode === "completed" ? completedCount : errorCount;
-      button.textContent = `${button.dataset.ohMode === "completed" ? "Concluídos" : "Erros"} (${count})`;
     });
 
-    if (s.loading) {
-      rows.innerHTML = '<div class="op-history-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando histórico persistido…</span></div>';
+    const list = query("[data-history-list]", root);
+    if (state.loading) {
+      list.innerHTML = '<div class="cs-history-loading"><span class="inline-loading-spinner" aria-hidden="true"></span><span>Carregando histórico persistido…</span></div>';
+      return;
+    }
+    if (state.error) {
+      list.innerHTML = `<div class="cs-history-empty is-error">${esc(state.error)}</div>`;
       return;
     }
 
-    const items = filtered(kind);
-    s.pageSize = Math.max(1, Math.min(500, Number.parseInt(s.pageSize, 10) || 5));
-    const pages = Math.max(1, Math.ceil(items.length / s.pageSize));
-    s.page = Math.min(Math.max(1, Number.parseInt(s.page, 10) || 1), pages);
-    const start = (s.page - 1) * s.pageSize;
-    const visible = items.slice(start, start + s.pageSize);
-    rows.innerHTML = visible.length ? visible.map(rowMarkup).join("") : '<div class="op-history-empty">Nenhum registro corresponde aos filtros.</div>';
+    const filtered = filterHistoryItems(state.items, state);
+    const page = paginateHistoryItems(filtered, state.page, state.pageSize);
+    state.page = page.page;
+    state.pageSize = page.pageSize;
+    list.innerHTML = page.items.length ? page.items.map(renderHistoryRow).join("") : '<div class="cs-history-empty">Nenhum registro corresponde aos filtros.</div>';
 
-    const meta = $("[data-oh-meta]", root);
-    if (meta) {
-      const first = items.length ? start + 1 : 0;
-      const last = Math.min(start + s.pageSize, items.length);
-      meta.textContent = `Mostrando ${first}–${last} de ${items.length} registros`;
-    }
-    const pageInput = $('[data-oh-filter="page"]', root);
-    if (pageInput) { pageInput.value = String(s.page); pageInput.max = String(pages); }
-    const pagesNode = $("[data-oh-pages]", root);
-    if (pagesNode) pagesNode.textContent = String(pages);
-    const prev = $('[data-oh-action="prev"]', root);
-    const next = $('[data-oh-action="next"]', root);
-    if (prev) prev.disabled = s.page <= 1;
-    if (next) next.disabled = s.page >= pages;
+    const first = filtered.length ? page.start + 1 : 0;
+    const last = Math.min(page.start + page.pageSize, filtered.length);
+    query("[data-history-meta]", root).textContent = `Mostrando ${first}–${last} de ${filtered.length} registros`;
+    const pageInput = query("[data-history-page]", root);
+    pageInput.value = String(page.page);
+    pageInput.max = String(page.pages);
+    query("[data-history-pages]", root).textContent = String(page.pages);
+    query('[data-history-action="prev"]', root).disabled = page.page <= 1;
+    query('[data-history-action="next"]', root).disabled = page.page >= page.pages;
   }
 
   function bind(kind, root) {
+    root.addEventListener("toggle", () => { if (root.open) load(kind); });
     root.addEventListener("input", event => {
-      const control = event.target.closest("[data-oh-filter]");
-      if (!control) return;
-      const s = state[kind];
-      const key = control.dataset.ohFilter;
-      if (key === "query") s.query = control.value;
-      else if (key === "origin") s.origin = control.value;
-      else if (key === "page-size") s.pageSize = control.value;
-      else if (key === "page") s.page = control.value;
-      else if (key === "last-days") s.lastDays = control.value;
+      const state = getState(kind);
+      if (event.target.matches("[data-history-search]")) state.query = event.target.value;
+      else if (event.target.matches("[data-history-origin]")) state.origin = event.target.value;
       else return;
-      if (key !== "page") s.page = 1;
+      state.page = 1;
       render(kind);
     });
-
     root.addEventListener("change", event => {
-      const control = event.target.closest("[data-oh-filter]");
-      if (!control) return;
-      const s = state[kind];
-      const key = control.dataset.ohFilter;
-      if (key === "status") s.status = control.value;
-      else if (key === "sort") s.sort = control.value;
-      else if (key === "date-from") { s.dateFrom = control.value; s.lastDays = ""; const last = $('[data-oh-filter="last-days"]', root); if (last) last.value = ""; }
-      else if (key === "date-to") { s.dateTo = control.value; s.lastDays = ""; const last = $('[data-oh-filter="last-days"]', root); if (last) last.value = ""; }
-      else if (key === "page-size") s.pageSize = control.value;
-      else if (key === "page") s.page = control.value;
+      const state = getState(kind);
+      if (event.target.matches("[data-history-status]")) state.status = event.target.value;
+      else if (event.target.matches("[data-history-sort]")) state.sort = event.target.value;
+      else if (event.target.matches("[data-history-date-from]")) {
+        state.dateFrom = event.target.value;
+        state.lastDays = "";
+        query("[data-history-last-days]", root).value = "";
+      } else if (event.target.matches("[data-history-date-to]")) {
+        state.dateTo = event.target.value;
+        state.lastDays = "";
+        query("[data-history-last-days]", root).value = "";
+      } else if (event.target.matches("[data-history-page-size]")) state.pageSize = event.target.value;
+      else if (event.target.matches("[data-history-page]")) state.page = event.target.value;
       else return;
-      if (key !== "page") s.page = 1;
+      if (!event.target.matches("[data-history-page]")) state.page = 1;
       render(kind);
     });
-
     root.addEventListener("click", async event => {
-      const mode = event.target.closest("[data-oh-mode]");
-      if (mode) {
-        state[kind].mode = mode.dataset.ohMode || "completed";
-        state[kind].status = "";
-        state[kind].page = 1;
-        const status = $('[data-oh-filter="status"]', root);
-        if (status) status.value = "";
+      const state = getState(kind);
+      const tab = event.target.closest("[data-history-tab]");
+      if (tab) {
+        state.mode = tab.dataset.historyTab;
+        state.status = "";
+        state.page = 1;
+        query("[data-history-status]", root).value = "";
         render(kind);
         return;
       }
-
-      const detail = event.target.closest("[data-oh-detail]");
+      const detail = event.target.closest("[data-history-detail]");
       if (detail) {
-        const row = detail.closest(".op-history-row");
-        const panel = row && $("[data-oh-detail-panel]", row);
-        if (!panel) return;
+        const panel = query("[data-history-details]", detail.closest("[data-history-row]"));
         const hidden = panel.classList.toggle("hidden");
         detail.setAttribute("aria-expanded", String(!hidden));
         detail.textContent = hidden ? "Detalhes" : "Ocultar";
         return;
       }
-
-      const action = event.target.closest("[data-oh-action]");
+      const action = event.target.closest("[data-history-action]");
       if (!action) return;
-      const type = action.dataset.ohAction;
-      const s = state[kind];
-      if (type === "prev") { s.page = Math.max(1, s.page - 1); render(kind); return; }
-      if (type === "next") { s.page += 1; render(kind); return; }
-      if (type === "clear-period") {
-        s.dateFrom = ""; s.dateTo = ""; s.lastDays = ""; s.page = 1;
-        $('[data-oh-filter="date-from"]', root).value = "";
-        $('[data-oh-filter="date-to"]', root).value = "";
-        $('[data-oh-filter="last-days"]', root).value = "";
-        render(kind); return;
-      }
-      if (type === "last-days") {
-        const input = $('[data-oh-filter="last-days"]', root);
-        const days = Math.max(1, Math.min(3650, Number.parseInt(input?.value, 10) || 0));
-        if (!days) return;
-        s.lastDays = String(days); s.dateFrom = ""; s.dateTo = ""; s.page = 1;
-        $('[data-oh-filter="date-from"]', root).value = "";
-        $('[data-oh-filter="date-to"]', root).value = "";
-        render(kind); return;
-      }
-      if (type === "download") { downloadCsv(kind); return; }
-      if (type === "delete") {
+      const type = action.dataset.historyAction;
+      if (type === "prev") state.page = Math.max(1, state.page - 1);
+      else if (type === "next") state.page += 1;
+      else if (type === "apply-period") {
+        const lastDays = query("[data-history-last-days]", root);
+        const days = Math.max(1, Math.min(3650, Number.parseInt(lastDays.value, 10) || 0));
+        if (lastDays.value) {
+          state.lastDays = String(days);
+          state.dateFrom = "";
+          state.dateTo = "";
+          query("[data-history-date-from]", root).value = "";
+          query("[data-history-date-to]", root).value = "";
+          lastDays.value = String(days);
+        }
+        state.page = 1;
+      } else if (type === "clear-period") {
+        state.dateFrom = "";
+        state.dateTo = "";
+        state.lastDays = "";
+        state.page = 1;
+        query("[data-history-date-from]", root).value = "";
+        query("[data-history-date-to]", root).value = "";
+        query("[data-history-last-days]", root).value = "";
+      } else if (type === "refresh") {
+        await refresh(kind);
+        return;
+      } else if (type === "download") {
+        download(kind);
+        return;
+      } else if (type === "delete") {
         const label = kind === "update" ? "atualizações" : "adições";
-        if (!window.confirm(`Apagar todo o histórico de ${label}? Esta ação não pode ser desfeita.`)) return;
+        if (!scope.confirm(`Apagar todo o histórico de ${label}? Esta ação não pode ser desfeita.`)) return;
         action.disabled = true;
         try {
           await request("/operacoes/historico/apagar", {method: "POST", body: JSON.stringify({kind})});
-          s.items = []; s.counts = {completed: 0, errors: 0}; s.page = 1; s.loaded = false;
+          state.items = [];
+          state.counts = {completed: 0, errors: 0};
+          state.loaded = false;
           await load(kind, true);
         } catch (error) {
-          window.alert(error?.message || String(error));
-        } finally { action.disabled = false; }
-      }
+          scope.alert(text(error?.message || error));
+        } finally {
+          action.disabled = false;
+        }
+        return;
+      } else return;
+      render(kind);
     });
   }
 
   function csvCell(value) {
-    const raw = String(value ?? "");
-    return `"${raw.replace(/"/g, '""')}"`;
+    return `"${String(value ?? "").replace(/"/g, '""')}"`;
   }
 
-  function downloadCsv(kind) {
-    const rows = filtered(kind);
-    const headers = ["Produto", "WooCommerce ID", "Estado", "Origem", "Versão anterior", "Versão final", "Início", "Fim", "Duração (s)", "Resultado", "Erro"];
-    const body = rows.map(item => [
-      item.name, item.woo_product_id || "", item.status_label || item.status, item.origin,
-      item.version_from, item.version_to, item.started_at, item.finished_at, item.duration_seconds || 0,
-      item.result, item.error,
+  function download(kind) {
+    const state = getState(kind);
+    const items = filterHistoryItems(state.items, state);
+    const rows = items.map(item => [
+      item.name, item.woo_product_id || "", item.state_label, item.origin,
+      item.previous_version, item.new_version, item.started_at, item.finished_at,
+      item.duration, item.result, item.error,
     ].map(csvCell).join(","));
-    const content = "\ufeff" + [headers.map(csvCell).join(","), ...body].join("\r\n");
-    const blob = new Blob([content], {type: "text/csv;charset=utf-8"});
+    const headers = ["Produto", "WooCommerce ID", "Estado", "Origem", "Versão anterior", "Versão final", "Início", "Fim", "Duração (s)", "Resultado", "Erro"];
+    const blob = new Blob(["\ufeff" + [headers.map(csvCell).join(","), ...rows].join("\r\n")], {type: "text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -467,11 +482,10 @@
     URL.revokeObjectURL(url);
   }
 
-  function init() {
-    mount("update");
-    mount("addition");
-  }
-
+  const api = Object.freeze({...core, mountAll, invalidate, refresh});
+  scope.OperationalHistory = api;
+  const init = () => mountAll(document);
+  document.addEventListener("operational-history:host-ready", event => mountAll(event.detail?.root || document));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, {once: true});
   else init();
-})();
+})(typeof window !== "undefined" ? window : globalThis);
