@@ -196,6 +196,12 @@
     refresh();
   }
 
+  function scheduleAfterOperation() {
+    [700, 2200].forEach(delay => window.setTimeout(() => {
+      if (panelVisible() && !document.hidden) refresh();
+    }, delay));
+  }
+
   function start() {
     installStyles();
     improveFilterControls();
@@ -204,9 +210,12 @@
       const key = String(event?.detail?.key || document.body?.dataset?.activeTab || "");
       if (key === "atualizacoes") activate();
     });
-    window.setInterval(() => {
-      if (panelVisible() && !document.hidden) refresh();
-    }, 6000);
+    [
+      "updates_refresh_btn", "updates_prepare_selected", "updates_enqueue_selected",
+      "updates_queue_start", "updates_queue_pause", "updates_queue_cancel",
+    ].forEach(id => {
+      document.getElementById(id)?.addEventListener("click", scheduleAfterOperation);
+    });
     if (panelVisible()) activate();
   }
 
