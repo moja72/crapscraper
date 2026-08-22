@@ -15,7 +15,8 @@ _SCRIPT_PATHS = (
     ("data-operational-ui-card-parity-v5", Path(__file__).resolve().parent / "static" / "operational_ui_card_parity_v5.js"),
     ("data-operational-ui-card-size-parity-v6", Path(__file__).resolve().parent / "static" / "operational_ui_card_size_parity_v6.js"),
     ("data-operation-completion-visibility", Path(__file__).resolve().parent / "static" / "operation_completion_visibility.js"),
-    ("data-preparation-sections-parity-v7", Path(__file__).resolve().parent / "static" / "preparation_sections_parity_v7.js"),
+    ("data-preparation-sections-canonical-v8", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8.js"),
+    ("data-preparation-sections-canonical-v8-cleanup", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8_cleanup.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
