@@ -1,5 +1,11 @@
 from pathlib import Path
 
+from app.panel_layout_standardization_policy import (
+    _ADDITION_PROGRESS_MARKER,
+    _ADDITION_RENDER_MARKER,
+    _patch_addition_progress,
+)
+
 
 def test_layout_standardization_script_contract() -> None:
     source = Path("app/static/panel_layout_standardization.js").read_text(encoding="utf-8")
@@ -38,11 +44,15 @@ def test_update_queue_meta_reuses_existing_nodes() -> None:
 
 
 def test_visual_standardization_does_not_add_background_activity() -> None:
-    source = Path("app/static/panel_layout_standardization.js").read_text(encoding="utf-8")
-    assert "MutationObserver" not in source
-    assert "setInterval(" not in source
-    assert "fetch(" not in source
-    assert "XMLHttpRequest" not in source
+    for path in (
+        "app/static/panel_layout_standardization.js",
+        "app/static/operational_ui_parity.js",
+    ):
+        source = Path(path).read_text(encoding="utf-8")
+        assert "MutationObserver" not in source
+        assert "setInterval(" not in source
+        assert "fetch(" not in source
+        assert "XMLHttpRequest" not in source
 
 
 def test_update_preparation_empty_state_is_deduplicated() -> None:
@@ -50,6 +60,49 @@ def test_update_preparation_empty_state_is_deduplicated() -> None:
     assert "dedupeUpdatePreparationEmpty" in source
     assert 'seen.has(key)' in source
     assert "node.remove()" in source
+
+
+def test_addition_progress_is_patched_into_existing_operational_ui() -> None:
+    sample = (
+        "before\n"
+        + _ADDITION_PROGRESS_MARKER
+        + "\n"
+        + _ADDITION_RENDER_MARKER
+        + "after\n"
+    )
+    patched = _patch_addition_progress(sample)
+    assert 'id="addition_progress_block"' in patched
+    assert 'id="addition_progress_percent"' in patched
+    assert 'id="addition_progress_label"' in patched
+    assert 'id="addition_progress_bar"' in patched
+    assert 'id="addition_now"' in patched
+    assert "additionProgressTotal" in patched
+    assert "additionProgressProcessed" in patched
+    assert "aria-valuenow" in patched
+    assert _patch_addition_progress(patched) == patched
+
+
+def test_deeper_operational_parity_reuses_existing_nodes() -> None:
+    source = Path("app/static/operational_ui_parity.js").read_text(encoding="utf-8")
+    assert "mergeAdditionOverview" in source
+    assert "standardizeAdditionQueue" in source
+    assert "cs-op-overview-card" in source
+    assert "cs-op-progress-copy" in source
+    assert "cs-op-progress-track" in source
+    assert "cs-op-now" in source
+    assert "cs-op-queue-primary-actions" in source
+    assert 'actions.appendChild(sync)' in source
+    assert '[start, pause, recover].forEach(button => actions.appendChild(button))' in source
+    assert "summary.remove()" in source
+    assert "cloneNode" not in source
+
+
+def test_standardization_policy_injects_both_visual_layers() -> None:
+    source = Path("app/panel_layout_standardization_policy.py").read_text(encoding="utf-8")
+    assert "panel_layout_standardization.js" in source
+    assert "operational_ui_parity.js" in source
+    assert "_patch_addition_progress" in source
+    assert "data-operational-ui-parity" in source
 
 
 def test_process_header_keeps_credits_after_button() -> None:
