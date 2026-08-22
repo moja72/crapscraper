@@ -20,6 +20,10 @@ _SCRIPT_PATHS = (
     ("data-preparation-update-visibility-v9", Path(__file__).resolve().parent / "static" / "preparation_update_visibility_v9.js"),
     ("data-preparation-flow-gate-v10", Path(__file__).resolve().parent / "static" / "preparation_flow_gate_v10.js"),
     ("data-operational-reliability-v11", Path(__file__).resolve().parent / "static" / "operational_reliability_v11.js"),
+    ("data-operational-history-shared-v12", Path(__file__).resolve().parent / "static" / "operational_history_shared.js"),
+)
+_STYLE_PATHS = (
+    ("data-operational-history-shared-style-v12", Path(__file__).resolve().parent / "static" / "operational_history_shared.css"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
@@ -81,6 +85,17 @@ def _patch_addition_progress(html: str) -> str:
     return result
 
 
+def _style_block() -> str:
+    blocks: list[str] = []
+    for attribute, path in _STYLE_PATHS:
+        try:
+            style = path.read_text(encoding="utf-8").replace("</style>", "<\\/style>")
+        except OSError:
+            continue
+        blocks.append(f"\n<style {attribute}>\n{style}\n</style>\n")
+    return "".join(blocks)
+
+
 def _script_block() -> str:
     blocks: list[str] = []
     for attribute, path in _SCRIPT_PATHS:
@@ -95,7 +110,7 @@ def _script_block() -> str:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = _patch_addition_progress(base(*args, **kwargs))
-    block = _script_block()
+    block = _style_block() + _script_block()
     if not block:
         return html
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
@@ -114,11 +129,13 @@ def install_panel_layout_standardization_policy() -> None:
     from app.operation_completion_visibility_policy import install_operation_completion_visibility_policy
     from app.preparation_execution_gate_policy import install_preparation_execution_gate_policy
     from app.operational_reliability_policy import install_operational_reliability_policy
+    from app.operational_history_shared_policy import install_operational_history_shared_policy
 
     install_addition_queue_lists_policy()
     install_operation_completion_visibility_policy()
     install_preparation_execution_gate_policy()
     install_operational_reliability_policy()
+    install_operational_history_shared_policy()
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
