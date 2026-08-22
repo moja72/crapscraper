@@ -289,7 +289,7 @@
   }
 
   function syncHistoryTabs(value=state.history.state){const completed=$("#addition_history_completed_tab"),errors=$("#addition_history_errors_tab"),completedActive=value==="completed";completed?.classList.toggle("is-active",completedActive);errors?.classList.toggle("is-active",!completedActive);completed?.setAttribute("aria-selected",String(completedActive));errors?.setAttribute("aria-selected",String(!completedActive));}
-  function updateHistoryTabCounts(counts={}){const completed=$("#addition_history_completed_count"),errors=$("#addition_history_errors_count");if(completed)completed.textContent=String(Math.max(0,Number(counts.completed||0)));if(errors)errors.textContent=String(Math.max(0,Number(counts.error||0)+Number(counts.interrupted||0)));}
+  function updateHistoryTabCounts(counts={}){const completedCount=Math.max(0,Number(counts.completed||0)),errorCount=Math.max(0,Number(counts.error||0)),completed=$("#addition_history_completed_count"),errors=$("#addition_history_errors_count"),summary=$("#addition_history_summary"),accordion=$("#addition_history_accordion");if(completed)completed.textContent=String(completedCount);if(errors)errors.textContent=String(errorCount);if(summary&&!accordion?.open)summary.textContent=`${completedCount+errorCount} item(ns)`;}
   function selectHistoryTab(status){const select=$("#addition_history_state"),accordion=$("#addition_history_accordion");state.history.state=status;state.history.page=1;if(select)select.value=status;syncHistoryTabs(status);if(accordion?.open)loadScope("history");else state.historyDirty=true;}
 
   function renderSummary() {
