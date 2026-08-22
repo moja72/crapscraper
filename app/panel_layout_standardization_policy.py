@@ -17,6 +17,7 @@ _SCRIPT_PATHS = (
     ("data-operation-completion-visibility", Path(__file__).resolve().parent / "static" / "operation_completion_visibility.js"),
     ("data-preparation-sections-canonical-v8", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8.js"),
     ("data-preparation-sections-canonical-v8-cleanup", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8_cleanup.js"),
+    ("data-preparation-update-visibility-v9", Path(__file__).resolve().parent / "static" / "preparation_update_visibility_v9.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
