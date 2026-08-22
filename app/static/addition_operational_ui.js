@@ -14,7 +14,7 @@
     overview: {counts:{}, queue:{status:"stopped"}, processes:[]},
     preparation: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:""},
     queue: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:""},
-    history: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:"", origin:""},
+    history: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:"completed", origin:""},
     selectedPreparation: new Set(), selectedQueue: new Set(), loading: new Set(),
     polling: false, started: false, historyDirty: true, technical: [], detailJobId: "",
   };
@@ -221,8 +221,9 @@
 
       <details class="card updates-card-section addition-accordion updates-history-accordion" id="addition_history_accordion">
         ${sectionTitle("Histórico de adições", "addition_history_summary")}
-        <div class="updates-history-toolbar"><div class="updates-history-filter-group" style="display:flex;flex-wrap:wrap;gap:10px;flex:1"><label>Buscar no histórico<input id="addition_history_search" type="search" placeholder="Nome ou WooCommerce ID"></label><label>Resultado<select id="addition_history_state">${selectOptions(HISTORY_OPTIONS)}</select></label><label>Origem<input id="addition_history_origin" type="search" placeholder="UltraPack, PluginTheme ou domínio"></label></div><div class="updates-history-actions"><button class="btn-secondary btn-sm" id="addition_history_download" type="button">Baixar histórico</button><button class="btn-secondary btn-sm" id="addition_history_refresh" type="button">Atualizar</button></div></div>
-        <div class="addition-list-meta"><span class="small" id="addition_history_meta">0 registros</span><div class="listing-page-size"><label class="small">Itens por página</label><input id="addition_history_page_size" class="listing-page-size-input" type="number" min="1" max="100" value="5"></div></div><div id="addition_history_rows" class="updates-history-panel"></div>${paginationMarkup("addition_history")}
+        <div class="updates-history-toolbar"><div class="updates-history-filter-group"><label>Buscar no histórico<input id="addition_history_search" type="search" placeholder="Nome ou WooCommerce ID"></label><label>Resultado<select id="addition_history_state">${selectOptions(HISTORY_OPTIONS)}</select></label><label>Origem<input id="addition_history_origin" type="search" placeholder="UltraPack, PluginTheme ou domínio"></label></div><div class="updates-history-actions"><button class="btn-secondary btn-sm" id="addition_history_download" type="button">Baixar histórico</button><button class="btn-secondary btn-sm" id="addition_history_refresh" type="button">Atualizar</button></div></div>
+        <div class="operational-history-tabs" role="tablist" aria-label="Tipo de histórico"><button class="operational-history-tab is-active" id="addition_history_completed_tab" data-history-tab="completed" role="tab" aria-selected="true" type="button"><span class="operational-history-tab-label">Concluídos</span> (<span class="operational-history-tab-count" id="addition_history_completed_count">0</span>)</button><button class="operational-history-tab" id="addition_history_errors_tab" data-history-tab="errors" role="tab" aria-selected="false" type="button"><span class="operational-history-tab-label">Erros</span> (<span class="operational-history-tab-count" id="addition_history_errors_count">0</span>)</button></div>
+        <div class="addition-list-meta"><span class="small" id="addition_history_meta">0 registros</span><div class="listing-page-size"><label class="small">Itens por página</label><input id="addition_history_page_size" class="listing-page-size-input" type="number" min="1" max="100" value="5"></div></div>${paginationMarkup("addition_history")}<div id="addition_history_rows" class="updates-history-panel"></div>
       </details>
 
       <details class="card updates-card-section addition-accordion updates-technical-log" id="addition_technical_accordion">
@@ -287,8 +288,12 @@
     const meta=$(`#${prefix}_meta`);if(meta){if(!data.total)meta.textContent=scope==="history"?"0 registros":"0 itens";else{const start=(data.page-1)*data.page_size+1,end=Math.min(data.total,data.page*data.page_size);meta.textContent=`Mostrando ${start}–${end} de ${data.total} ${scope==="history"?"registros":"itens"}`;}}
   }
 
+  function syncHistoryTabs(value=state.history.state){const completed=$("#addition_history_completed_tab"),errors=$("#addition_history_errors_tab"),completedActive=value==="completed";completed?.classList.toggle("is-active",completedActive);errors?.classList.toggle("is-active",!completedActive);completed?.setAttribute("aria-selected",String(completedActive));errors?.setAttribute("aria-selected",String(!completedActive));}
+  function updateHistoryTabCounts(counts={}){const completed=$("#addition_history_completed_count"),errors=$("#addition_history_errors_count");if(completed)completed.textContent=String(Math.max(0,Number(counts.completed||0)));if(errors)errors.textContent=String(Math.max(0,Number(counts.error||0)+Number(counts.interrupted||0)));}
+  function selectHistoryTab(status){const select=$("#addition_history_state"),accordion=$("#addition_history_accordion");state.history.state=status;state.history.page=1;if(select)select.value=status;syncHistoryTabs(status);if(accordion?.open)loadScope("history");else state.historyDirty=true;}
+
   function renderSummary() {
-    const counts=state.overview.counts||{},grid=$("#addition_summary_grid");if(!grid)return;
+    const counts=state.overview.counts||{},grid=$("#addition_summary_grid");if(!grid)return;updateHistoryTabCounts(counts);
     const chips=[["Total aprovado",counts.total||0,""],["Aguardando",counts.waiting||0,"waiting"],["Preparando",counts.preparing||0,"preparing"],["Pronto",counts.ready||0,"ready"],["Na fila",counts.queued||0,"queued"],["Em execução",counts.executing||0,"executing"],["Concluído",counts.completed||0,"completed"],["Com erro",(counts.error||0)+(counts.interrupted||0),counts.error?"error":"interrupted"],["Cancelado",counts.canceled||0,"canceled"]];
     grid.innerHTML=chips.map(([label,count,filter])=>{const tag=filter?"button":"div";return `<${tag} ${filter?`type="button" data-summary-state="${esc(filter)}"`:""} class="addition-summary-chip"><strong>${esc(count)}</strong><span>${esc(label)}</span></${tag}>`;}).join("");
     grid.querySelectorAll("[data-summary-state]").forEach(button=>button.addEventListener("click",()=>{const value=button.dataset.summaryState||"";$("#addition_queue_state").value=value;state.queue.state=value;state.queue.page=1;$("#addition_queue_accordion").open=true;loadScope("queue");$("#addition_queue_accordion")?.scrollIntoView({behavior:"smooth",block:"start"});}));
@@ -347,7 +352,10 @@
     const historySearch=debounce(value=>{state.history.q=value;state.history.page=1;loadScope("history");}),historyOrigin=debounce(value=>{state.history.origin=value;state.history.page=1;loadScope("history");});
     $("#addition_history_search")?.addEventListener("input",event=>historySearch(event.target.value));
     $("#addition_history_origin")?.addEventListener("input",event=>historyOrigin(event.target.value));
-    $("#addition_history_state")?.addEventListener("change",event=>{state.history.state=event.target.value;state.history.page=1;loadScope("history");});
+    const historyState=$("#addition_history_state");if(historyState)historyState.value=state.history.state;
+    $("#addition_history_state")?.addEventListener("change",event=>selectHistoryTab(event.target.value||"completed"));
+    $("#addition_history_completed_tab")?.addEventListener("click",()=>selectHistoryTab("completed"));
+    $("#addition_history_errors_tab")?.addEventListener("click",()=>selectHistoryTab("error"));
     $("#addition_history_refresh")?.addEventListener("click",()=>loadScope("history"));
     $("#addition_history_accordion")?.addEventListener("toggle",event=>{if(event.target.open&&state.historyDirty)loadScope("history");});
     $("#addition_history_download")?.addEventListener("click",()=>{const params=query({q:state.history.q,state:state.history.state,origin:state.history.origin}),anchor=document.createElement("a");anchor.href=`/adicoes/operacoes/historico.csv?${params}`;anchor.download="historico-adicoes.csv";document.body.appendChild(anchor);anchor.click();anchor.remove();});
