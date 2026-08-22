@@ -157,6 +157,13 @@
       color:var(--text)!important;
     }
 
+    #tab_panel_atualizacoes .updates-history-toolbar.cs-op-history-toolbar,
+    #tab_panel_adicoes .updates-history-toolbar.cs-op-history-toolbar {
+      background:none!important;
+      border:none!important;
+      padding:0!important;
+    }
+
     @media(max-width:1200px){
       #tab_panel_atualizacoes #updates_summary,
       #addition_intro_card #addition_summary_grid {
