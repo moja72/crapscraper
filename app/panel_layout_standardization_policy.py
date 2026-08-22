@@ -52,9 +52,6 @@ _ADDITION_RENDER_PATCH = _ADDITION_RENDER_MARKER + '''    const additionProgress
       else if(additionProgressTotal>0&&additionProgressProcessed>=additionProgressTotal)additionNow.textContent="Processamento concluído";
       else additionNow.textContent="Nenhuma adição em execução";
     }
-    const additionHistorySummary=$("#addition_history_summary"),additionHistoryAccordion=$("#addition_history_accordion");
-    if(additionHistorySummary&&!additionHistoryAccordion?.open)additionHistorySummary.textContent=`${Math.max(0,Number(counts.completed||0)+Number(counts.error||0))} item(ns)`;
-    window.__crapScraperSyncAdditionHistoryTabs?.(counts);
 '''
 
 
