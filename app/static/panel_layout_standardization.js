@@ -99,6 +99,9 @@
       #tab_panel_atualizacoes .cs-update-operational-summary{margin:12px 0}
       #tab_panel_atualizacoes .updates-filters{margin:12px 0}
       #tab_panel_atualizacoes .updates-list-controls{margin:12px 0}
+      #tab_panel_atualizacoes #updates_working_controls.hidden~#updates_jobs+.cs-operational-pagination,
+      #tab_panel_atualizacoes #updates_queue_list_controls.hidden~#updates_queue_jobs+.cs-operational-pagination,
+      #tab_panel_atualizacoes #updates_history_controls.hidden~#updates_history+.cs-operational-pagination{display:none}
 
       @media(max-width:1050px){
         .cs-operational-filters--wide{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -167,7 +170,19 @@
     const summary = section.matches("details") ? section.querySelector(":scope > summary") : null;
     if (!summary) return;
     addClasses(summary, "cs-operational-section-summary");
-    addClasses(summary.querySelector(".addition-accordion-title,.updates-history-title"), "cs-operational-section-title");
+    let titleGroup = summary.querySelector(".cs-operational-section-title,.addition-accordion-title,.updates-history-title");
+    if (!titleGroup) {
+      const chevron = summary.querySelector(":scope > .updates-disclosure-chevron");
+      const title = summary.querySelector(":scope > .section-title");
+      if (chevron || title) {
+        titleGroup = document.createElement("span");
+        titleGroup.className = "cs-operational-section-title";
+        if (chevron) titleGroup.appendChild(chevron);
+        if (title) titleGroup.appendChild(title);
+        summary.prepend(titleGroup);
+      }
+    }
+    addClasses(titleGroup, "cs-operational-section-title");
     addClasses(summary.querySelector(":scope > .small"), "cs-operational-section-meta");
   }
 
