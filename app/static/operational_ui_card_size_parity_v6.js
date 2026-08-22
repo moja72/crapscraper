@@ -142,6 +142,21 @@
       box-sizing:border-box!important;
     }
 
+    /*
+     * Histórico: a aba ativa usa somente a borda roxa.
+     * O fundo permanece transparente para conservar exatamente o fundo do painel.
+     */
+    #tab_panel_atualizacoes .updates-history-tab.is-active,
+    #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active,
+    #tab_panel_atualizacoes .updates-history-tab.is-active:hover,
+    #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active:hover {
+      border-color:var(--accent)!important;
+      border-bottom-color:var(--accent)!important;
+      background:transparent!important;
+      box-shadow:none!important;
+      color:var(--text)!important;
+    }
+
     @media(max-width:1200px){
       #tab_panel_atualizacoes #updates_summary,
       #addition_intro_card #addition_summary_grid {
