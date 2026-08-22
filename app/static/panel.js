@@ -6102,10 +6102,6 @@ window.__crapscraperPagination = Object.assign(window.__crapscraperPagination ||
     UPDATE_QUEUE.queuePage = Math.max(1, toInt(page, 1));
     renderOperationalQueue();
   },
-  updatesHistory(page) {
-    UPDATE_QUEUE.historyPage = Math.max(1, toInt(page, 1));
-    renderUpdateHistory();
-  },
   updateListPreview(page) {
     UPDATE_QUEUE.previewPage = Math.max(1, toInt(page, 1));
     renderUpdateListPreview();
