@@ -14,9 +14,8 @@
     overview: {counts:{}, queue:{status:"stopped"}, processes:[]},
     preparation: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:""},
     queue: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:""},
-    history: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:"", origin:""},
     selectedPreparation: new Set(), selectedQueue: new Set(), loading: new Set(),
-    polling: false, started: false, historyDirty: true, technical: [], detailJobId: "",
+    polling: false, started: false, technical: [], detailJobId: "",
   };
 
   const QUEUE_OPTIONS = [
@@ -25,10 +24,6 @@
     ["error", "Erro"], ["interrupted", "Interrompido"], ["canceled", "Cancelado"],
   ];
   const PREPARATION_OPTIONS = QUEUE_OPTIONS.filter(([value]) => !["queued","executing","completed","canceled"].includes(value));
-  const HISTORY_OPTIONS = [
-    ["", "Todos"], ["running", "Em andamento"], ["completed", "Concluído"],
-    ["error", "Erro"], ["interrupted", "Interrompido"], ["canceled", "Cancelado"],
-  ];
   const ACTIVE_STATES = new Set(["preparing","queued","executing"]);
   const ERROR_STATES = new Set(["error","interrupted"]);
 
@@ -219,16 +214,14 @@
         <div class="addition-table-head"><span></span><span>Produto</span><span>Dados</span><span>Estado</span><span>Ações</span></div><div id="addition_queue_rows"></div>${paginationMarkup("addition_queue")}
       </details>
 
-      <details class="card updates-card-section addition-accordion updates-history-accordion" id="addition_history_accordion">
-        ${sectionTitle("Histórico de adições", "addition_history_summary")}
-        <div class="updates-history-toolbar"><div class="updates-history-filter-group" style="display:flex;flex-wrap:wrap;gap:10px;flex:1"><label>Buscar no histórico<input id="addition_history_search" type="search" placeholder="Nome ou WooCommerce ID"></label><label>Resultado<select id="addition_history_state">${selectOptions(HISTORY_OPTIONS)}</select></label><label>Origem<input id="addition_history_origin" type="search" placeholder="UltraPack, PluginTheme ou domínio"></label></div><div class="updates-history-actions"><button class="btn-secondary btn-sm" id="addition_history_download" type="button">Baixar histórico</button><button class="btn-secondary btn-sm" id="addition_history_refresh" type="button">Atualizar</button></div></div>
-        <div class="addition-list-meta"><span class="small" id="addition_history_meta">0 registros</span><div class="listing-page-size"><label class="small">Itens por página</label><input id="addition_history_page_size" class="listing-page-size-input" type="number" min="1" max="100" value="5"></div></div><div id="addition_history_rows" class="updates-history-panel"></div>${paginationMarkup("addition_history")}
-      </details>
+      <div data-operational-history-host data-history-type="addition"></div>
 
       <details class="card updates-card-section addition-accordion updates-technical-log" id="addition_technical_accordion">
         ${sectionTitle("Log técnico da sessão", "addition_technical_summary")}<pre id="addition_technical_log" class="log-output" aria-live="polite">Nenhum evento nesta sessão.</pre><div class="log-copy-row"><button class="btn-success" id="addition_copy_log" type="button">📋 Copiar log completo</button></div>
       </details>`;
     panel.appendChild(root);
+    window.OperationalHistory?.mountAll(root);
+    document.dispatchEvent(new CustomEvent("operational-history:host-ready", {detail:{root}}));
     if (environment && environment.parentElement === panel) panel.insertBefore(environment, root);
     installDetailModal();
     bindEvents();
@@ -300,22 +293,14 @@
     const queueSummary=$("#addition_queue_summary");if(queueSummary)queueSummary.textContent=`${counts.queued||0} na fila · ${counts.executing||0} executando · ${counts.completed||0} concluídos`;
   }
 
-  function historyStatusClass(status){if(status==="completed")return "is-success";if(["error","interrupted","canceled"].includes(status))return "is-danger";return "is-active";}
-  function renderHistory() {
-    const target=$("#addition_history_rows");if(!target)return;if(state.loading.has("history")){target.innerHTML=loadingMarkup("Carregando histórico persistido…");return;}
-    const rows=state.history.items||[];
-    target.innerHTML=rows.length?rows.map(item=>{const official=item.site_oficial||item.source_official_url||"",logs=Array.isArray(item.logs)?item.logs.slice(-3):[];return `<article class="addition-history-row"><div><div class="addition-op-name">${esc(item.source_name||item.job_id)}</div><div class="addition-op-meta">Tentativa ${esc(item.attempt_no)} · ${esc(item.origin||"-")} · versão ${esc(item.source_version||"-")}${item.woo_product_id?` · Woo #${esc(item.woo_product_id)}`:""}</div><div class="addition-op-meta">${esc(item.kind==="theme"?"Tema":"Plugin")} · ${esc(item.category_name||"categoria não registrada")} · ${esc(item.desenvolvedor||"desenvolvedor não registrado")}${official?` · <a href="${esc(official)}" target="_blank" rel="noopener">link oficial</a>`:""}</div>${item.error?`<div class="addition-history-error">${esc(item.error)}</div>`:""}${logs.length?`<div class="addition-history-log">${logs.map(esc).join("\n")}</div>`:""}</div><div><span class="addition-state-badge ${historyStatusClass(item.status)}">${esc(item.status_label||item.status)}</span><div class="addition-op-meta" style="margin-top:7px">${esc(item.result||"")}</div></div><div class="addition-history-times"><span><b>Início:</b> ${esc(dateTime(item.started_at))}</span><span><b>Fim:</b> ${esc(dateTime(item.finished_at))}</span><span><b>Duração:</b> ${esc(duration(item.duration_seconds))}</span></div><div class="addition-op-fields"><span><b>Etapa final:</b> ${esc(item.current_step||"—")}</span><span><b>Progresso:</b> ${esc(item.progress||0)}%</span><span><b>Estado final:</b> ${esc(item.final_state||"—")}</span></div></article>`;}).join(""):`<div class="addition-empty">Nenhuma execução registrada no histórico.</div>`;
-    $("#addition_history_summary").textContent=`${state.history.total||0} registro(s)`;renderPagination("history");
-  }
-
   function syncSelectAll(scope){const data=state[scope],set=scope==="preparation"?state.selectedPreparation:state.selectedQueue,box=$(`#addition_${scope}_select_all`);if(!box)return;const ids=data.items.map(item=>item.job_id);box.checked=ids.length>0&&ids.every(id=>set.has(id));box.indeterminate=ids.some(id=>set.has(id))&&!box.checked;}
   function renderScope(scope){renderRows(scope);renderPagination(scope);syncSelectAll(scope);}
 
   async function loadOverview(){if(state.loading.has("overview"))return;state.loading.add("overview");try{state.overview=await json("/adicoes/operacoes?scope=overview");renderSummary();}catch(error){log(`Falha ao carregar resumo: ${error.message}`,"ERRO");}finally{state.loading.delete("overview");}}
-  async function loadScope(scope,{silent=false}={}){const data=state[scope];if(!data||state.loading.has(scope))return;state.loading.add(scope);if(!silent){if(scope==="history")renderHistory();else renderRows(scope);}try{const params={scope,q:data.q,state:data.state,page:data.page,page_size:data.page_size};if(scope==="history")params.origin=data.origin;const payload=await json(`/adicoes/operacoes?${query(params)}`);Object.assign(data,payload);if(scope==="history"){renderHistory();state.historyDirty=false;}else renderScope(scope);}catch(error){log(`Falha em ${scope}: ${error.message}`,"ERRO");if(!silent)toast(error.message,"error");}finally{state.loading.delete(scope);}}
-  async function refreshAll({history=false,silent=false}={}){await Promise.all([loadOverview(),loadScope("preparation",{silent}),loadScope("queue",{silent})]);if(history||($("#addition_history_accordion")?.open&&state.historyDirty))await loadScope("history",{silent});}
+  async function loadScope(scope,{silent=false}={}){const data=state[scope];if(!data||state.loading.has(scope))return;state.loading.add(scope);if(!silent)renderRows(scope);try{const params={scope,q:data.q,state:data.state,page:data.page,page_size:data.page_size};const payload=await json(`/adicoes/operacoes?${query(params)}`);Object.assign(data,payload);renderScope(scope);}catch(error){log(`Falha em ${scope}: ${error.message}`,"ERRO");if(!silent)toast(error.message,"error");}finally{state.loading.delete(scope);}}
+  async function refreshAll({silent=false}={}){await Promise.all([loadOverview(),loadScope("preparation",{silent}),loadScope("queue",{silent})]);}
 
-  async function operation(url,payload,successMessage="Operação iniciada."){try{const result=await post(url,payload);log(result.message||successMessage);toast(result.message||successMessage);state.historyDirty=true;await refreshAll({history:$("#addition_history_accordion")?.open,silent:true});return result;}catch(error){log(error.message,"ERRO");toast(error.message,"error");await refreshAll({history:false,silent:true});throw error;}}
+  async function operation(url,payload,successMessage="Operação iniciada."){try{const result=await post(url,payload);log(result.message||successMessage);toast(result.message||successMessage);window.OperationalHistory?.invalidate("addition");await refreshAll({silent:true});return result;}catch(error){log(error.message,"ERRO");toast(error.message,"error");await refreshAll({silent:true});throw error;}}
   async function handleRowAction(action,jobId){if(!jobId)return;if(action==="detail")return openDetail(jobId);if(action==="prepare")return operation("/adicoes/operacoes/preparar",{job_ids:[jobId]},"Preparação iniciada.");if(action==="add")return operation("/adicoes/fila/adicionar",{job_ids:[jobId]},"Produto enviado ao fluxo de adição.");if(action==="retry")return operation("/adicoes/fila/retry",{job_ids:[jobId]},"Nova tentativa iniciada.");if(action==="cancel"){if(!confirm("Cancelar este item da fila? Isso só será permitido se nenhuma escrita remota já tiver começado."))return;return operation("/adicoes/fila/cancelar",{job_ids:[jobId]},"Item cancelado.");}}
   function selected(scope){return [...(scope==="preparation"?state.selectedPreparation:state.selectedQueue)];}
   function debounce(fn,ms=280){let timer=null;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),ms);};}
@@ -344,33 +329,25 @@
     $("#addition_queue_pause")?.addEventListener("click",()=>operation(state.overview.queue?.status==="paused"?"/adicoes/fila/continuar":"/adicoes/fila/pausar",{}));
     $("#addition_queue_recover")?.addEventListener("click",()=>operation("/adicoes/fila/recuperar",{}));
 
-    const historySearch=debounce(value=>{state.history.q=value;state.history.page=1;loadScope("history");}),historyOrigin=debounce(value=>{state.history.origin=value;state.history.page=1;loadScope("history");});
-    $("#addition_history_search")?.addEventListener("input",event=>historySearch(event.target.value));
-    $("#addition_history_origin")?.addEventListener("input",event=>historyOrigin(event.target.value));
-    $("#addition_history_state")?.addEventListener("change",event=>{state.history.state=event.target.value;state.history.page=1;loadScope("history");});
-    $("#addition_history_refresh")?.addEventListener("click",()=>loadScope("history"));
-    $("#addition_history_accordion")?.addEventListener("toggle",event=>{if(event.target.open&&state.historyDirty)loadScope("history");});
-    $("#addition_history_download")?.addEventListener("click",()=>{const params=query({q:state.history.q,state:state.history.state,origin:state.history.origin}),anchor=document.createElement("a");anchor.href=`/adicoes/operacoes/historico.csv?${params}`;anchor.download="historico-adicoes.csv";document.body.appendChild(anchor);anchor.click();anchor.remove();});
-
-    bindPagination("preparation");bindPagination("queue");bindPagination("history");
+    bindPagination("preparation");bindPagination("queue");
     $("#addition_sync_approved")?.addEventListener("click",()=>operation("/adicoes/operacoes/sincronizar",{}));
     $("#addition_copy_log")?.addEventListener("click",async()=>{const content=state.technical.join("\n")||"Nenhum evento nesta sessão.";try{await navigator.clipboard.writeText(content);toast("Log copiado.");}catch(_error){toast("Não foi possível copiar o log.","error");}});
     $("#addition_detail_copy_prompt")?.addEventListener("click",copyDetailPrompt);$("#addition_detail_save")?.addEventListener("click",saveDetailContent);$("#addition_detail_prepare_zip")?.addEventListener("click",prepareZipManual);$("#addition_detail_create_draft")?.addEventListener("click",createDraftManual);$("#addition_detail_publish")?.addEventListener("click",publishSafeManual);$("#addition_detail_reset")?.addEventListener("click",resetManual);
-    $("#tab_btn_adicoes")?.addEventListener("click",()=>setTimeout(()=>{if(panelVisible())refreshAll({history:false,silent:true});},0));
+    $("#tab_btn_adicoes")?.addEventListener("click",()=>setTimeout(()=>{if(panelVisible())refreshAll({silent:true});},0));
   }
 
   async function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>reject(new Error("Não foi possível ler a imagem."));reader.readAsDataURL(file);});}
   async function openDetail(jobId){try{const payload=await json(`/adicoes/operacoes/item?${query({job_id:jobId})}`),job=payload.job||{};state.detailJobId=jobId;$("#addition_detail_title").textContent=job.title||job.source_name||"Detalhes da adição";$("#addition_detail_subtitle").textContent=`${job.queue_state_label||job.queue_state} · ${job.origin||"-"}${job.woo_product_id?` · Woo #${job.woo_product_id}`:""}`;$("#addition_detail_facts").innerHTML=[`Versão: ${job.source_version||"-"}`,`Desenvolvedor: ${job.desenvolvedor||"-"}`,`Categoria: ${job.category_name||"-"}`,`Etapa: ${job.current_step_label||"-"}`].map(value=>`<span>${esc(value)}</span>`).join("");fill("addition_detail_kind",job.kind||"plugin");fill("addition_detail_title_input",job.title||job.source_name||"");fill("addition_detail_short",job.short_description);fill("addition_detail_description",job.description);fill("addition_detail_seo",job.seo_title);fill("addition_detail_meta",job.meta_description);fill("addition_detail_tags",job.tags);fill("addition_detail_annual_regular",job.annual_regular);fill("addition_detail_annual_sale",job.annual_sale);fill("addition_detail_lifetime_regular",job.lifetime_regular);fill("addition_detail_lifetime_sale",job.lifetime_sale);fill("addition_detail_image_status",job.image_path||"Nenhuma imagem local");fill("addition_detail_prompt",job.prompt||"");$("#addition_detail_image").value="";const reset=$("#addition_detail_reset");if(reset)reset.disabled=job.queue_state==="executing";const publish=$("#addition_detail_publish");if(publish)publish.disabled=!job.woo_product_id||job.queue_state==="completed";$("#addition_operational_modal").classList.add("is-open");}catch(error){toast(error.message,"error");}}
   function closeDetail(){$("#addition_operational_modal")?.classList.remove("is-open");state.detailJobId="";}
   async function copyDetailPrompt(){const value=$("#addition_detail_prompt")?.value||"";try{await navigator.clipboard.writeText(value);toast("Prompt copiado.");}catch(_error){toast("Não foi possível copiar o prompt.","error");}}
-  async function saveDetailContent(){const jobId=state.detailJobId;if(!jobId)return;const file=$("#addition_detail_image")?.files?.[0]||null;try{const image=file?await readFile(file):"";await post("/adicoes/conteudo",{job_id:jobId,kind:$("#addition_detail_kind").value,title:$("#addition_detail_title_input").value,short_description:$("#addition_detail_short").value,description:$("#addition_detail_description").value,seo_title:$("#addition_detail_seo").value,meta_description:$("#addition_detail_meta").value,tags:$("#addition_detail_tags").value,annual_regular:$("#addition_detail_annual_regular").value,annual_sale:$("#addition_detail_annual_sale").value,lifetime_regular:$("#addition_detail_lifetime_regular").value,lifetime_sale:$("#addition_detail_lifetime_sale").value,image_base64:image,image_name:file?.name||""});toast("Conteúdo salvo.");log(`Conteúdo salvo para ${jobId}.`);closeDetail();await refreshAll({history:false,silent:true});}catch(error){toast(error.message,"error");}}
+  async function saveDetailContent(){const jobId=state.detailJobId;if(!jobId)return;const file=$("#addition_detail_image")?.files?.[0]||null;try{const image=file?await readFile(file):"";await post("/adicoes/conteudo",{job_id:jobId,kind:$("#addition_detail_kind").value,title:$("#addition_detail_title_input").value,short_description:$("#addition_detail_short").value,description:$("#addition_detail_description").value,seo_title:$("#addition_detail_seo").value,meta_description:$("#addition_detail_meta").value,tags:$("#addition_detail_tags").value,annual_regular:$("#addition_detail_annual_regular").value,annual_sale:$("#addition_detail_annual_sale").value,lifetime_regular:$("#addition_detail_lifetime_regular").value,lifetime_sale:$("#addition_detail_lifetime_sale").value,image_base64:image,image_name:file?.name||""});toast("Conteúdo salvo.");log(`Conteúdo salvo para ${jobId}.`);closeDetail();await refreshAll({silent:true});}catch(error){toast(error.message,"error");}}
   async function prepareZipManual(){const jobId=state.detailJobId;if(!jobId)return;try{await post("/adicoes/preparar-arquivo",{job_id:jobId});toast("ZIP preparado.");closeDetail();await refreshAll({silent:true});}catch(error){toast(error.message,"error");}}
   async function createDraftManual(){const jobId=state.detailJobId;if(!jobId)return;if(!confirm("Criar o rascunho WooCommerce com os dados já preparados?"))return;try{await post("/adicoes/criar-rascunho",{job_id:jobId,confirmation:"CRIAR RASCUNHO"});toast("Rascunho criado e validado.");closeDetail();await refreshAll({silent:true});}catch(error){toast(error.message,"error");}}
-  async function publishSafeManual(){const jobId=state.detailJobId;if(!jobId)return;if(!confirm("Publicar este rascunho usando a validação completa e a reconciliação dos campos personalizados?"))return;try{await post("/adicoes/operacoes/publicar",{job_id:jobId});toast("Produto publicado e validado.");closeDetail();state.historyDirty=true;await refreshAll({history:true,silent:true});}catch(error){toast(error.message,"error");}}
+  async function publishSafeManual(){const jobId=state.detailJobId;if(!jobId)return;if(!confirm("Publicar este rascunho usando a validação completa e a reconciliação dos campos personalizados?"))return;try{await post("/adicoes/operacoes/publicar",{job_id:jobId});toast("Produto publicado e validado.");closeDetail();await window.OperationalHistory?.refresh("addition");await refreshAll({silent:true});}catch(error){toast(error.message,"error");}}
   async function resetManual(){const jobId=state.detailJobId;if(!jobId)return;if(!confirm("Resetar o cadastro local? Se existir produto remoto, a operação será bloqueada por segurança."))return;try{await post("/adicoes/resetar",{job_id:jobId});toast("Cadastro resetado.");closeDetail();await operation("/adicoes/operacoes/sincronizar",{});}catch(error){toast(error.message,"error");}}
 
   async function backgroundSyncOnce(){try{const result=await post("/adicoes/operacoes/sincronizar",{});if((result.created||0)||(result.changed||0)||(result.deactivated||0)){log(`Sincronização: ${result.created||0} novo(s), ${result.changed||0} alterado(s), ${result.deactivated||0} removido(s) da aprovação.`);await refreshAll({silent:true});}}catch(error){log(`Sincronização em segundo plano falhou: ${error.message}`,"AVISO");}}
-  async function poll(){if(state.polling||document.hidden||!panelVisible())return;state.polling=true;try{await Promise.all([loadOverview(),loadScope("preparation",{silent:true}),loadScope("queue",{silent:true})]);if($("#addition_history_accordion")?.open&&state.historyDirty)await loadScope("history",{silent:true});}finally{state.polling=false;}}
-  function boot(){if(state.started)return;state.started=true;installUi();if(!$("#addition_operational_root"))return;if(panelVisible())refreshAll({history:false});setTimeout(backgroundSyncOnce,350);setInterval(poll,3000);}
+  async function poll(){if(state.polling||document.hidden||!panelVisible())return;state.polling=true;try{await Promise.all([loadOverview(),loadScope("preparation",{silent:true}),loadScope("queue",{silent:true})]);}finally{state.polling=false;}}
+  function boot(){if(state.started)return;state.started=true;installUi();if(!$("#addition_operational_root"))return;if(panelVisible())refreshAll();setTimeout(backgroundSyncOnce,350);setInterval(poll,3000);}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot,{once:true});else boot();
 })();
