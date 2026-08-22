@@ -224,42 +224,6 @@
       #tab_panel_adicoes #addition_queue_accordion .addition-pagination,
       #tab_panel_atualizacoes #updates_queue_list_controls .listing-pagination { margin:12px 0 0!important; }
 
-      /* ===== Histórico: Atualizar é a referência ===== */
-      #tab_panel_adicoes #addition_history_accordion { padding:16px 18px!important; }
-      #tab_panel_adicoes #addition_history_accordion>.small.cs-v4-history-description { display:none!important; }
-      #tab_panel_adicoes #addition_history_accordion .updates-history-toolbar {
-        margin:12px 0 10px!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs,
-      #tab_panel_atualizacoes .updates-history-tabs {
-        display:flex!important;
-        align-items:flex-end!important;
-        gap:4px!important;
-        margin:10px 0 8px!important;
-        border-bottom:1px solid var(--line)!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab,
-      #tab_panel_atualizacoes .updates-history-tab {
-        min-height:40px!important;
-        padding:8px 14px!important;
-        border:1px solid var(--line)!important;
-        border-bottom-color:transparent!important;
-        border-radius:9px 9px 0 0!important;
-        background:rgba(255,255,255,.025)!important;
-        color:var(--text-muted)!important;
-        font-weight:800!important;
-        box-shadow:none!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active,
-      #tab_panel_atualizacoes .updates-history-tab.is-active {
-        border-color:var(--accent)!important;
-        border-bottom-color:var(--bg-elev-1)!important;
-        background:linear-gradient(180deg,rgba(124,58,237,.17),rgba(124,58,237,.08))!important;
-        color:var(--text)!important;
-      }
-      #tab_panel_adicoes #addition_history_refresh { display:none!important; }
-      #tab_panel_adicoes #addition_history_delete { min-height:42px!important; }
-
       /* ===== Modal de listas de Adições ===== */
       #addition_lists_modal {
         position:fixed;inset:0;z-index:180500;display:none;align-items:center;justify-content:center;
@@ -377,7 +341,7 @@
     const action = UPDATE_TOP_FILTERS[label];
     if (!action) return;
     if (action.kind === "clear") {
-      ["updates_status_filter","updates_queue_status_filter","updates_history_status_filter"].forEach(id => setSelectValue(id, ""));
+      ["updates_status_filter","updates_queue_status_filter"].forEach(id => setSelectValue(id, ""));
       syncUpdateTopActive();
       return;
     }
@@ -388,10 +352,9 @@
       setSelectValue("updates_queue_status_filter", action.value);
       $("#tab_panel_atualizacoes .updates-queue-section")?.scrollIntoView({behavior:"smooth",block:"start"});
     } else if (action.kind === "history") {
-      const history = $("#updates_history_accordion");
+      const history = $('[data-operational-history][data-history-type="update"]');
       if (history) history.open = true;
-      const tab = action.tab === "errors" ? $("#updates_history_errors") : $("#updates_history_completed");
-      tab?.click();
+      history?.querySelector(`[data-history-tab="${action.tab === "errors" ? "errors" : "completed"}"]`)?.click();
       history?.scrollIntoView({behavior:"smooth",block:"start"});
     }
     window.setTimeout(syncUpdateTopActive, 50);
@@ -402,9 +365,9 @@
     if (!root) return;
     const prep = normalize($("#updates_status_filter")?.value);
     const queue = normalize($("#updates_queue_status_filter")?.value);
-    const history = $("#updates_history_accordion");
-    const historyCompleted = $("#updates_history_completed")?.classList.contains("is-active");
-    const historyErrors = $("#updates_history_errors")?.classList.contains("is-active");
+    const history = $('[data-operational-history][data-history-type="update"]');
+    const historyCompleted = history?.querySelector('[data-history-tab="completed"]')?.classList.contains("is-active");
+    const historyErrors = history?.querySelector('[data-history-tab="errors"]')?.classList.contains("is-active");
     $$(":scope > .cs-v4-metric-card", root).forEach(card => {
       const label = card.dataset.metricLabel || "";
       const action = UPDATE_TOP_FILTERS[label];
@@ -609,7 +572,7 @@
   function refreshAdditionOperationalViews() {
     $("#addition_preparation_refresh")?.click();
     $("#addition_queue_refresh")?.click();
-    window.setTimeout(() => $("#addition_history_refresh")?.click(), 80);
+    window.setTimeout(() => window.OperationalHistory?.refresh("addition"), 80);
   }
 
   function openAdditionListsModal() {
@@ -679,38 +642,15 @@
     }
   }
 
-  function standardizeAdditionHistory() {
-    const history = $("#addition_history_accordion");
-    if (!history) return false;
-    const title = $(".section-title", history);
-    if (title) title.textContent = "Histórico";
-    const description = $(":scope > .small", history);
-    if (description) description.classList.add("cs-v4-history-description");
-    const actions = $(".updates-history-actions", history);
-    if (actions && !$("#addition_history_delete", actions)) {
-      const remove = document.createElement("button");
-      remove.type="button";remove.id="addition_history_delete";remove.className="btn-danger btn-sm";remove.textContent="Apagar histórico";
-      remove.addEventListener("click", async () => {
-        if (!confirm("Apagar todo o histórico de tentativas de adição? Os produtos e a fila serão preservados.")) return;
-        try {
-          await apiJson("/adicoes/operacoes/historico/limpar", {method:"POST",body:"{}"});
-          $("#addition_history_refresh")?.click();
-        } catch (error) { alert(normalize(error?.message)); }
-      });
-      actions.appendChild(remove);
-    }
-    return true;
-  }
-
   function bindGlobalEvents() {
     document.addEventListener("change", event => {
       const id = event.target?.id || "";
-      if (["updates_status_filter","updates_queue_status_filter","updates_history_status_filter"].includes(id)) window.setTimeout(syncUpdateTopActive, 0);
+      if (["updates_status_filter","updates_queue_status_filter"].includes(id)) window.setTimeout(syncUpdateTopActive, 0);
     }, true);
     document.addEventListener("click", event => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
-      if (target.closest("#updates_history_completed,#updates_history_errors")) window.setTimeout(syncUpdateTopActive, 0);
+      if (target.closest('[data-operational-history][data-history-type="update"] [data-history-tab]')) window.setTimeout(syncUpdateTopActive, 0);
       if (target.closest("#tab_btn_adicoes")) window.setTimeout(() => { run();loadAdditionLists(); }, 80);
       if (target.closest("#tab_btn_atualizacoes")) window.setTimeout(run, 80);
     }, true);
@@ -726,7 +666,6 @@
     ensureUpdateTopCards();
     standardizeUpdatePreparation();
     ensureAdditionQueueManagement();
-    standardizeAdditionHistory();
     observeMetricContainers();
     observeUpdateJobs();
   }
