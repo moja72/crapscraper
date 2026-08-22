@@ -10,6 +10,7 @@ _BASE_RENDER: Callable[..., str] | None = None
 _SCRIPT_PATHS = (
     ("data-panel-layout-standardization", Path(__file__).resolve().parent / "static" / "panel_layout_standardization.js"),
     ("data-operational-ui-parity", Path(__file__).resolve().parent / "static" / "operational_ui_parity.js"),
+    ("data-operational-ui-final-alignment", Path(__file__).resolve().parent / "static" / "operational_ui_final_alignment.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
@@ -48,6 +49,7 @@ _ADDITION_RENDER_PATCH = _ADDITION_RENDER_MARKER + '''    const additionProgress
       else if(additionProgressTotal>0&&additionProgressProcessed>=additionProgressTotal)additionNow.textContent="Processamento concluído";
       else additionNow.textContent="Nenhuma adição em execução";
     }
+    window.__crapScraperSyncAdditionHistoryTabs?.(counts);
 '''
 
 
