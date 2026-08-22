@@ -38,8 +38,8 @@ def test_update_queue_meta_reuses_existing_nodes() -> None:
     source = Path("app/static/panel_layout_standardization.js").read_text(encoding="utf-8")
     assert '$("#updates_queue_found_count"' in source
     assert '$("#updates_queue_page_size"' in source
-    assert 'meta.appendChild(found)' in source
-    assert 'meta.appendChild(pageLabel)' in source
+    assert "meta.appendChild(found)" in source
+    assert "meta.appendChild(pageLabel)" in source
     assert "cloneNode" not in source
 
 
@@ -87,7 +87,7 @@ def test_addition_progress_is_patched_into_existing_operational_ui() -> None:
     assert "additionProgressTotal" in patched
     assert "additionProgressProcessed" in patched
     assert "aria-valuenow" in patched
-    assert "__crapScraperSyncAdditionHistoryTabs?.(counts)" in patched
+    assert "__crapScraperSyncAdditionHistoryTabs" not in patched
     assert _patch_addition_progress(patched) == patched
 
 
@@ -106,37 +106,89 @@ def test_deeper_operational_parity_reuses_existing_nodes() -> None:
     assert "cloneNode" not in source
 
 
-def test_addition_history_matches_update_history_structure() -> None:
+def test_update_and_addition_history_use_same_native_tab_component() -> None:
+    update_source = Path("app/web.py").read_text(encoding="utf-8")
+    addition_source = Path("app/static/addition_operational_ui.js").read_text(encoding="utf-8")
+
+    for source in (update_source, addition_source):
+        assert 'class="operational-history-tabs"' in source
+        assert source.count('class="operational-history-tab is-active"') >= 1
+        assert source.count('class="operational-history-tab"') >= 1
+        assert 'data-history-tab="completed"' in source
+        assert 'data-history-tab="errors"' in source
+        assert 'class="operational-history-tab-label">Concluídos</span>' in source
+        assert 'class="operational-history-tab-label">Erros</span>' in source
+        assert 'class="operational-history-tab-count"' in source
+
+    assert "updates_history_completed_count" in update_source
+    assert "updates_history_errors_count" in update_source
+    assert "addition_history_completed_count" in addition_source
+    assert "addition_history_errors_count" in addition_source
+
+
+def test_shared_history_tab_css_has_transparent_active_state() -> None:
+    css = Path("app/static/panel.css").read_text(encoding="utf-8")
+    active = (
+        ".operational-history-tab.is-active,.operational-history-tab.is-active:hover"
+        "{z-index:1;border-color:var(--accent);background:transparent;"
+        "color:var(--text);box-shadow:none}"
+    )
+    assert active in css
+    assert ".operational-history-tab:hover{border-color:var(--line-accent);background:transparent;" in css
+
+    shared_block = css[css.index(".operational-history-tabs"):css.index(".updates-history-panel")]
+    assert "linear-gradient" not in shared_block
+    assert "rgba(" not in shared_block
+    assert "background:transparent" in shared_block
+    assert "border-color:var(--accent)" in shared_block
+
+
+def test_history_tabs_are_not_recreated_by_late_alignment_layers() -> None:
+    final = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
+    consistency = Path("app/static/operational_ui_consistency_v4.js").read_text(encoding="utf-8")
+    card_size = Path("app/static/operational_ui_card_size_parity_v6.js").read_text(encoding="utf-8")
+    policy = Path("app/panel_layout_standardization_policy.py").read_text(encoding="utf-8")
+
+    assert "standardizeAdditionHistory" in final
+    assert '$(".operational-history-tabs", accordion)' in final
+    assert "tabs.innerHTML" not in final
+    assert "activateHistoryFilter" not in final
+    assert "__crapScraperSyncAdditionHistoryTabs" not in final
+    assert "__crapScraperSyncAdditionHistoryTabs" not in policy
+    assert ".updates-history-tab" not in consistency
+    assert "#addition_history_tabs" not in consistency
+    assert ".operational-history-tab.is-active" not in card_size
+
+
+def test_addition_completed_history_is_selected_before_first_open_fetch() -> None:
+    source = Path("app/static/addition_operational_ui.js").read_text(encoding="utf-8")
+    assert 'history: {items:[], total:0, page:1, page_size:5, pages:1, q:"", state:"completed", origin:""}' in source
+    assert 'function selectHistoryTab(status)' in source
+    assert 'if(accordion?.open)loadScope("history");else state.historyDirty=true;' in source
+    assert '$("#addition_history_completed_tab")?.addEventListener("click",()=>selectHistoryTab("completed"))' in source
+    assert '$("#addition_history_errors_tab")?.addEventListener("click",()=>selectHistoryTab("error"))' in source
+    assert 'event.target.open&&state.historyDirty' in source
+
+
+def test_history_rerender_preserves_native_tab_nodes_and_only_updates_counts() -> None:
+    update_source = Path("app/static/panel.js").read_text(encoding="utf-8")
+    addition_source = Path("app/static/addition_operational_ui.js").read_text(encoding="utf-8")
+
+    assert 'setText("updates_history_completed_count",completedCount)' in update_source
+    assert 'setText("updates_history_errors_count",errorCount)' in update_source
+    assert "completedTab.textContent" not in update_source
+    assert "errorsTab.textContent" not in update_source
+    assert 'updateHistoryTabCounts(counts);' in addition_source
+    assert "tabs.innerHTML" not in addition_source
+
+
+def test_addition_history_matches_update_history_order() -> None:
     source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
     assert "standardizeAdditionHistory" in source
-    assert 'tabs.id = "addition_history_tabs"' in source
-    assert "updates-history-tabs cs-op-history-tabs" in source
-    assert "addition_history_completed_tab" in source
-    assert "addition_history_errors_tab" in source
-    assert 'activateHistoryFilter("completed")' in source
-    assert 'activateHistoryFilter("error")' in source
-    assert 'filters.removeAttribute("style")' in source
     assert 'toolbar.insertAdjacentElement("afterend", tabs)' in source
     assert 'tabs.insertAdjacentElement("afterend", meta)' in source
     assert 'meta.insertAdjacentElement("afterend", pagination)' in source
     assert 'pagination.insertAdjacentElement("afterend", rows)' in source
-
-
-def test_addition_history_counts_use_existing_overview_counts() -> None:
-    policy = Path("app/panel_layout_standardization_policy.py").read_text(encoding="utf-8")
-    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
-    assert "__crapScraperSyncAdditionHistoryTabs?.(counts)" in policy
-    assert "window.__crapScraperSyncAdditionHistoryTabs" in source
-    assert "counts.completed" in source
-    assert "counts.error" in source
-    assert 'summary.textContent = `${completedCount + errorCount} item(ns)`' in source
-
-
-def test_addition_history_default_completed_waits_until_history_opens() -> None:
-    source = Path("app/static/operational_ui_final_alignment.js").read_text(encoding="utf-8")
-    assert 'accordion.addEventListener("toggle"' in source
-    assert "if (!accordion.open" in source
-    assert 'activateHistoryFilter("completed")' in source
 
 
 def test_preparation_and_queue_pagination_use_same_grid_as_update() -> None:

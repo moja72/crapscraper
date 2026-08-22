@@ -230,33 +230,6 @@
       #tab_panel_adicoes #addition_history_accordion .updates-history-toolbar {
         margin:12px 0 10px!important;
       }
-      #tab_panel_adicoes #addition_history_tabs,
-      #tab_panel_atualizacoes .updates-history-tabs {
-        display:flex!important;
-        align-items:flex-end!important;
-        gap:4px!important;
-        margin:10px 0 8px!important;
-        border-bottom:1px solid var(--line)!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab,
-      #tab_panel_atualizacoes .updates-history-tab {
-        min-height:40px!important;
-        padding:8px 14px!important;
-        border:1px solid var(--line)!important;
-        border-bottom-color:transparent!important;
-        border-radius:9px 9px 0 0!important;
-        background:rgba(255,255,255,.025)!important;
-        color:var(--text-muted)!important;
-        font-weight:800!important;
-        box-shadow:none!important;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active,
-      #tab_panel_atualizacoes .updates-history-tab.is-active {
-        border-color:var(--accent)!important;
-        border-bottom-color:var(--bg-elev-1)!important;
-        background:linear-gradient(180deg,rgba(124,58,237,.17),rgba(124,58,237,.08))!important;
-        color:var(--text)!important;
-      }
       #tab_panel_adicoes #addition_history_refresh { display:none!important; }
       #tab_panel_adicoes #addition_history_delete { min-height:42px!important; }
 

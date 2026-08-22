@@ -281,29 +281,6 @@
         justify-content:flex-end!important;
         gap:8px!important;
       }
-      #tab_panel_adicoes #addition_history_tabs {
-        display:flex;
-        align-items:flex-end;
-        gap:4px;
-        margin:10px 0 8px;
-        border-bottom:1px solid var(--line);
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab {
-        min-height:38px;
-        padding:8px 12px;
-        border:1px solid var(--line);
-        border-bottom-color:transparent;
-        border-radius:8px 8px 0 0;
-        background:rgba(255,255,255,.025);
-        color:var(--text-muted);
-        font-weight:800;
-      }
-      #tab_panel_adicoes #addition_history_tabs .updates-history-tab.is-active {
-        border-color:var(--accent);
-        border-bottom-color:var(--bg);
-        background:rgba(124,58,237,.09);
-        color:var(--text);
-      }
       #tab_panel_adicoes #addition_history_rows {
         margin-top:10px;
         border:1px solid var(--line);
@@ -502,106 +479,27 @@
     });
   }
 
-  function syncHistoryTabs(value = $("#addition_history_state")?.value || "") {
-    const completed = $("#addition_history_completed_tab");
-    const errors = $("#addition_history_errors_tab");
-    const normalized = String(value || "");
-    if (completed) {
-      const active = normalized === "completed";
-      completed.classList.toggle("is-active", active);
-      completed.setAttribute("aria-selected", String(active));
-    }
-    if (errors) {
-      const active = normalized === "error";
-      errors.classList.toggle("is-active", active);
-      errors.setAttribute("aria-selected", String(active));
-    }
-  }
-
-  function updateHistoryTabCounts(counts = {}) {
-    const completedCount = Math.max(0, Number(counts.completed || 0));
-    const errorCount = Math.max(0, Number(counts.error || 0));
-    const completed = $("#addition_history_completed_tab");
-    const errors = $("#addition_history_errors_tab");
-    if (completed) completed.textContent = `Concluídos (${completedCount})`;
-    if (errors) errors.textContent = `Erros (${errorCount})`;
-
-    const summary = $("#addition_history_summary");
-    if (summary && (normalize(summary.textContent).startsWith("Carregando") || !normalize(summary.textContent))) {
-      summary.textContent = `${completedCount + errorCount} item(ns)`;
-    }
-  }
-
-  window.__crapScraperSyncAdditionHistoryTabs = counts => {
-    updateHistoryTabCounts(counts || {});
-    syncHistoryTabs();
-  };
-
-  function activateHistoryFilter(status) {
-    const select = $("#addition_history_state");
-    if (!select) return;
-    select.value = status;
-    syncHistoryTabs(status);
-    select.dispatchEvent(new Event("change", { bubbles:true }));
-  }
-
   function standardizeAdditionHistory() {
     const accordion = $("#addition_history_accordion");
     if (!accordion) return false;
     const toolbar = $(".updates-history-toolbar", accordion);
     const filters = $(".updates-history-filter-group", accordion);
+    const tabs = $(".operational-history-tabs", accordion);
     const meta = $(".addition-list-meta", accordion);
     const pagination = $(".addition-pagination", accordion);
     const rows = $("#addition_history_rows", accordion);
-    const select = $("#addition_history_state", accordion);
-    if (!toolbar || !filters || !meta || !pagination || !rows || !select) return false;
+    if (!toolbar || !filters || !tabs || !meta || !pagination || !rows) return false;
 
-    filters.removeAttribute("style");
     toolbar.classList.add("cs-op-history-toolbar");
     filters.classList.add("cs-op-history-filters");
     meta.classList.add("cs-op-list-meta");
     pagination.classList.add("cs-op-pagination");
     $("#addition_history_page")?.classList.add("cs-op-page-jump");
 
-    let tabs = $("#addition_history_tabs", accordion);
-    if (!tabs) {
-      tabs = document.createElement("div");
-      tabs.id = "addition_history_tabs";
-      tabs.className = "updates-history-tabs cs-op-history-tabs";
-      tabs.setAttribute("role", "tablist");
-      tabs.setAttribute("aria-label", "Tipo de histórico de adições");
-      tabs.innerHTML = `
-        <button class="updates-history-tab" id="addition_history_completed_tab" role="tab" aria-selected="false" type="button">Concluídos (0)</button>
-        <button class="updates-history-tab" id="addition_history_errors_tab" role="tab" aria-selected="false" type="button">Erros (0)</button>`;
-      toolbar.insertAdjacentElement("afterend", tabs);
-      $("#addition_history_completed_tab", tabs)?.addEventListener("click", () => activateHistoryFilter("completed"));
-      $("#addition_history_errors_tab", tabs)?.addEventListener("click", () => activateHistoryFilter("error"));
-    }
-
-    /* Igual ao Atualizar: filtros -> tabs -> meta -> paginação -> resultados. */
     if (tabs.previousElementSibling !== toolbar) toolbar.insertAdjacentElement("afterend", tabs);
     if (meta.previousElementSibling !== tabs) tabs.insertAdjacentElement("afterend", meta);
     if (pagination.previousElementSibling !== meta) meta.insertAdjacentElement("afterend", pagination);
     if (rows.previousElementSibling !== pagination) pagination.insertAdjacentElement("afterend", rows);
-
-    if (!select.dataset.csHistoryTabsBound) {
-      select.dataset.csHistoryTabsBound = "1";
-      select.addEventListener("change", () => syncHistoryTabs(select.value));
-    }
-
-    if (!accordion.dataset.csHistoryDefaultBound) {
-      accordion.dataset.csHistoryDefaultBound = "1";
-      accordion.addEventListener("toggle", () => {
-        if (!accordion.open || accordion.dataset.csHistoryDefaultApplied === "1") return;
-        accordion.dataset.csHistoryDefaultApplied = "1";
-        if (!select.value) activateHistoryFilter("completed");
-        else syncHistoryTabs(select.value);
-      }, true);
-    }
-
-    const currentSummary = $("#addition_history_summary");
-    if (currentSummary && normalize(currentSummary.textContent).startsWith("Carregando")) currentSummary.textContent = "0 item(ns)";
-    syncHistoryTabs(select.value);
     return true;
   }
 
