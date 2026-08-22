@@ -59,10 +59,11 @@ def _backfill_completed_addition_history() -> int:
             ).fetchall()
         ]
         for row in rows:
+            job_id = _clean(row.get("job_id"))
             previous = connection.execute(
                 "SELECT COALESCE(MAX(attempt_no), 0) AS attempt_no "
                 "FROM addition_attempt_history WHERE job_id=?",
-                (_clean(row.get("job_id")),),
+                (job_id,),
             ).fetchone()
             previous_no = _safe_int(previous["attempt_no"] if previous else 0)
             attempt_no = max(1, _safe_int(row.get("attempts")), previous_no + 1)
@@ -92,9 +93,9 @@ def _backfill_completed_addition_history() -> int:
                           100, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    logs,
-                    _clean(row.get("job_id")),
+                    job_id,
                     attempt_no,
+                    logs,
                     _clean(row.get("source_name")) or _clean(row.get("title")),
                     _clean(row.get("source_version")),
                     _clean(row.get("source_product_url")),
@@ -111,7 +112,7 @@ def _backfill_completed_addition_history() -> int:
             if _safe_int(row.get("attempts")) < attempt_no:
                 connection.execute(
                     "UPDATE addition_jobs SET attempts=? WHERE job_id=?",
-                    (attempt_no, _clean(row.get("job_id"))),
+                    (attempt_no, job_id),
                 )
             inserted += 1
     return inserted
