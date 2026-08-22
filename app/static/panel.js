@@ -5810,7 +5810,7 @@ function updateRelationshipLabel(value) {
   return UPDATE_RELATIONSHIP_LABELS[normalized] || (normalized ? "Outro relacionamento" : "Não informado");
 }
 
-const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: LISTING_DEFAULT_PAGE_SIZE, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:LISTING_DEFAULT_PAGE_SIZE, historyMode:"completed", historyPage:1, historyPageSize:LISTING_DEFAULT_PAGE_SIZE, poll:null, runtimeSignature:"", renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:LISTING_DEFAULT_PAGE_SIZE};
+const UPDATE_QUEUE = {jobs: [], filtered: [], workingFiltered: [], selected: new Set(), cancel: false, modalJob: null, page: 1, pageSize: LISTING_DEFAULT_PAGE_SIZE, queue: {status:"stopped",queued:[],executing:[]}, queuePage:1, queuePageSize:LISTING_DEFAULT_PAGE_SIZE, poll:null, runtimeSignature:"", renameQueueName:"", previewQueueName:"", previewItems:[], previewMetadata:null, previewPage:1, previewPageSize:LISTING_DEFAULT_PAGE_SIZE};
 
 function updateRuntimeSignature(jobs, queue) {
   const compactJobs=(Array.isArray(jobs)?jobs:[]).map(job=>[
@@ -5873,7 +5873,7 @@ function renderUpdateJobs(jobs = UPDATE_QUEUE.jobs) {
   updateFilteredJobs(); renderUpdateSummary();
   const wrap = byId("updates_jobs");
   if (!wrap) return;
-  renderOperationalQueue(); renderUpdateHistory();
+  renderOperationalQueue(); window.OperationalHistory?.invalidate("update");
   const excludedStates=["queued","executing","completed","rolled_back","error","failed","rollback_required","canceled","interrupted"];
   const baseWorking=UPDATE_QUEUE.jobs.filter(j=>!excludedStates.includes(j.state));
   const working=UPDATE_QUEUE.filtered.filter(j=>!excludedStates.includes(j.state));
@@ -5989,39 +5989,6 @@ async function openUpdateListPreviewModal(name){UPDATE_QUEUE.previewQueueName=na
 function closeUpdateListPreviewModal(){byId("update_list_preview_modal")?.classList.add("hidden");UPDATE_QUEUE.previewQueueName="";}
 
 async function handleUpdateListAction(button){const row=button.closest("[data-update-list-name]"),name=normalizeText(row?.dataset.updateListName),displayName=updateQueueDisplayName(name),action=button.dataset.updateListAction;if(!name)return;if(action==="rename"){openUpdateListRenameModal(name);return;}if(action==="preview"){await openUpdateListPreviewModal(name);return;}button.disabled=true;try{let result;if(action==="activate")result=await postJson("/atualizacoes/filas/selecionar",{name});else if(action==="clear"){if(!confirm(`Limpar todos os itens da lista "${displayName}"? A lista será mantida e ficará com 0 itens.`))return;result=await postJson("/atualizacoes/filas/limpar",{name});notify(`Lista ${displayName} limpa.`,"ok");}else if(action==="delete"){if(!confirm(`Apagar a lista de atualização "${displayName}"? Os itens pendentes nela serão cancelados.`))return;result=await postJson("/atualizacoes/filas/apagar",{name});}if(result?.queue)UPDATE_QUEUE.queue=result.queue;await refreshUpdateJobs();renderUpdateListsManager();}finally{if(document.contains(button))button.disabled=false;}}
-function renderUpdateHistory(){
-  const states=UPDATE_QUEUE.historyMode==="completed"?["completed","rolled_back"]:["error","failed","blocked","rollback_required","canceled","interrupted"];
-  const allHistoryStates=["completed","rolled_back","error","failed","blocked","rollback_required","canceled","interrupted"];
-  const query=normalizeText(byId("updates_history_search")?.value).toLowerCase();
-  const statusFilter=normalizeText(byId("updates_history_status_filter")?.value);
-  const items=UPDATE_QUEUE.jobs.filter(j=>states.includes(j.state)&&(!statusFilter||j.state===statusFilter)&&(!query||`${j.name} ${j.woo_product_id}`.toLowerCase().includes(query)));
-  UPDATE_QUEUE.historyPageSize=normalizeListingPageSize(byId("updates_history_page_size")?.value,LISTING_DEFAULT_PAGE_SIZE);
-  const pages=Math.max(1,Math.ceil(items.length/UPDATE_QUEUE.historyPageSize));
-  UPDATE_QUEUE.historyPage=Math.min(Math.max(1,UPDATE_QUEUE.historyPage),pages);
-  const start=(UPDATE_QUEUE.historyPage-1)*UPDATE_QUEUE.historyPageSize, visible=items.slice(start,start+UPDATE_QUEUE.historyPageSize),wrap=byId("updates_history");
-  wrap.innerHTML=visible.map(j=>compactUpdateRow(j)).join("")||'<div class="notice">Nenhum item neste histórico.</div>';
-  setText("updates_history_result_meta",listingRangeText(items.length,UPDATE_QUEUE.historyPage,UPDATE_QUEUE.historyPageSize));
-  setText("updates_history_page",`Página ${UPDATE_QUEUE.historyPage} de ${pages}`);
-  setText("updates_history_summary",`${items.length} item(ns)`);
-  setDisabled("updates_history_prev",UPDATE_QUEUE.historyPage<=1);setDisabled("updates_history_next",UPDATE_QUEUE.historyPage>=pages);
-  const completedTab=byId("updates_history_completed"),errorsTab=byId("updates_history_errors"),completedActive=UPDATE_QUEUE.historyMode==="completed";
-  const completedCount=UPDATE_QUEUE.jobs.filter(job=>["completed","rolled_back"].includes(job.state)).length;
-  const errorCount=UPDATE_QUEUE.jobs.filter(job=>["error","failed","blocked","rollback_required","canceled","interrupted"].includes(job.state)).length;
-  if(completedTab)completedTab.textContent=`Concluídos (${completedCount})`;if(errorsTab)errorsTab.textContent=`Erros (${errorCount})`;
-  completedTab?.classList.toggle("is-active",completedActive);errorsTab?.classList.toggle("is-active",!completedActive);
-  completedTab?.setAttribute("aria-selected",String(completedActive));errorsTab?.setAttribute("aria-selected",String(!completedActive));
-  const hasHistory=UPDATE_QUEUE.jobs.some(job=>allHistoryStates.includes(job.state));
-  byId("updates_history_controls")?.classList.toggle("hidden",!hasHistory);
-  setDisabled("updates_history_download",!hasHistory);setDisabled("updates_history_delete",!hasHistory);
-  bindOperationalDetails(wrap);
-}
-
-async function deleteUpdateHistory(){
-  if(!confirm("Apagar todo o histórico de atualizações? Os registros concluídos e com erro serão removidos dos cards e das contagens. Esta ação não pode ser desfeita."))return;
-  const button=byId("updates_history_delete");if(button)button.disabled=true;
-  try{const result=await postJson("/atualizacoes/historico/apagar",{});UPDATE_QUEUE.selected.clear();UPDATE_QUEUE.historyPage=1;await refreshUpdateJobs();notify(`${result.removed||0} registro(s) removido(s) do histórico.`,"ok");}finally{renderUpdateHistory();}
-}
-
 function renderUpdateLogs(logs) {
   const target = byId("updates_log");
   if (!target) return;
@@ -6569,7 +6536,6 @@ function bindMainTabs() {
   byId("updates_queue_search")?.addEventListener("input",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_status_filter")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
   byId("updates_queue_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.queuePage=1;renderOperationalQueue();});
-  byId("updates_history_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
   byId("update_list_preview_page_size")?.addEventListener("change",()=>{UPDATE_QUEUE.previewPage=1;renderUpdateListPreview();});
   byId("updates_queue_prev")?.addEventListener("click",()=>{UPDATE_QUEUE.queuePage=Math.max(1,UPDATE_QUEUE.queuePage-1);renderOperationalQueue();});
   byId("updates_queue_next")?.addEventListener("click",()=>{UPDATE_QUEUE.queuePage+=1;renderOperationalQueue();});
@@ -6587,11 +6553,6 @@ function bindMainTabs() {
   byId("update_list_preview_prev")?.addEventListener("click",()=>{UPDATE_QUEUE.previewPage=Math.max(1,UPDATE_QUEUE.previewPage-1);renderUpdateListPreview();});
   byId("update_list_preview_next")?.addEventListener("click",()=>{UPDATE_QUEUE.previewPage+=1;renderUpdateListPreview();});
   byId("updates_environment_toggle")?.addEventListener("click",()=>{const details=byId("updates_environment_details"),hidden=details.classList.toggle("hidden"),button=byId("updates_environment_toggle");button.setAttribute("aria-expanded",String(!hidden));button.textContent=hidden?"Ver diagnóstico":"Ocultar diagnóstico";});
-  byId("updates_history_completed")?.addEventListener("click",()=>{UPDATE_QUEUE.historyMode="completed";if(byId("updates_history_status_filter"))byId("updates_history_status_filter").value="";UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
-  byId("updates_history_errors")?.addEventListener("click",()=>{UPDATE_QUEUE.historyMode="errors";if(byId("updates_history_status_filter"))byId("updates_history_status_filter").value="";UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
-  byId("updates_history_status_filter")?.addEventListener("change",()=>{UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
-  byId("updates_history_download")?.addEventListener("click",()=>{window.location.href="/atualizacoes/historico/baixar";});
-  byId("updates_history_delete")?.addEventListener("click",()=>deleteUpdateHistory().catch(error=>notify(error?.message||String(error),"error")));
   qsa("[data-update-modal-close]").forEach(node=>node.addEventListener("click",()=>byId("update_execute_modal")?.classList.add("hidden")));
   byId("update_execute_confirmation")?.addEventListener("input",event=>{const job=UPDATE_QUEUE.modalJob;byId("update_execute_confirm").disabled=!job||event.target.value!==`EXECUTAR ${job.woo_product_id}`;});
   byId("update_execute_confirm")?.addEventListener("click",confirmUpdateExecution);
@@ -6638,9 +6599,6 @@ function bindMainTabs() {
   byId("catalogos_search")?.addEventListener("input",()=>{UI.catalogPage=1;refreshCatalogos();});
   byId("catalogos_prev_page")?.addEventListener("click",()=>{UI.catalogPage=Math.max(1,toInt(UI.catalogPage,1)-1);refreshCatalogos();});
   byId("catalogos_next_page")?.addEventListener("click",()=>{UI.catalogPage=toInt(UI.catalogPage,1)+1;refreshCatalogos();});
-  byId("updates_history_search")?.addEventListener("input",()=>{UPDATE_QUEUE.historyPage=1;renderUpdateHistory();});
-  byId("updates_history_prev")?.addEventListener("click",()=>{UPDATE_QUEUE.historyPage=Math.max(1,UPDATE_QUEUE.historyPage-1);renderUpdateHistory();});
-  byId("updates_history_next")?.addEventListener("click",()=>{UPDATE_QUEUE.historyPage+=1;renderUpdateHistory();});
 
   activateMainTab("principal");
 }
