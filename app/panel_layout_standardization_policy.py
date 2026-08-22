@@ -12,6 +12,7 @@ _SCRIPT_PATHS = (
     ("data-operational-ui-parity", Path(__file__).resolve().parent / "static" / "operational_ui_parity.js"),
     ("data-operational-ui-final-alignment", Path(__file__).resolve().parent / "static" / "operational_ui_final_alignment.js"),
     ("data-operational-ui-consistency-v4", Path(__file__).resolve().parent / "static" / "operational_ui_consistency_v4.js"),
+    ("data-operational-ui-card-parity-v5", Path(__file__).resolve().parent / "static" / "operational_ui_card_parity_v5.js"),
 )
 
 _ADDITION_PROGRESS_MARKER = (
