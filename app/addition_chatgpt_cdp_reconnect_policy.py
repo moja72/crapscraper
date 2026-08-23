@@ -197,6 +197,51 @@ def _ensure_project_page_resilient(
     raise RuntimeError("Tempo esgotado aguardando a caixa de mensagem do projeto ChatGPT.")
 
 
+def _fill_composer_without_pointer_click(page: Any, composer: Any, prompt: str) -> None:
+    """Preenche o editor do projeto sem depender de um clique físico no ProseMirror."""
+    first_error: BaseException | None = None
+    try:
+        composer.fill(prompt, timeout=10_000)
+        return
+    except Exception as error:
+        first_error = error
+
+    try:
+        composer.focus(timeout=5_000)
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(prompt)
+        return
+    except Exception:
+        pass
+
+    try:
+        composer.evaluate(
+            """
+            (el, text) => {
+              el.focus();
+              if (el.isContentEditable) {
+                el.textContent = '';
+                el.textContent = String(text || '');
+              } else {
+                el.value = String(text || '');
+              }
+              el.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                inputType: 'insertText',
+                data: String(text || '')
+              }));
+              el.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+            """,
+            prompt,
+        )
+        return
+    except Exception as error:
+        raise RuntimeError(
+            "A caixa de mensagem do novo chat foi encontrada, mas não pôde receber o prompt."
+        ) from (first_error or error)
+
+
 def _send_message_resilient(
     context: Any,
     page: Any,
@@ -212,12 +257,12 @@ def _send_message_resilient(
     if composer is None:
         raise RuntimeError("A caixa de mensagem do ChatGPT desapareceu antes do envio.")
 
-    composer.click()
-    try:
-        composer.fill(prompt)
-    except Exception:
-        current.keyboard.press("Control+A")
-        current.keyboard.insert_text(prompt)
+    # Na raiz do projeto o compositor já representa "Novo chat em [Projeto]".
+    # Evite locator.click(): no layout atual o ProseMirror pode estar visível,
+    # habilitado e estável e mesmo assim manter a ação de ponteiro bloqueada até
+    # o timeout. fill/focus usam o editor diretamente e o primeiro envio cria a
+    # conversa dentro do projeto.
+    _fill_composer_without_pointer_click(current, composer, prompt)
     time.sleep(0.25)
 
     sent = False
@@ -229,13 +274,15 @@ def _send_message_resilient(
         try:
             button = current.locator(selector).first
             if button.count() and button.is_visible() and button.is_enabled():
-                button.click()
+                button.click(timeout=5_000)
                 sent = True
                 break
         except Exception:
             continue
 
     if not sent:
+        # O editor permanece focado após fill/focus. Enter é um fallback mais
+        # estável que insistir em um clique de ponteiro bloqueado pelo layout.
         current.keyboard.press("Enter")
 
     return current, before_count, before_images
