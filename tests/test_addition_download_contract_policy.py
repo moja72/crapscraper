@@ -52,6 +52,25 @@ class AdditionDownloadContractPolicyTests(unittest.TestCase):
             )
         )
 
+    def test_lifetime_requires_no_expiry(self):
+        variation = {
+            "id": 11,
+            "name": "Produto - Vitalício",
+            "attributes": [{"option": "vitalício"}],
+            "download_expiry": -1,
+            "downloads": [{
+                "name": "Produto",
+                "file": "/home/plugintema.com/downloads/produto.zip",
+            }],
+        }
+        self.assertTrue(
+            policy._variation_matches_contract(
+                variation,
+                title="Produto",
+                file_path="/home/plugintema.com/downloads/produto.zip",
+            )
+        )
+
     def test_payload_keeps_lifetime_unlimited_and_sets_annual_expiry(self):
         annual = policy._variation_payload(
             "annual",
@@ -70,6 +89,18 @@ class AdditionDownloadContractPolicyTests(unittest.TestCase):
             annual["downloads"][0]["file"],
             "/home/plugintema.com/downloads/produto.zip",
         )
+
+    def test_remote_writer_uses_woocommerce_objects_instead_of_rest_file_url(self):
+        encoded = policy._remote_php_payload(
+            "Produto",
+            "/home/plugintema.com/downloads/produto.zip",
+            [{"id": 10, "period": "annual"}],
+        )
+        program = policy._remote_php_program(encoded)
+        self.assertIn("WC_Product_Variation", program)
+        self.assertIn("set_downloads", program)
+        self.assertIn("set_download_expiry", program)
+        self.assertIn("set_file", program)
 
 
 if __name__ == "__main__":
