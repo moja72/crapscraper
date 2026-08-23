@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import suppress
 from typing import Any, Callable, Mapping
 
@@ -14,9 +15,33 @@ import app.web as web
 _INSTALLED = False
 _BASE_DOWNLOAD_SOURCE: Callable[..., dict[str, Any]] | None = None
 
+_DIRECT_TIMEOUT_SECONDS = 90
+_DIRECT_RETRIES = 3
+_DIRECT_RETRY_DELAY_SECONDS = 1.0
+_TRANSIENT_MARKERS = (
+    "timed out",
+    "timeout",
+    "urlopen error",
+    "temporarily unavailable",
+    "temporary failure",
+    "connection reset",
+    "connection aborted",
+    "remote end closed",
+    "read timed out",
+    "read timeout",
+    "502",
+    "503",
+    "504",
+)
+
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def _is_transient_error(error: BaseException) -> bool:
+    text = _clean(error).lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
 def _account_key(primary: Any) -> str:
@@ -98,7 +123,7 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
                 cookies = list(context.cookies(["https://plugintheme.net", "https://api.plugintheme.net"]) or [])
                 page = context.pages[0] if context.pages else context.new_page()
                 try:
-                    page.goto("https://plugintheme.net/pt-BR/account", wait_until="domcontentloaded", timeout=30_000)
+                    page.goto("https://plugintheme.net/pt-BR/account", wait_until="domcontentloaded", timeout=45_000)
                 except Exception:
                     pass
                 with suppress(Exception):
@@ -152,6 +177,32 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
     )
 
 
+def _direct_download_resilient(job_id: str, session: Any) -> dict[str, Any]:
+    from app.integrations.plugintheme_download import PluginThemeDownloader
+
+    job = additions._row(job_id)
+    source_url = _clean(job.get("source_product_url"))
+    staging_dir = additions._STAGING_ROOT / additions._safe_job_id(job_id)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    downloader = PluginThemeDownloader(
+        session,
+        timeout=_DIRECT_TIMEOUT_SECONDS,
+        retries=_DIRECT_RETRIES,
+        retry_delay=_DIRECT_RETRY_DELAY_SECONDS,
+    )
+    artifact, detected_version = downloader.download(source_url, staging_dir)
+    one_click._emit(
+        job_id,
+        (
+            "ZIP recuperado pela sessão HTTP direta do PluginTheme com timeout estendido "
+            f"({_DIRECT_TIMEOUT_SECONDS}s) e retry de rede."
+        ),
+        step="zip",
+        progress=83,
+    )
+    return retry._persist_download(job_id, artifact, detected_version)
+
+
 def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[str, Any]:
     if _BASE_DOWNLOAD_SOURCE is None:
         raise RuntimeError("Downloader PluginTheme base indisponível.")
@@ -164,10 +215,34 @@ def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[st
     try:
         return _BASE_DOWNLOAD_SOURCE(job_id, manager)
     except Exception as first_error:
-        if retry._is_credit_error(first_error) or not retry._is_plugintheme_session_error(first_error):
+        if retry._is_credit_error(first_error):
+            raise
+        is_session = retry._is_plugintheme_session_error(first_error)
+        is_transient = _is_transient_error(first_error)
+        if not is_session and not is_transient:
             raise
 
         primary = web._get_primary_app(manager) if manager is not None else None
+
+        if is_transient:
+            one_click._emit(
+                job_id,
+                "Timeout/falha transitória detectada no PluginTheme. Reaproveitando a sessão e repetindo o ZIP com timeout estendido.",
+                step="zip",
+                progress=81,
+            )
+            for index, session in enumerate(retry._session_candidates(primary), start=1):
+                try:
+                    return _direct_download_resilient(job_id, session)
+                except Exception as direct_error:
+                    if retry._is_credit_error(direct_error):
+                        raise
+                    first_error = direct_error
+                    if not _is_transient_error(direct_error) and not retry._is_plugintheme_session_error(direct_error):
+                        raise
+                    if index < 2:
+                        time.sleep(1.0)
+
         session, detail = _profile_http_session(primary)
         one_click._emit(
             job_id,
@@ -177,11 +252,19 @@ def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[st
         )
         if session is not None:
             try:
-                return retry._direct_plugintheme_download(job_id, session)
+                return _direct_download_resilient(job_id, session)
             except Exception as direct_error:
                 if retry._is_credit_error(direct_error):
                     raise
                 first_error = direct_error
+                is_session = retry._is_plugintheme_session_error(direct_error)
+                is_transient = _is_transient_error(direct_error)
+
+        if is_transient:
+            raise RuntimeError(
+                "PluginTheme respondeu com timeout/falha transitória mesmo após o retry de rede com timeout estendido. "
+                "Não é necessário refazer descrição ou imagem: clique em Tentar novamente para retomar diretamente do ZIP."
+            ) from first_error
 
         raise RuntimeError(
             "Sessão PluginTheme não confirmada mesmo após reler diretamente o perfil renovado. "
