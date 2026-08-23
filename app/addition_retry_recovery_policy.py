@@ -27,7 +27,16 @@ _SESSION_MARKERS = (
     "sessao do plugintheme expirada",
     "sessão plugintheme",
     "sessao plugintheme",
-    "pluginTheme session",
+    "plugintheme session",
+)
+_CREDIT_MARKERS = (
+    "crédito",
+    "credito",
+    "créditos",
+    "creditos",
+    "credit",
+    "credits",
+    "saldo insuficiente",
 )
 
 
@@ -117,7 +126,11 @@ def _validate_store_product_recovering(
         )
     except Exception as first_error:
         message = _clean(first_error).lower()
-        if "breve descrição validada" not in message and "descrição validada" not in message and "descricao validada" not in message:
+        if (
+            "breve descrição validada" not in message
+            and "descrição validada" not in message
+            and "descricao validada" not in message
+        ):
             raise
         if not _repair_remote_product_content(job_id, expected_status):
             raise
@@ -130,7 +143,12 @@ def _validate_store_product_recovering(
 
 def _is_plugintheme_session_error(error: BaseException) -> bool:
     text = str(error or "").strip().lower()
-    return any(marker.lower() in text for marker in _SESSION_MARKERS)
+    return any(marker in text for marker in _SESSION_MARKERS)
+
+
+def _is_credit_error(error: BaseException) -> bool:
+    text = str(error or "").strip().lower()
+    return any(marker in text for marker in _CREDIT_MARKERS)
 
 
 def _unwrap_http_session(value: Any) -> Any | None:
@@ -250,6 +268,8 @@ def _download_source_recovering(job_id: str, manager: Any) -> dict[str, Any]:
     try:
         return _BASE_DOWNLOAD_SOURCE(job_id, manager)
     except Exception as first_error:
+        if _is_credit_error(first_error):
+            raise
         if not _is_plugintheme_session_error(first_error):
             raise
 
@@ -265,22 +285,29 @@ def _download_source_recovering(job_id: str, manager: Any) -> dict[str, Any]:
         try:
             return _BASE_DOWNLOAD_SOURCE(job_id, manager)
         except Exception as second_error:
+            if _is_credit_error(second_error):
+                raise
             if not _is_plugintheme_session_error(second_error):
                 raise
 
             # Alguns builds locais antigos recusam a sessão pelo sinalizador `authenticated`
             # mesmo quando o requests.Session já tem cookies válidos. A API real do produto
             # é a autoridade final: check-access + download precisam aceitar a sessão.
+            direct_errors: list[BaseException] = []
             for session in preserved_sessions + _session_candidates(primary):
                 try:
                     return _direct_plugintheme_download(job_id, session)
-                except Exception:
-                    continue
+                except Exception as direct_error:
+                    direct_errors.append(direct_error)
+
+            for direct_error in direct_errors:
+                if _is_credit_error(direct_error):
+                    raise direct_error
 
             raise RuntimeError(
                 "Sessão PluginTheme ainda não foi confirmada após recarregar o cache. "
                 "Clique em Renovar sessão PluginTheme, conclua o login na janela exclusiva, "
-                "FEche essa janela do Chrome por completo e então clique em Tentar novamente. "
+                "feche essa janela do Chrome por completo e então clique em Tentar novamente. "
                 "O retry agora reaproveita descrição/imagem e retoma diretamente do ZIP."
             ) from second_error
 
