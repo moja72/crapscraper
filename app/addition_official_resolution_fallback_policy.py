@@ -140,6 +140,7 @@ def install_addition_official_resolution_fallback_policy() -> None:
         return
     from app.addition_chat1_official_resolution_policy import install_addition_chat1_official_resolution_policy
     from app.addition_parallel_generation_policy import install_addition_parallel_generation_policy
+    from app.addition_parallel_reference_fallback_policy import install_addition_parallel_reference_fallback_policy
     from app.addition_chat_binding_policy import install_addition_chat_binding_policy
     from app.addition_real_chat_url_policy import install_addition_real_chat_url_policy
     from app.addition_unique_chat_marker_policy import install_addition_unique_chat_marker_policy
@@ -184,6 +185,8 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_comparison_operation_status_policy()
     # Final guard: after every update/addition, preserve or resolve the three catalog metadata fields.
     install_product_custom_fields_guard_policy()
+    # Final guard for the active generator: missing/failed mockup must never abort Preparation.
+    install_addition_parallel_reference_fallback_policy()
     # Operational UI/queue is installed after all business-flow wrappers.
     install_addition_operational_ui_policy()
     # Suppress only the legacy renderers; their endpoints and backend functions stay available.
