@@ -64,29 +64,41 @@ def _strip_image_instructions(base: str) -> str:
     return text.rstrip()
 
 
-def _image_guidance(job: Mapping[str, Any]) -> str:
+def _image_guidance(job: Mapping[str, Any], *, reference_attached: bool) -> str:
     if _kind(job) == "theme":
-        return (
-            "REFERÊNCIA VISUAL OBRIGATÓRIA — TEMA\n"
+        reference_intro = (
+            "REFERÊNCIA VISUAL — TEMA\n"
             "Use o arquivo anexado 'exemplo tema.webp' como referência visual principal. "
-            "A imagem final deve ser quadrada 1:1, com FUNDO TRANSPARENTE e o mais parecida possível com a "
-            "referência em composição, acabamento, proporções, iluminação e apresentação do mockup. "
+            "Mantenha a composição, acabamento, proporções, iluminação e apresentação do mockup. "
+            if reference_attached
+            else "COMPOSIÇÃO VISUAL — TEMA\n"
+            "Não há mockup local anexado nesta execução. Siga diretamente a composição descrita a seguir. "
+        )
+        return (
+            reference_intro
+            + "A imagem final deve ser quadrada 1:1, com FUNDO TRANSPARENTE. "
             "Mostre explicitamente o tema nas telas de um computador e de um celular; a posição do celular pode "
             "mudar, mas as duas telas precisam ficar claramente visíveis. O computador deve usar um monitor Apple. "
             "Nas telas, represente visualmente o tema real deste produto com base nas informações/páginas fornecidas, "
             "sem inventar uma identidade diferente. Não use cenário ou fundo sólido e não corte os dispositivos."
         )
 
-    return (
-        "REFERÊNCIA VISUAL OBRIGATÓRIA — PLUGIN\n"
+    reference_intro = (
+        "REFERÊNCIA VISUAL — PLUGIN\n"
         "Use o arquivo anexado 'exemplo plugin.webp' como referência visual principal. "
-        "Refaça a caixa mantendo proporção e linguagem visual o mais próximas possível da referência, em imagem "
-        "quadrada 1:1 e com FUNDO TRANSPARENTE. A caixa deve ser profissional, bem construída e mostrar pelo menos "
-        "3 lados/faces visíveis; o ângulo pode variar, desde que preserve a sensação tridimensional e a qualidade do "
-        "mockup original. Use a logo real do plugin e cores associadas à identidade do produto, sem inventar outra "
-        "marca. Use a fonte Quicksand nas informações da embalagem e deixe claramente visível exatamente o texto "
-        "'Vitalício | Ilimitado | Atualizado'. Evite textos adicionais pequenos ou ilegíveis, não use cenário e "
-        "não corte a caixa."
+        "Mantenha a proporção e a linguagem visual do mockup anexado. "
+        if reference_attached
+        else "COMPOSIÇÃO VISUAL — PLUGIN\n"
+        "Não há mockup local anexado nesta execução. Siga diretamente a composição descrita a seguir. "
+    )
+    return (
+        reference_intro
+        + "Crie uma caixa tridimensional profissional em imagem quadrada 1:1 e com FUNDO TRANSPARENTE. "
+        "A caixa deve ser bem construída e mostrar pelo menos 3 lados/faces visíveis; o ângulo pode variar, desde "
+        "que preserve a sensação tridimensional e a qualidade do mockup. Use a logo real do plugin e cores "
+        "associadas à identidade do produto, sem inventar outra marca. Use a fonte Quicksand nas informações da "
+        "embalagem e deixe claramente visível exatamente o texto 'Vitalício | Ilimitado | Atualizado'. Evite textos "
+        "adicionais pequenos ou ilegíveis, não use cenário e não corte a caixa."
     )
 
 
@@ -114,7 +126,7 @@ def _is_image_request(prompt: str) -> bool:
     )
 
 
-def _image_only_prompt(job: Mapping[str, Any]) -> str:
+def _image_only_prompt(job: Mapping[str, Any], *, reference_attached: bool) -> str:
     title = str(job.get("title") or job.get("source_name") or "produto WordPress").strip()
     source_url = str(job.get("source_product_url") or "").strip()
     official_url = str(job.get("source_official_url") or "").strip()
@@ -127,18 +139,22 @@ def _image_only_prompt(job: Mapping[str, Any]) -> str:
     if official_url:
         context_lines.append(f"Página oficial: {official_url}")
 
+    reference_requirement = (
+        "- Use o anexo apenas como referência de composição; adapte o conteúdo visual para o produto atual."
+        if reference_attached
+        else "- Como não há mockup local anexado, siga rigorosamente a composição descrita acima."
+    )
     return (
         "Agora gere SOMENTE a imagem principal do produto. Não responda com texto fora da geração da imagem.\n\n"
         + "\n".join(context_lines)
         + "\n\n"
-        + _image_guidance(job)
+        + _image_guidance(job, reference_attached=reference_attached)
         + "\n\nREQUISITOS FINAIS\n"
         "- Formato quadrado 1:1.\n"
         "- Fundo totalmente transparente, inclusive nas bordas e áreas vazias.\n"
         "- Alta qualidade para uso como capa de produto em e-commerce.\n"
-        "- Preserve a aparência geral, o nível de acabamento e a lógica de composição da imagem de referência.\n"
         "- Use a identidade visual verdadeira do produto atual; não invente logotipo ou marca.\n"
-        "- A referência anexada define o estilo/composição; adapte apenas o conteúdo visual para o produto atual."
+        + reference_requirement
     )
 
 
@@ -162,7 +178,7 @@ def _attach_reference(page: Any, reference_path: Path, job_id: str) -> bool:
     if not reference_path.exists() or not reference_path.is_file():
         one_click._emit(
             job_id,
-            f"Referência visual obrigatória não encontrada: {reference_path}.",
+            f"Referência visual local não encontrada ({reference_path.name}); continuando a geração sem o mockup de referência.",
             step="chatgpt_image",
         )
         return False
@@ -261,7 +277,7 @@ def _attach_reference(page: Any, reference_path: Path, job_id: str) -> bool:
 
     one_click._emit(
         job_id,
-        f"Falha ao anexar a referência visual {reference_path.name}; a geração da imagem foi interrompida.",
+        f"Não foi possível anexar {reference_path.name}; continuando a geração sem o mockup de referência.",
         step="chatgpt_image",
     )
     return False
@@ -278,12 +294,9 @@ def _patched_send_message(page: Any, prompt: str, job_id: str) -> tuple[int, set
         job = {"kind": "plugin", "source_name": "produto WordPress"}
 
     if _is_image_request(final_prompt):
-        final_prompt = _image_only_prompt(job)
         reference = _reference_path(job)
-        if not _attach_reference(page, reference, job_id):
-            raise RuntimeError(
-                f"Não foi possível anexar a referência visual obrigatória {reference.name}."
-            )
+        reference_attached = _attach_reference(page, reference, job_id)
+        final_prompt = _image_only_prompt(job, reference_attached=reference_attached)
 
     return _BASE_SEND_MESSAGE(page, final_prompt, job_id)
 
