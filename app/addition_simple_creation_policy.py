@@ -192,14 +192,16 @@ def _save_plain_description(job_id: str, description: str) -> dict[str, Any]:
     return additions._row(job_id)
 
 
+def _prepare_image_request(page: Any, job: Mapping[str, Any], job_id: str) -> tuple[Path, bool, str]:
+    """Monta o pedido visual usando o mockup local somente quando ele estiver disponível."""
+    reference = creative._reference_path(job)
+    reference_attached = creative._attach_reference(page, reference, job_id)
+    image_prompt = creative._image_only_prompt(job, reference_attached=reference_attached)
+    return reference, reference_attached, image_prompt
+
+
 def _run_two_chats(job_id: str) -> dict[str, Any]:
     job = additions._row(job_id)
-    reference = creative._reference_path(job)
-    if not reference.exists():
-        raise RuntimeError(
-            f"Referência visual obrigatória não encontrada em {reference}. "
-            "Confirme Exemplo Plugin.webp e Exemplo Tema.webp em app/static."
-        )
 
     url = coproducao._project_url()
     endpoint, profile_dir = cdp._ensure_debug_browser(url)
@@ -258,21 +260,14 @@ def _run_two_chats(job_id: str) -> dict[str, Any]:
         # CHAT 2: volta à raiz do projeto para iniciar outra conversa.
         job = additions._row(job_id)
         page = _fresh_project_chat(context, page, job_id, url, "Chat 2/2 — imagem")
+        reference, reference_attached, image_prompt = _prepare_image_request(page, job, job_id)
         one_click._emit(
             job_id,
-            f"Chat 2/2: anexando a referência {reference.name} antes do prompt.",
-            step="chatgpt_image",
-            progress=50,
-        )
-        if not creative._attach_reference(page, reference, job_id):
-            raise RuntimeError(
-                f"Não foi possível anexar a referência visual obrigatória {reference.name}."
-            )
-
-        image_prompt = creative._image_only_prompt(job)
-        one_click._emit(
-            job_id,
-            "Chat 2/2: referência anexada. Enviando somente o pedido da imagem.",
+            (
+                f"Chat 2/2: referência {reference.name} anexada. Enviando somente o pedido da imagem."
+                if reference_attached
+                else "Chat 2/2: sem referência local anexada; usando a composição visual definida para o produto."
+            ),
             step="chatgpt_image",
             progress=58,
         )
