@@ -59,7 +59,7 @@ class PreparationExecutionGateTests(unittest.TestCase):
         self.assertEqual(result["not_ready"], 1)
         self.assertEqual(result["queue"]["status"], "stopped")
 
-    def test_retry_returns_to_preparation_without_auto_enqueue(self):
+    def test_retry_error_restarts_preparation_and_execution_pipeline(self):
         row = {
             "job_id": "erro-1",
             "approval_active": 1,
@@ -68,12 +68,16 @@ class PreparationExecutionGateTests(unittest.TestCase):
             "active_attempt_id": 0,
         }
         changes: list[dict] = []
-        workers: list[object] = []
+        attempts: list[str] = []
+        preparation_workers: list[object] = []
+        queue_workers: list[bool] = []
+        runtimes: list[str] = []
 
         with (
             patch.object(gate.additions_ui, "_normalize_job_ids", lambda _payload: ["erro-1"]),
             patch.object(gate.additions_ui, "_job_snapshot", lambda _job_id: dict(row)),
             patch.object(gate.additions_ui, "_prepared_local", lambda _row: False),
+            patch.object(gate.additions_ui, "_create_attempt", lambda job_id: attempts.append(job_id) or 1),
             patch.object(
                 gate.additions_ui,
                 "_update_operation",
@@ -82,21 +86,76 @@ class PreparationExecutionGateTests(unittest.TestCase):
             patch.object(
                 gate.additions_ui,
                 "_start_preparation_worker",
-                lambda manager: workers.append(manager) or True,
+                lambda manager: preparation_workers.append(manager) or True,
             ),
-            patch.object(gate.additions_ui, "_queue_runtime", lambda: {"status": "stopped"}),
+            patch.object(
+                gate.additions_ui,
+                "_start_queue_worker",
+                lambda: queue_workers.append(True) or True,
+            ),
+            patch.object(
+                gate.additions_ui,
+                "_set_queue_runtime",
+                lambda status: runtimes.append(status) or {"status": status},
+            ),
+            patch.object(gate.additions_ui, "_queue_runtime", lambda: {"status": runtimes[-1] if runtimes else "stopped"}),
             patch.object(gate.additions_ui, "_enqueue_ready", _fail_if_called),
-            patch.object(gate.additions_ui, "_set_queue_runtime", _fail_if_called),
-            patch.object(gate.additions_ui, "_start_queue_worker", _fail_if_called),
         ):
             result = gate._request_add({"job_ids": ["erro-1"]}, manager="manager", retry=True)
 
         self.assertEqual(result["preparing"], 1)
         self.assertEqual(result["queued"], 0)
-        self.assertEqual(workers, ["manager"])
+        self.assertEqual(attempts, ["erro-1"])
+        self.assertEqual(preparation_workers, ["manager"])
+        self.assertEqual(queue_workers, [True])
+        self.assertEqual(runtimes, ["running"])
         self.assertTrue(changes)
         self.assertEqual(changes[-1]["queue_state"], "preparing")
-        self.assertEqual(changes[-1]["enqueue_after_prepare"], 0)
+        self.assertEqual(changes[-1]["enqueue_after_prepare"], 1)
+        self.assertIn("preparação e execução", result["message"])
+        self.assertEqual(result["queue"]["status"], "running")
+
+    def test_retry_preparation_preserves_queued_result_for_worker(self):
+        state = {
+            "job_id": "erro-1",
+            "queue_state": "preparing",
+            "enqueue_after_prepare": 1,
+        }
+        updates: list[dict] = []
+
+        def snapshot(_job_id):
+            return dict(state)
+
+        def base_prepare(_job_id, _manager):
+            state["queue_state"] = "queued"
+            state["enqueue_after_prepare"] = 0
+
+        previous_base = gate._BASE_PREPARE_ONE
+        gate._BASE_PREPARE_ONE = base_prepare
+        try:
+            with (
+                patch.object(gate.additions_ui, "_job_snapshot", snapshot),
+                patch.object(
+                    gate.additions_ui,
+                    "_update_operation",
+                    lambda _job_id, **values: updates.append(values) or state.update(values) or dict(state),
+                ),
+                patch.object(gate.additions_ui, "_renumber_queue", _fail_if_called),
+            ):
+                gate._prepare_one("erro-1", manager=None)
+        finally:
+            gate._BASE_PREPARE_ONE = previous_base
+
+        self.assertEqual(state["queue_state"], "queued")
+        self.assertFalse(any(update.get("queue_state") == "ready" for update in updates))
+
+    def test_pending_retry_keeps_queue_worker_alive(self):
+        previous = gate._BASE_HAS_PENDING_PIPELINE
+        gate._BASE_HAS_PENDING_PIPELINE = lambda: True
+        try:
+            self.assertTrue(gate._has_pending_auto_pipeline())
+        finally:
+            gate._BASE_HAS_PENDING_PIPELINE = previous
 
     def test_start_queue_does_not_promote_ready_items(self):
         class Cursor:
