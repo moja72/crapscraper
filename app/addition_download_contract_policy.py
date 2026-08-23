@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
 import html as html_lib
+import json
+import os
+import shlex
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 from urllib.parse import unquote, urlsplit
@@ -10,6 +14,8 @@ import app.addition_full_product_creation_policy as full_creation
 import app.addition_one_click_policy as one_click
 import app.addition_operational_ui_policy as operational
 import app.new_product_workflow_policy as additions
+from app.integrations.ssh_storage import ReadOnlySSHStorage
+from app.integrations.wordpress import sanitize_text
 from app.store_pricing import variation_period
 
 
@@ -85,6 +91,13 @@ def _download_file_path(job: Mapping[str, Any], variations: list[Mapping[str, An
     return str(PurePosixPath(_download_root()) / filename)
 
 
+def _wordpress_root() -> str:
+    configured = _clean(os.getenv("SCRAPER_WP_ROOT", ""))
+    if configured:
+        return str(PurePosixPath(configured))
+    return str(PurePosixPath(_download_root()).parent / "public_html")
+
+
 def _variation_download(variation: Mapping[str, Any]) -> Mapping[str, Any] | None:
     downloads = [item for item in (variation.get("downloads") or []) if isinstance(item, Mapping)]
     return downloads[0] if len(downloads) == 1 else None
@@ -106,12 +119,12 @@ def _variation_matches_contract(
     remote_file = _clean(download.get("file"))
     if remote_name != title or remote_file != file_path:
         return False
-    if period == "annual" and _safe_int(variation.get("download_expiry"), -1) != _ANNUAL_DOWNLOAD_EXPIRY_DAYS:
-        return False
-    return True
+    expected_expiry = _ANNUAL_DOWNLOAD_EXPIRY_DAYS if period == "annual" else -1
+    return _safe_int(variation.get("download_expiry"), -1) == expected_expiry
 
 
 def _variation_payload(period: str, title: str, file_path: str) -> dict[str, Any]:
+    """Contrato lógico. Não é enviado pela REST porque downloads.file é validado como URL."""
     payload: dict[str, Any] = {
         "downloadable": True,
         "virtual": True,
@@ -122,11 +135,117 @@ def _variation_payload(period: str, title: str, file_path: str) -> dict[str, Any
     return payload
 
 
+def _remote_php_payload(title: str, file_path: str, targets: list[dict[str, Any]]) -> str:
+    raw = json.dumps(
+        {"title": title, "file": file_path, "targets": targets},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _remote_php_program(encoded_payload: str) -> str:
+    return (
+        "$cfg=json_decode(base64_decode('" + encoded_payload + "'),true);"
+        "if(!is_array($cfg)){throw new Exception('payload invalido');}"
+        "if(!function_exists('wc_get_product')){throw new Exception('WooCommerce indisponivel');}"
+        "$out=array();"
+        "foreach(($cfg['targets']??array()) as $row){"
+        "$id=(int)($row['id']??0);$period=(string)($row['period']??'');"
+        "$product=wc_get_product($id);"
+        "if(!$product||!is_a($product,'WC_Product_Variation')){throw new Exception('variacao nao encontrada: '.$id);}"
+        "$downloads=$product->get_downloads('edit');"
+        "if(empty($downloads)){throw new Exception('variacao sem download: '.$id);}"
+        "$updated=array();"
+        "foreach($downloads as $key=>$download){"
+        "if(!$download instanceof WC_Product_Download){continue;}"
+        "$download->set_name((string)$cfg['title']);"
+        "$download->set_file((string)$cfg['file']);"
+        "$updated[$key]=$download;"
+        "}"
+        "if(empty($updated)){throw new Exception('download invalido: '.$id);}"
+        "$product->set_downloadable(true);$product->set_virtual(true);"
+        "$product->set_downloads($updated);"
+        "$product->set_download_expiry($period==='annual'?365:-1);"
+        "$product->save();"
+        "$out[]=array('id'=>$id,'period'=>$period);"
+        "}"
+        "echo json_encode(array('ok'=>true,'variations'=>$out),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);"
+    )
+
+
+def _exec_remote(client: Any, command: str, *, timeout: int = 120) -> tuple[int, str, str]:
+    _stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+    out = stdout.read().decode("utf-8", "replace")
+    err = stderr.read().decode("utf-8", "replace")
+    status = int(stdout.channel.recv_exit_status())
+    return status, out, err
+
+
+def _apply_server_side(
+    title: str,
+    file_path: str,
+    targets: list[dict[str, Any]],
+    *,
+    ssh: ReadOnlySSHStorage | None = None,
+) -> None:
+    if not targets:
+        return
+    encoded = _remote_php_payload(title, file_path, targets)
+    program = _remote_php_program(encoded)
+    root = _wordpress_root()
+    wp_command = (
+        "wp --path=" + shlex.quote(root) + " --allow-root eval " + shlex.quote(program)
+    )
+    php_program = "require_once " + repr(str(PurePosixPath(root) / "wp-load.php")) + ";" + program
+    php_command = "php -r " + shlex.quote(php_program)
+
+    owned = ssh is None
+    reader = ssh or ReadOnlySSHStorage.from_env()
+    try:
+        if owned:
+            reader.connect()
+        client = getattr(reader, "_client", None)
+        if client is None:
+            raise RuntimeError("Conexão SSH não disponível para corrigir as variações.")
+
+        attempts: list[str] = []
+        for label, command in (("wp-cli", wp_command), ("php-cli", php_command)):
+            try:
+                status, out, err = _exec_remote(client, command)
+            except Exception as error:
+                attempts.append(f"{label}: {sanitize_text(error)}")
+                continue
+            if status == 0:
+                try:
+                    result = json.loads(out.strip() or "{}")
+                except Exception:
+                    result = {}
+                if isinstance(result, Mapping) and result.get("ok") is True:
+                    return
+                attempts.append(f"{label}: resposta inválida {out.strip()[:300]}")
+                continue
+            detail = _clean(err) or _clean(out) or f"exit {status}"
+            attempts.append(f"{label}: {detail[:400]}")
+
+        raise RuntimeError(
+            "Não foi possível atualizar o caminho interno das variações no servidor. "
+            + " | ".join(attempts[-2:])
+        )
+    finally:
+        if owned:
+            try:
+                reader.close()
+            except Exception:
+                pass
+
+
 def _apply_download_contract(
     job_id: str,
     *,
     woo: Any | None = None,
     emit: bool = True,
+    ssh: ReadOnlySSHStorage | None = None,
 ) -> dict[str, Any]:
     job = additions._row(job_id)
     product_id = _safe_int(job.get("woo_product_id"))
@@ -142,7 +261,7 @@ def _apply_download_contract(
     if not file_path:
         raise RuntimeError("Não foi possível determinar o nome do ZIP para montar o caminho interno de download.")
 
-    repaired = 0
+    targets: list[dict[str, Any]] = []
     for variation in variations:
         if not isinstance(variation, Mapping):
             continue
@@ -150,15 +269,15 @@ def _apply_download_contract(
         variation_id = _safe_int(variation.get("id"))
         if period not in {"annual", "lifetime"} or variation_id <= 0:
             continue
-        if _variation_matches_contract(variation, title=title, file_path=file_path):
-            continue
-        additions._wc_request(
-            client,
-            "PUT",
-            f"/wp-json/wc/v3/products/{product_id}/variations/{variation_id}",
-            _variation_payload(period, title, file_path),
-        )
-        repaired += 1
+        if not _variation_matches_contract(variation, title=title, file_path=file_path):
+            targets.append({"id": variation_id, "period": period})
+
+    if targets:
+        # O endpoint REST do WooCommerce documenta downloads.file como URL e pode
+        # rejeitar um caminho absoluto com HTTP 400. O ajuste final é feito pelo
+        # próprio WooCommerce no servidor, via WC_Product_Variation, preservando o
+        # caminho local exatamente como o admin aceita.
+        _apply_server_side(title, file_path, targets, ssh=ssh)
 
     fresh_variations = list(client.list_variations_fresh(product_id, per_page=100) or [])
     by_period = {
@@ -166,11 +285,12 @@ def _apply_download_contract(
         for variation in fresh_variations
         if isinstance(variation, Mapping) and variation_period(variation) in {"annual", "lifetime"}
     }
-    if set(by_period) == {"annual", "lifetime"}:
-        for period, variation in by_period.items():
-            if not _variation_matches_contract(variation, title=title, file_path=file_path):
-                label = "1 Ano" if period == "annual" else "Vitalício"
-                raise RuntimeError(f"O WooCommerce não confirmou o contrato de download da variação {label}.")
+    if set(by_period) != {"annual", "lifetime"}:
+        raise RuntimeError("O WooCommerce não confirmou as duas variações 1 Ano/Vitalício após a correção.")
+    for period, variation in by_period.items():
+        if not _variation_matches_contract(variation, title=title, file_path=file_path):
+            label = "1 Ano" if period == "annual" else "Vitalício"
+            raise RuntimeError(f"O WooCommerce não confirmou o contrato de download da variação {label}.")
 
     additions._update(
         job_id,
@@ -178,12 +298,13 @@ def _apply_download_contract(
         remote_file_path=file_path,
         error="",
     )
+    repaired = len(targets)
     if repaired and emit:
         one_click._emit(
             job_id,
             (
-                f"Downloads corrigidos no WooCommerce #{product_id}: nome do arquivo = produto, "
-                f"caminho interno {file_path} e validade de 365 dias na licença 1 Ano."
+                f"Downloads corrigidos no WooCommerce #{product_id}: nome = {title}; "
+                f"caminho interno {file_path}; 1 Ano = 365 dias; Vitalício = sem expiração."
             ),
             step="store_validation",
             progress=94,
@@ -262,20 +383,38 @@ def _repair_existing_additions() -> dict[str, Any]:
             "errors": [f"WooCommerce indisponível: {_clean(error)}"],
         }
 
+    ssh: ReadOnlySSHStorage | None = None
+    try:
+        ssh = ReadOnlySSHStorage.from_env()
+        ssh.connect()
+    except Exception as error:
+        return {
+            "checked": len(rows),
+            "repaired_products": 0,
+            "repaired_variations": 0,
+            "errors": [f"SSH indisponível para retrocorreção: {sanitize_text(error)}"],
+        }
+
     repaired_products = 0
     repaired_variations = 0
     errors: list[str] = []
-    for row in rows:
-        job_id = _clean(row.get("job_id"))
-        if not job_id:
-            continue
+    try:
+        for row in rows:
+            job_id = _clean(row.get("job_id"))
+            if not job_id:
+                continue
+            try:
+                result = _apply_download_contract(job_id, woo=woo, emit=True, ssh=ssh)
+                count = _safe_int(result.get("repaired_variations"))
+                repaired_variations += count
+                repaired_products += 1 if count else 0
+            except Exception as error:
+                errors.append(f"{job_id}: {sanitize_text(error)}")
+    finally:
         try:
-            result = _apply_download_contract(job_id, woo=woo, emit=True)
-            count = _safe_int(result.get("repaired_variations"))
-            repaired_variations += count
-            repaired_products += 1 if count else 0
-        except Exception as error:
-            errors.append(f"{job_id}: {_clean(error)}")
+            ssh.close()
+        except Exception:
+            pass
 
     return {
         "checked": len(rows),
@@ -291,12 +430,18 @@ def _sync_approved_with_download_repair() -> dict[str, Any]:
     result = dict(_BASE_SYNC_APPROVED() or {})
     repair = _repair_existing_additions()
     result["download_contract_repair"] = repair
+    base_message = _clean(result.get("message"))
     if repair.get("repaired_products"):
-        base_message = _clean(result.get("message"))
-        result["message"] = (
+        base_message = (
             f"{base_message} Contrato de download corrigido retroativamente em "
             f"{repair['repaired_products']} produto(s) / {repair['repaired_variations']} variação(ões)."
         ).strip()
+    if repair.get("errors"):
+        base_message = (
+            f"{base_message} Retrocorreção verificou {repair.get('checked', 0)} produto(s) e "
+            f"teve {len(repair['errors'])} falha(s); consulte o log técnico."
+        ).strip()
+    result["message"] = base_message
     return result
 
 
