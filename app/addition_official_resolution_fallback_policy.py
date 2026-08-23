@@ -157,9 +157,12 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_custom_fields_policy import install_addition_custom_fields_policy
     from app.comparison_operation_status_policy import install_comparison_operation_status_policy
     from app.product_custom_fields_guard_policy import install_product_custom_fields_guard_policy
+    from app.addition_download_contract_policy import install_addition_download_contract_policy
     from app.addition_operational_ui_policy import install_addition_operational_ui_policy
     from app.addition_operational_legacy_suppression_policy import install_addition_operational_legacy_suppression_policy
     from app.addition_image_prompt_autosend_policy import install_addition_image_prompt_autosend_policy
+    from app.addition_retry_recovery_policy import install_addition_retry_recovery_policy
+    from app.addition_plugintheme_profile_recovery_policy import install_addition_plugintheme_profile_recovery_policy
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
@@ -186,12 +189,18 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_comparison_operation_status_policy()
     # Final guard: after every update/addition, preserve or resolve the three catalog metadata fields.
     install_product_custom_fields_guard_policy()
+    # Download contract: human product name, internal /home path and 365-day annual expiry; also repairs prior additions.
+    install_addition_download_contract_policy()
     # Final guard for the active generator: missing/failed mockup must never abort Preparation.
     install_addition_parallel_reference_fallback_policy()
-    # Operational UI/queue is installed after all business-flow wrappers.
+    # Operational UI/queue is installed after all business-flow wrappers. Its initial sync runs the retroactive repair.
     install_addition_operational_ui_policy()
     # Suppress only the legacy renderers; their endpoints and backend functions stay available.
     install_addition_operational_legacy_suppression_policy()
     # Final ChatGPT send contract: prompt image auto-submit + reference image already stored in the Project.
     install_addition_image_prompt_autosend_policy()
+    # Final retry recovery: repair stale Woo content and reload PluginTheme auth/ZIP without repeating prepared stages.
+    install_addition_retry_recovery_policy()
+    # If the legacy auth wrapper still rejects the renewed session, read cookies/token directly from the exclusive profile.
+    install_addition_plugintheme_profile_recovery_policy()
     _INSTALLED = True
