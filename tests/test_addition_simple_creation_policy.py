@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import app.addition_simple_creation_policy as policy
@@ -44,6 +45,20 @@ class AdditionSimpleCreationPolicyTests(unittest.TestCase):
             policy._clean_description(raw),
             "Uma descrição simples e objetiva para o produto.",
         )
+
+    def test_missing_visual_reference_builds_attachment_free_prompt(self) -> None:
+        missing = Path("missing/exemplo tema.webp")
+        job = self.job("theme")
+
+        with patch.object(policy.creative, "_reference_path", return_value=missing), \
+             patch.object(policy.creative, "_attach_reference", return_value=False):
+            reference, attached, prompt = policy._prepare_image_request(object(), job, "add-test")
+
+        self.assertEqual(reference, missing)
+        self.assertFalse(attached)
+        self.assertIn("não há mockup local anexado", prompt.lower())
+        self.assertNotIn("referência visual obrigatória", prompt.lower())
+        self.assertNotIn("use o arquivo anexado", prompt.lower())
 
     def test_root_category_is_only_plugin_or_theme_root(self) -> None:
         self.assertEqual(policy._root_category(FakeWoo(), "plugin"), (10, "Plugin"))
