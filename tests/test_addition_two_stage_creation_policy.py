@@ -78,19 +78,20 @@ def test_create_draft_bypasses_old_image_requirement(monkeypatch) -> None:
     assert calls == [("add-test", "CRIAR RASCUNHO")]
 
 
-def test_missing_reference_blocks_image_stage(monkeypatch, tmp_path: Path) -> None:
+def test_missing_reference_builds_attachment_free_image_prompt(monkeypatch, tmp_path: Path) -> None:
     current = _job(woo_product_id=456)
     missing = tmp_path / "exemplo tema.webp"
 
-    monkeypatch.setattr(policy.additions, "_row", lambda _job_id: dict(current))
     monkeypatch.setattr(policy.creative, "_reference_path", lambda _job: missing)
+    monkeypatch.setattr(policy.creative, "_attach_reference", lambda *_args, **_kwargs: False)
 
-    try:
-        policy._run_image_automation("add-test")
-    except RuntimeError as error:
-        assert "Referência visual obrigatória não encontrada" in str(error)
-    else:
-        raise AssertionError("Era esperado erro por referência ausente.")
+    reference, attached, prompt = policy._prepare_image_request(object(), current, "add-test")
+
+    assert reference == missing
+    assert attached is False
+    assert "não há mockup local anexado" in prompt.lower()
+    assert "referência visual obrigatória" not in prompt.lower()
+    assert "use o arquivo anexado" not in prompt.lower()
 
 
 def test_two_stage_run_orders_store_before_image(monkeypatch) -> None:

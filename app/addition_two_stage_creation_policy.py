@@ -371,6 +371,14 @@ def _apply_image_to_product(job_id: str) -> dict[str, Any]:
     return job
 
 
+def _prepare_image_request(page: Any, job: Mapping[str, Any], job_id: str) -> tuple[Path, bool, str]:
+    """Usa a referência local quando possível e monta fallback visual quando não for possível."""
+    reference = creative._reference_path(job)
+    reference_attached = creative._attach_reference(page, reference, job_id)
+    image_prompt = creative._image_only_prompt(job, reference_attached=reference_attached)
+    return reference, reference_attached, image_prompt
+
+
 def _run_image_automation(job_id: str) -> None:
     job = additions._row(job_id)
     image_path = Path(str(job.get("image_path") or ""))
@@ -384,17 +392,9 @@ def _run_image_automation(job_id: str) -> None:
         _apply_image_to_product(job_id)
         return
 
-    reference = creative._reference_path(job)
-    if not reference.exists():
-        raise RuntimeError(
-            f"Referência visual obrigatória não encontrada em {reference}. "
-            "Confirme os arquivos exemplo plugin.webp e exemplo tema.webp em app/static."
-        )
-
-    image_prompt = creative._image_only_prompt(job)
     one_click._emit(
         job_id,
-        f"Etapa 2/2: gerando imagem com a referência {reference.name}.",
+        "Etapa 2/2: gerando imagem do produto; o mockup local será usado somente se estiver disponível.",
         step="chatgpt_image",
         progress=72,
     )
@@ -430,14 +430,14 @@ def _run_image_automation(job_id: str) -> None:
                     timeout_seconds=120,
                 )
 
-                if not creative._attach_reference(page, reference, job_id):
-                    raise RuntimeError(
-                        f"Não foi possível anexar a referência visual obrigatória {reference.name}."
-                    )
-
+                reference, reference_attached, image_prompt = _prepare_image_request(page, job, job_id)
                 one_click._emit(
                     job_id,
-                    "Prompt 2/2: referência anexada; enviando somente as instruções da imagem.",
+                    (
+                        f"Prompt 2/2: referência {reference.name} anexada; enviando somente as instruções da imagem."
+                        if reference_attached
+                        else "Prompt 2/2: sem referência local anexada; usando a composição visual definida para o produto."
+                    ),
                     step="chatgpt_image",
                     progress=78,
                 )
