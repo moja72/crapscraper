@@ -160,6 +160,7 @@ def install_addition_official_resolution_fallback_policy() -> None:
     from app.addition_operational_ui_policy import install_addition_operational_ui_policy
     from app.addition_operational_legacy_suppression_policy import install_addition_operational_legacy_suppression_policy
     from app.addition_image_prompt_autosend_policy import install_addition_image_prompt_autosend_policy
+    from app.addition_retry_recovery_policy import install_addition_retry_recovery_policy
 
     install_addition_chat1_official_resolution_policy()
     install_addition_parallel_generation_policy()
@@ -194,4 +195,6 @@ def install_addition_official_resolution_fallback_policy() -> None:
     install_addition_operational_legacy_suppression_policy()
     # Final ChatGPT send contract: prompt image auto-submit + reference image already stored in the Project.
     install_addition_image_prompt_autosend_policy()
+    # Final retry recovery: repair stale Woo content and reload PluginTheme auth/ZIP without repeating prepared stages.
+    install_addition_retry_recovery_policy()
     _INSTALLED = True
