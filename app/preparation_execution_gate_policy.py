@@ -6,6 +6,7 @@ import app.addition_operational_ui_policy as additions_ui
 
 _INSTALLED = False
 _BASE_PREPARE_ONE: Callable[[str, Any], None] | None = None
+_BASE_HAS_PENDING_PIPELINE: Callable[[], bool] | None = None
 
 
 def _clean(value: Any) -> str:
@@ -31,19 +32,25 @@ def _prepared_for_queue(row: Mapping[str, Any]) -> bool:
 
 
 def _prepare_one(job_id: str, manager: Any) -> None:
-    """Executa a preparação sem promover o item automaticamente para a fila."""
+    """Prepara normalmente; retry explícito pode seguir até fila/execução."""
     if _BASE_PREPARE_ONE is None:
         raise RuntimeError("Preparador base de adições indisponível")
 
-    # Compatibilidade com jobs persistidos pela versão anterior, que podia marcar
-    # enqueue_after_prepare=1 quando o usuário clicava em Adicionar antes de preparar.
-    additions_ui._update_operation(job_id, enqueue_after_prepare=0)
+    row_before = additions_ui._job_snapshot(job_id)
+    auto_enqueue_requested = bool(_safe_int(row_before.get("enqueue_after_prepare")))
+
+    # Preparações normais continuam manuais: Preparação -> Pronto -> Adicionar à fila.
+    # A única exceção é Tentar novamente, que marca enqueue_after_prepare=1 para
+    # refazer o fluxo quebrado e seguir automaticamente até a execução.
+    if not auto_enqueue_requested:
+        additions_ui._update_operation(job_id, enqueue_after_prepare=0)
+
     _BASE_PREPARE_ONE(job_id, manager)
 
-    # Defesa adicional: nenhuma preparação deve terminar em queued por efeito
-    # colateral de estado legado. O usuário ainda precisa clicar Adicionar à fila.
-    row = additions_ui._job_snapshot(job_id)
-    if _clean(row.get("queue_state")) == "queued":
+    # Defesa contra estado legado somente no fluxo manual. No retry explícito,
+    # preservar queued é necessário para o worker concluir o cadastro.
+    row_after = additions_ui._job_snapshot(job_id)
+    if not auto_enqueue_requested and _clean(row_after.get("queue_state")) == "queued":
         additions_ui._update_operation(
             job_id,
             queue_state="ready",
@@ -55,7 +62,7 @@ def _prepare_one(job_id: str, manager: Any) -> None:
 
 
 def _request_add(payload: Mapping[str, Any], manager: Any, *, retry: bool = False) -> dict[str, Any]:
-    """Move somente itens preparados para a fila; nunca inicia execução sozinho."""
+    """Fila manual no uso normal; retry explícito retoma o fluxo até concluir."""
     job_ids = additions_ui._normalize_job_ids(payload)
     queued = 0
     preparing = 0
@@ -81,33 +88,44 @@ def _request_add(payload: Mapping[str, Any], manager: Any, *, retry: bool = Fals
             queued += 1
             continue
 
-        # Tentar novamente em um erro de preparação volta para Preparação, mas
-        # continua sem auto-enfileirar e sem iniciar a fila.
+        # Tentar novamente é uma intenção explícita de retomar uma operação que
+        # falhou. Cria nova tentativa, refaz a Preparação e, quando ela terminar,
+        # promove o item para queued para o worker concluir o cadastro.
         if retry and state in {"error", "interrupted"}:
+            additions_ui._create_attempt(job_id)
             additions_ui._update_operation(
                 job_id,
                 queue_state="preparing",
                 queue_position=0,
-                enqueue_after_prepare=0,
+                enqueue_after_prepare=1,
                 current_step="starting",
-                status_message="Nova preparação iniciada; aguardará confirmação para entrar na fila",
+                progress=0,
+                status_message="Nova tentativa iniciada; preparando para concluir o cadastro",
                 operation_error="",
                 hidden_from_queue=0,
+                finished_at="",
             )
             preparing += 1
             continue
 
         not_ready += 1
 
-    if preparing:
-        additions_ui._start_preparation_worker(manager)
-
     accepted = queued + preparing
     skipped += not_ready
+
+    # No fluxo normal, Adicionar à fila continua apenas enfileirando. Já em
+    # Tentar novamente, a própria ação deve efetivamente retomar o cadastro.
+    if retry and accepted:
+        additions_ui._set_queue_runtime("running")
+    if preparing:
+        additions_ui._start_preparation_worker(manager)
+    if retry and accepted:
+        additions_ui._start_queue_worker()
+
     if retry:
         message = (
-            f"{queued} produto(s) recolocado(s) na fila; "
-            f"{preparing} reenviado(s) à preparação; {skipped} ignorado(s)."
+            f"{queued} produto(s) retomado(s) diretamente na fila; "
+            f"{preparing} reenviado(s) à preparação e execução; {skipped} ignorado(s)."
         )
     else:
         message = f"{queued} produto(s) adicionado(s) à fila."
@@ -160,18 +178,29 @@ def _start_queue() -> dict[str, Any]:
     }
 
 
-def _no_pending_auto_pipeline() -> bool:
-    """Preparações em andamento nunca mantêm a fila aberta esperando auto-enqueue."""
-    return False
+def _has_pending_auto_pipeline() -> bool:
+    """Mantém o worker vivo enquanto um retry ainda está em Preparação."""
+    if _BASE_HAS_PENDING_PIPELINE is not None:
+        try:
+            return bool(_BASE_HAS_PENDING_PIPELINE())
+        except Exception:
+            pass
+
+    with additions_ui.additions._db() as connection:
+        row = connection.execute(
+            "SELECT 1 FROM addition_jobs WHERE approval_active=1 "
+            "AND queue_state='preparing' AND enqueue_after_prepare=1 LIMIT 1"
+        ).fetchone()
+    return row is not None
 
 
 def install_preparation_execution_gate_policy() -> None:
-    global _INSTALLED, _BASE_PREPARE_ONE
+    global _INSTALLED, _BASE_PREPARE_ONE, _BASE_HAS_PENDING_PIPELINE
     if _INSTALLED:
         return
 
-    # Neutraliza flags persistidas por versões anteriores sem tocar em itens que
-    # já estão queued/executing por uma decisão explícita do usuário.
+    # Neutraliza somente flags antigas no boot. Novos retries explícitos podem
+    # usar enqueue_after_prepare=1 durante a própria tentativa.
     additions_ui._ensure_schema()
     with additions_ui.additions._db() as connection:
         connection.execute(
@@ -180,8 +209,9 @@ def install_preparation_execution_gate_policy() -> None:
         )
 
     _BASE_PREPARE_ONE = additions_ui._prepare_one
+    _BASE_HAS_PENDING_PIPELINE = additions_ui._has_pending_pipeline_preparation
     additions_ui._prepare_one = _prepare_one
     additions_ui._request_add = _request_add
     additions_ui._start_queue = _start_queue
-    additions_ui._has_pending_pipeline_preparation = _no_pending_auto_pipeline
+    additions_ui._has_pending_pipeline_preparation = _has_pending_auto_pipeline
     _INSTALLED = True
