@@ -19,6 +19,14 @@ class AdditionPluginThemeProfileRecoveryPolicyTests(unittest.TestCase):
     def test_short_values_are_not_mistaken_for_tokens(self):
         self.assertEqual(policy._find_access_token({"token": "abc"}), "")
 
+    def test_read_only_urlopen_timeout_is_transient(self):
+        error = RuntimeError("Falha na requisição read-only: <urlopen error timed out>")
+        self.assertTrue(policy._is_transient_error(error))
+
+    def test_auth_error_is_not_mistaken_for_transient_timeout(self):
+        error = RuntimeError("Sessão PluginTheme não confirmada")
+        self.assertFalse(policy._is_transient_error(error))
+
 
 if __name__ == "__main__":
     unittest.main()
