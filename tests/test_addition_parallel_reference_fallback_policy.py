@@ -10,9 +10,11 @@ import app.addition_parallel_reference_fallback_policy as policy
 class AdditionParallelReferenceFallbackPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.previous_base = policy._BASE_RUN_TWO_CHATS
+        self.previous_image_prompt = policy._BASE_IMAGE_PROMPT
 
     def tearDown(self) -> None:
         policy._BASE_RUN_TWO_CHATS = self.previous_base
+        policy._BASE_IMAGE_PROMPT = self.previous_image_prompt
 
     def test_missing_reference_skips_parallel_and_uses_safe_fallback(self) -> None:
         calls: list[str] = []
@@ -67,6 +69,43 @@ class AdditionParallelReferenceFallbackPolicyTests(unittest.TestCase):
              patch.object(policy.one_click, "_emit", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "Falha real do ChatGPT"):
                 policy._run_with_optional_reference("add-test")
+
+    def test_old_one_argument_prompt_accepts_reference_attached_contract(self) -> None:
+        calls: list[str] = []
+
+        def old_prompt(job):
+            calls.append(str(job.get("source_name") or ""))
+            return (
+                "Imagem: Example Theme\n\n"
+                "Use o arquivo anexado apenas como referência de mockup. "
+                "Gere uma NOVA imagem 1:1 com fundo transparente."
+            )
+
+        policy._BASE_IMAGE_PROMPT = old_prompt
+        prompt = policy._image_prompt_with_optional_reference(
+            {"source_name": "Example Theme", "kind": "theme"},
+            reference_attached=False,
+        )
+
+        self.assertEqual(calls, ["Example Theme"])
+        self.assertIn("Não há mockup local anexado", prompt)
+        self.assertNotIn("Use o arquivo anexado apenas", prompt)
+
+    def test_new_prompt_receives_reference_flag_normally(self) -> None:
+        flags: list[bool] = []
+
+        def new_prompt(job, *, reference_attached: bool):
+            flags.append(reference_attached)
+            return f"{job.get('source_name')}:{reference_attached}"
+
+        policy._BASE_IMAGE_PROMPT = new_prompt
+        prompt = policy._image_prompt_with_optional_reference(
+            {"source_name": "Example Plugin", "kind": "plugin"},
+            reference_attached=False,
+        )
+
+        self.assertEqual(flags, [False])
+        self.assertEqual(prompt, "Example Plugin:False")
 
 
 if __name__ == "__main__":
