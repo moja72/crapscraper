@@ -79,6 +79,7 @@ from app.addition_chatgpt_response_reader_policy import install_addition_chatgpt
 from app.addition_final_validation_policy import install_addition_final_validation_policy
 from app.addition_conversation_capture_policy import install_addition_conversation_capture_policy
 from app.addition_official_resolution_fallback_policy import install_addition_official_resolution_fallback_policy
+from app.addition_capture_pipeline_resilience_policy import install_addition_capture_pipeline_resilience_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -157,6 +158,8 @@ install_addition_final_validation_policy()
 install_addition_conversation_capture_policy()
 # Página oficial: se o HTML simples não expuser o link, usa o marketplace indicado pela fonte e busca o item com validação de nome.
 install_addition_official_resolution_fallback_policy()
+# Resiliência final: reaproveita chats mapeados, amplia limites e aceita captura pendente como intenção de fila.
+install_addition_capture_pipeline_resilience_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
