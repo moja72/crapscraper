@@ -86,8 +86,8 @@
 
       #tab_panel_atualizacoes .cs-standard-overview>#updates_summary,
       #tab_panel_adicoes .cs-standard-overview #addition_summary_grid{margin:2px 0 0!important}
-      #tab_panel_atualizacoes .cs-standard-overview>#updates_execution_lock,
-      #tab_panel_adicoes .cs-standard-overview #addition_guidance{margin:0!important}
+      #tab_panel_atualizacoes #updates_execution_lock,
+      #tab_panel_adicoes #addition_guidance{display:none!important}
       #tab_panel_adicoes #addition_intro_card .addition-flow-strip{display:none!important}
 
       @media(max-width:760px){
@@ -163,8 +163,8 @@
     ensureOrdered(progress, [progressCopy, progressTrack, now]);
 
     const summary = $("#updates_summary", card);
-    const lock = $("#updates_execution_lock", card);
-    ensureOrdered(card, [head, progress, summary, lock]);
+    $("#updates_execution_lock", card)?.remove();
+    ensureOrdered(card, [head, progress, summary]);
     return true;
   }
 
@@ -230,8 +230,9 @@
     }
 
     const grid = $("#addition_summary_grid", card) || $("#addition_summary_grid");
-    const guidance = $("#addition_guidance", card) || $("#addition_guidance");
-    ensureOrdered(content, [progress, grid, guidance]);
+    $("#addition_guidance", card)?.remove();
+    $("#addition_guidance")?.remove();
+    ensureOrdered(content, [progress, grid]);
     removeAdditionFlow(card);
     ensureOrdered(card, [head, content]);
     return true;
