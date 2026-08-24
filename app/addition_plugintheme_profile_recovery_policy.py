@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from contextlib import suppress
 from typing import Any, Callable, Mapping
@@ -33,6 +34,7 @@ _TRANSIENT_MARKERS = (
     "503",
     "504",
 )
+_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{40,}$")
 
 
 def _clean(value: Any) -> str:
@@ -53,11 +55,23 @@ def _account_key(primary: Any) -> str:
     return _clean(value) or _clean(getattr(settings, "DEFAULT_ACCOUNT_KEY", "")) or "default"
 
 
+def _raw_token(value: str) -> str:
+    raw = str(value or "").strip()
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:].strip()
+    if len(raw) < 40:
+        return ""
+    if raw.count(".") == 2 and _TOKEN_PATTERN.fullmatch(raw):
+        return raw
+    return raw if _TOKEN_PATTERN.fullmatch(raw) else ""
+
+
 def _find_access_token(value: Any) -> str:
+    """Encontra bearer/JWT em JSON, localStorage, sessionStorage ou valor cru."""
     if isinstance(value, Mapping):
-        for key in ("access_token", "accessToken", "token", "jwt"):
-            token = _clean(value.get(key))
-            if len(token) >= 40:
+        for key in ("access_token", "accessToken", "token", "jwt", "authToken", "auth_token"):
+            token = _find_access_token(value.get(key))
+            if token:
                 return token
         for nested in value.values():
             token = _find_access_token(nested)
@@ -72,7 +86,10 @@ def _find_access_token(value: Any) -> str:
         raw = value.strip()
         if raw.startswith("{") or raw.startswith("["):
             with suppress(Exception):
-                return _find_access_token(json.loads(raw))
+                token = _find_access_token(json.loads(raw))
+                if token:
+                    return token
+        return _raw_token(raw)
     return ""
 
 
@@ -92,6 +109,7 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
     cookies: list[dict[str, Any]] = []
     storage_rows: list[dict[str, Any]] = []
     last_error: BaseException | None = None
+    current_url = ""
 
     try:
         with sync_playwright() as playwright:
@@ -120,16 +138,40 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
                 return None, f"Não foi possível abrir o perfil PluginTheme para reler os cookies: {type(last_error).__name__}."
 
             try:
-                cookies = list(context.cookies(["https://plugintheme.net", "https://api.plugintheme.net"]) or [])
                 page = context.pages[0] if context.pages else context.new_page()
                 try:
-                    page.goto("https://plugintheme.net/pt-BR/account", wait_until="domcontentloaded", timeout=45_000)
+                    page.goto(
+                        "https://plugintheme.net/pt-BR/account",
+                        wait_until="domcontentloaded",
+                        timeout=45_000,
+                    )
                 except Exception:
                     pass
+                current_url = str(getattr(page, "url", "") or "")
+                with suppress(Exception):
+                    cookies = [
+                        dict(item)
+                        for item in (context.cookies() or [])
+                        if str(item.get("domain") or "").lstrip(".").lower().endswith("plugintheme.net")
+                    ]
                 with suppress(Exception):
                     storage_rows = list(
                         page.evaluate(
-                            """() => Object.keys(localStorage).map(key => ({key, value: localStorage.getItem(key) || ''}))"""
+                            """() => {
+                              const collect = (storage, scope) => {
+                                const rows = [];
+                                for (let i = 0; i < storage.length; i += 1) {
+                                  const key = storage.key(i);
+                                  if (!key) continue;
+                                  rows.push({scope, key, value: storage.getItem(key) || ''});
+                                }
+                                return rows;
+                              };
+                              return [
+                                ...collect(localStorage, 'localStorage'),
+                                ...collect(sessionStorage, 'sessionStorage')
+                              ];
+                            }"""
                         )
                         or []
                     )
@@ -137,6 +179,12 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
                 context.close()
     except Exception as error:
         return None, f"Falha ao reler o perfil PluginTheme: {type(error).__name__}."
+
+    if "/auth/login" in current_url.lower():
+        return None, (
+            "O perfil renovado abriu novamente na tela de login do PluginTheme. "
+            "Conclua o login e feche a janela de renovação antes de tentar novamente."
+        )
 
     if not cookies and not storage_rows:
         return None, "O perfil foi aberto, mas nenhum cookie/token autenticado do PluginTheme foi encontrado."
@@ -172,9 +220,18 @@ def _profile_http_session(primary: Any) -> tuple[Any | None, str]:
         session.headers["Authorization"] = f"Bearer {token}"
 
     return session, (
-        f"Perfil renovado relido diretamente: {len(cookies)} cookie(s)"
+        f"Perfil renovado relido diretamente: {len(cookies)} cookie(s), "
+        f"{len(storage_rows)} entrada(s) de storage"
         + (" e token de acesso encontrado." if token else ".")
     )
+
+
+def _remember_profile_session(primary: Any, session: Any) -> None:
+    if primary is None or session is None:
+        return
+    for name in ("plugintheme_http_session", "_plugintheme_http_session"):
+        with suppress(Exception):
+            setattr(primary, name, session)
 
 
 def _direct_download_resilient(job_id: str, session: Any) -> dict[str, Any]:
@@ -231,9 +288,9 @@ def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[st
                 step="zip",
                 progress=81,
             )
-            for index, session in enumerate(retry._session_candidates(primary), start=1):
+            for index, candidate_session in enumerate(retry._session_candidates(primary), start=1):
                 try:
-                    return _direct_download_resilient(job_id, session)
+                    return _direct_download_resilient(job_id, candidate_session)
                 except Exception as direct_error:
                     if retry._is_credit_error(direct_error):
                         raise
@@ -251,6 +308,7 @@ def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[st
             progress=82,
         )
         if session is not None:
+            _remember_profile_session(primary, session)
             try:
                 return _direct_download_resilient(job_id, session)
             except Exception as direct_error:
@@ -259,6 +317,12 @@ def _download_source_with_profile_recovery(job_id: str, manager: Any) -> dict[st
                 first_error = direct_error
                 is_session = retry._is_plugintheme_session_error(direct_error)
                 is_transient = _is_transient_error(direct_error)
+                if is_session and not is_transient:
+                    raise RuntimeError(
+                        "O perfil renovado do PluginTheme foi relido, mas a API recusou o acesso ao download deste produto. "
+                        "O CrapScraper confirmou cookies/storage e não repetirá descrição ou imagem. "
+                        "Se o erro persistir, confirme que a conta PluginTheme possui acesso a este produto/pacote."
+                    ) from direct_error
 
         if is_transient:
             raise RuntimeError(

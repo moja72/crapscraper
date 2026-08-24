@@ -16,8 +16,22 @@ class AdditionPluginThemeProfileRecoveryPolicyTests(unittest.TestCase):
         payload = '{"session":{"access_token":"' + token + '"}}'
         self.assertEqual(policy._find_access_token(payload), token)
 
+    def test_finds_raw_jwt_value_from_browser_storage(self):
+        token = ("a" * 48) + "." + ("b" * 48) + "." + ("c" * 48)
+        self.assertEqual(policy._find_access_token(token), token)
+
+    def test_finds_bearer_token_value(self):
+        token = "z" * 80
+        self.assertEqual(policy._find_access_token("Bearer " + token), token)
+
     def test_short_values_are_not_mistaken_for_tokens(self):
         self.assertEqual(policy._find_access_token({"token": "abc"}), "")
+
+    def test_urls_are_not_mistaken_for_tokens(self):
+        self.assertEqual(
+            policy._find_access_token("https://plugintheme.net/pt-BR/account?value=" + "x" * 80),
+            "",
+        )
 
     def test_read_only_urlopen_timeout_is_transient(self):
         error = RuntimeError("Falha na requisição read-only: <urlopen error timed out>")
