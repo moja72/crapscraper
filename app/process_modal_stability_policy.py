@@ -7,6 +7,9 @@ import app.web as web
 from app.addition_download_validation_bridge_policy import (
     install_addition_download_validation_bridge_policy,
 )
+from app.addition_plugintheme_entitlement_recovery_policy import (
+    install_addition_plugintheme_entitlement_recovery_policy,
+)
 
 
 _INSTALLED = False
@@ -34,6 +37,12 @@ def install_process_modal_stability_policy() -> None:
     # Attach the final store-validation bridge here so the legacy REST projection
     # cannot overwrite/reject the authoritative local download contract.
     install_addition_download_validation_bridge_policy()
+
+    # PluginTheme bundles can expose their entitlement with a different explicit
+    # access flag and renewed profiles may store the bearer token as a raw value.
+    # Install this after all addition/session wrappers so Retry uses the upgraded
+    # token reader and authorization contract without rebuilding prepared stages.
+    install_addition_plugintheme_entitlement_recovery_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
