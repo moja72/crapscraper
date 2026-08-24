@@ -14,10 +14,12 @@ _INSTALLED = False
 _BASE_WEB_SAVE_PREVIEW: Callable[..., dict[str, Any]] | None = None
 _BASE_MATERIALIZE: Callable[..., list[dict[str, Any]]] | None = None
 
-_SOURCE_FIELDS = (
+# Campos descobertos/revalidados ao vivo que podem sobreviver a uma
+# rematerialização. approved_source_version NÃO entra aqui: ele é o snapshot
+# auditável da comparação aprovada e deve voltar do catálogo/decisão original.
+_LIVE_SOURCE_FIELDS = (
     "ultrapack_url",
     "ultrapack_version",
-    "approved_source_version",
     "effective_source_version",
     "official_url",
     "source_name",
@@ -38,14 +40,21 @@ def _version(value: Any) -> tuple[int, ...] | None:
     return tuple(int(part) for part in parts)
 
 
-def _version_ge(left: Any, right: Any) -> bool:
+def _compare_versions(left: Any, right: Any) -> int | None:
     a, b = _version(left), _version(right)
-    if a is None:
-        return False
-    if b is None:
-        return True
+    if a is None or b is None:
+        return None
     width = max(len(a), len(b))
-    return a + (0,) * (width - len(a)) >= b + (0,) * (width - len(b))
+    aa = a + (0,) * (width - len(a))
+    bb = b + (0,) * (width - len(b))
+    return (aa > bb) - (aa < bb)
+
+
+def _version_ge(left: Any, right: Any) -> bool:
+    compared = _compare_versions(left, right)
+    if compared is None:
+        return False
+    return compared >= 0
 
 
 def _best_old_version(snapshot: Mapping[str, Any]) -> str:
@@ -62,7 +71,8 @@ def _snapshot_source_state() -> dict[str, dict[str, Any]]:
         for job in runtime._JOBS.values():
             result[job.comparison_item_id] = {
                 "state": job.state,
-                **{field: getattr(job, field, "") for field in _SOURCE_FIELDS},
+                "approved_source_version": getattr(job, "approved_source_version", ""),
+                **{field: getattr(job, field, "") for field in _LIVE_SOURCE_FIELDS},
             }
         return result
 
@@ -70,12 +80,12 @@ def _snapshot_source_state() -> dict[str, dict[str, Any]]:
 def _materialize_preserving_live_source(
     comparison_rows: Iterable[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
-    """Não deixa uma comparação antiga desfazer a fonte/versão escolhida ao vivo.
+    """Preserva fonte ao vivo sem reescrever o snapshot aprovado da comparação.
 
-    O PREPARAR pode descobrir, por exemplo, 2.36.0 enquanto a decisão persistida
-    ainda contém 2.35.2. Uma rematerialização entre PREPARAR e PLANO substituía o
-    alvo do job pelo snapshot antigo. Preservamos o alvo ao vivo sempre que ele é
-    igual ou mais novo que o catálogo persistido.
+    O PREPARAR pode descobrir 2.36.0 enquanto a decisão persistida ainda contém
+    2.35.2. A URL e a versão efetiva ao vivo podem sobreviver à rematerialização,
+    mas approved_source_version deve continuar 2.35.2 para manter o plano e a
+    auditoria coerentes.
     """
     if _BASE_MATERIALIZE is None:
         raise RuntimeError("Materialização base indisponível")
@@ -104,7 +114,7 @@ def _materialize_preserving_live_source(
             if not should_preserve:
                 continue
 
-            for field in _SOURCE_FIELDS:
+            for field in _LIVE_SOURCE_FIELDS:
                 value = old.get(field)
                 if value not in (None, "") and getattr(job, field, "") != value:
                     setattr(job, field, value)
@@ -120,6 +130,83 @@ def _materialize_preserving_live_source(
         ]
 
 
+def _reconcile_approved_snapshot(
+    job: Any,
+    preview: Mapping[str, Any],
+    *,
+    logger: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Reconcilia somente drift seguro do snapshot aprovado antes do plano.
+
+    O erro real observado no AffiliateWP foi:
+    ``Snapshot aprovado do job diverge do preview preparado``. Isso pode ocorrer
+    quando uma política antiga gravou a versão ao vivo (2.36.0) em
+    approved_source_version enquanto o preview preservou corretamente a versão
+    aprovada na comparação (2.35.2), ou no sentido inverso após rematerialização.
+
+    A reconciliação só é permitida quando:
+    - o preview já está integralmente pronto;
+    - o ZIP novo foi validado;
+    - a versão efetiva do job é a mesma do preview;
+    - os dois snapshots divergentes são versões válidas e não superam a versão
+      efetiva realmente validada na fonte.
+
+    Nessa situação escolhemos o snapshot mais antigo, que é o registro auditável
+    mais conservador. A versão que será instalada continua sendo a efetiva.
+    """
+    normalized = dict(preview)
+    versions = dict(normalized.get("versions") or {})
+    preview_approved = str(versions.get("approved_source_version") or "").strip()
+    job_approved = str(getattr(job, "approved_source_version", "") or "").strip()
+    effective = str(versions.get("effective_source_version") or "").strip()
+    job_effective = str(getattr(job, "effective_source_version", "") or "").strip()
+
+    if preview_approved == job_approved:
+        return normalized, False
+    if normalized.get("ready") is not True:
+        return normalized, False
+    if not str((normalized.get("new_zip") or {}).get("sha256") or "").strip():
+        return normalized, False
+    if not preview_approved or not job_approved or not effective:
+        return normalized, False
+    if job_effective and _compare_versions(job_effective, effective) != 0:
+        return normalized, False
+
+    preview_vs_effective = _compare_versions(preview_approved, effective)
+    job_vs_effective = _compare_versions(job_approved, effective)
+    approved_compare = _compare_versions(preview_approved, job_approved)
+    if (
+        preview_vs_effective is None
+        or job_vs_effective is None
+        or approved_compare is None
+        or preview_vs_effective > 0
+        or job_vs_effective > 0
+    ):
+        return normalized, False
+
+    canonical = preview_approved if approved_compare <= 0 else job_approved
+    changed = False
+
+    if job_approved != canonical:
+        job.approved_source_version = canonical
+        changed = True
+
+    if preview_approved != canonical:
+        versions["approved_source_version"] = canonical
+        if "ultrapack_approved" in versions:
+            versions["ultrapack_approved"] = canonical
+        normalized["versions"] = versions
+        changed = True
+
+    if changed and callable(logger):
+        logger(
+            "ℹ Snapshot aprovado reconciliado com segurança: "
+            f"job={job_approved}, preview={preview_approved}, auditável={canonical}, "
+            f"versão efetiva={effective}."
+        )
+    return normalized, changed
+
+
 def _build_and_save_plan(job_id: str, preview: Mapping[str, Any]) -> dict[str, Any] | None:
     if preview.get("ready") is not True:
         return None
@@ -129,7 +216,16 @@ def _build_and_save_plan(job_id: str, preview: Mapping[str, Any]) -> dict[str, A
         return runtime.get_plan(job_id) if job_id in runtime._PLANS else None
 
     logger = web._UPDATE_LOGS.for_job(job_id)
-    plan = build_execution_plan(job, preview, logger=logger.log)
+    normalized_preview, reconciled = _reconcile_approved_snapshot(
+        job, preview, logger=logger.log
+    )
+    if reconciled:
+        # Mantém runtime, preview e job coerentes antes de chamar o validador
+        # estrito do plano. save_preview também invalida qualquer plano stale.
+        runtime.save_preview(job_id, normalized_preview)
+        runtime.persist_job(job)
+
+    plan = build_execution_plan(job, normalized_preview, logger=logger.log)
     plan["update_logs"] = logger.to_list()
     runtime.save_plan(job_id, plan)
     runtime.persist_job(job)
@@ -158,13 +254,13 @@ def _save_preview_and_plan(job_id: str, preview: Mapping[str, Any]) -> dict[str,
 
 
 def _repair_ready_previews() -> int:
-    """Recupera jobs antigos que ficaram Aprovado mesmo com preview válido salvo."""
+    """Recupera jobs antigos que ficaram Aprovado/Bloqueado com preview válido."""
     repaired = 0
     with runtime._LOCK:
         candidates = [
             job.job_id
             for job in runtime._JOBS.values()
-            if job.state in {JobState.APPROVED, JobState.PREPARED}
+            if job.state in {JobState.APPROVED, JobState.PREPARED, JobState.BLOCKED}
             and (runtime._PREVIEWS.get(job.job_id) or {}).get("ready") is True
         ]
 
@@ -197,5 +293,7 @@ def install_update_prepare_plan_reliability_policy() -> None:
     if getattr(update_ui, "_BASE_MATERIALIZE", None) is not None:
         update_ui._BASE_MATERIALIZE = _materialize_preserving_live_source
 
+    # Também recupera o estado Bloqueado produzido pela versão anterior da policy
+    # quando o único erro era a divergência do snapshot aprovado.
     _repair_ready_previews()
     _INSTALLED = True
