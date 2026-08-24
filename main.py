@@ -79,6 +79,7 @@ from app.addition_chatgpt_response_reader_policy import install_addition_chatgpt
 from app.addition_final_validation_policy import install_addition_final_validation_policy
 from app.addition_conversation_capture_policy import install_addition_conversation_capture_policy
 from app.addition_official_resolution_fallback_policy import install_addition_official_resolution_fallback_policy
+from app.addition_developer_resolution_fix_policy import install_addition_developer_resolution_fix_policy
 from app.addition_capture_pipeline_resilience_policy import install_addition_capture_pipeline_resilience_policy
 from app.addition_download_contract_v2_policy import install_addition_download_contract_v2_policy
 from app.process_modal_stability_policy import install_process_modal_stability_policy
@@ -160,6 +161,8 @@ install_addition_final_validation_policy()
 install_addition_conversation_capture_policy()
 # Página oficial: se o HTML simples não expuser o link, usa o marketplace indicado pela fonte e busca o item com validação de nome.
 install_addition_official_resolution_fallback_policy()
+# Desenvolvedor: rejeita revendedores como autor, revalida jobs antigos e trata bundles CodeCanyon como coleção Envato.
+install_addition_developer_resolution_fix_policy()
 # Resiliência final: reaproveita chats mapeados, amplia limites e aceita captura pendente como intenção de fila.
 install_addition_capture_pipeline_resilience_policy()
 # Contrato final de downloads: grava nome/caminho diretamente no postmeta da variação e valida no servidor, sem normalização da REST.
