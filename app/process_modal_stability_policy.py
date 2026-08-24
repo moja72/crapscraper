@@ -22,6 +22,7 @@ from app.operational_overview_standardization_policy import (
 from app.preparation_standardization_policy import (
     install_preparation_standardization_policy,
 )
+from app.queue_standardization_policy import install_queue_standardization_policy
 
 
 _INSTALLED = False
@@ -84,10 +85,12 @@ def install_process_modal_stability_policy() -> None:
     # Resumo superior compartilhado entre Atualizar e Adicionar.
     install_operational_overview_standardization_policy()
 
-    # Última camada operacional de layout: as duas seções Preparação usam a mesma
-    # anatomia de filtros, seleção, metadados, jobs e paginação. A camada também
-    # acrescenta os filtros equivalentes de Versão/Relacionamento em Adicionar.
+    # As duas seções Preparação usam o mesmo componente visual e operacional.
     install_preparation_standardization_policy()
+
+    # Fila de atualização e Fila de adições passam a usar a mesma anatomia final:
+    # gerenciamento, lista ativa, ações, cards, filtros, seleção, jobs e paginação.
+    install_queue_standardization_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
