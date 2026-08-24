@@ -8,12 +8,11 @@ import app.preparation_standardization_policy as policy
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "app" / "static" / "preparation_standardization_v12.js"
-SELECTION_FIX = ROOT / "app" / "static" / "preparation_standardization_v12_selection_fix.js"
+SCRIPT = ROOT / "app" / "static" / "preparation_standardization_v13.js"
 
 
 class PreparationStandardizationTests(unittest.TestCase):
-    def test_render_injects_both_final_scripts(self) -> None:
+    def test_render_injects_only_canonical_v13_script(self) -> None:
         original = policy._BASE_RENDER
         try:
             policy._BASE_RENDER = lambda: "<html><body>painel</body></html>"
@@ -21,10 +20,10 @@ class PreparationStandardizationTests(unittest.TestCase):
         finally:
             policy._BASE_RENDER = original
 
-        self.assertIn('data-preparation-standardization-v12="1"', html)
-        self.assertIn('data-preparation-standardization-v12="2"', html)
-        self.assertIn("cs-prep-v12-toolbar", html)
+        self.assertIn("data-preparation-standardization-v13", html)
+        self.assertIn("cs-prep-v13-toolbar", html)
         self.assertIn("addition_preparation_select_all", html)
+        self.assertNotIn("data-preparation-standardization-v12", html)
 
     def test_advanced_addition_filters_are_forwarded_to_server_side_pagination(self) -> None:
         captured: dict[str, object] = {}
@@ -51,39 +50,56 @@ class PreparationStandardizationTests(unittest.TestCase):
         self.assertEqual(captured["page"], 2)
         self.assertEqual(captured["page_size"], 20)
 
-    def test_shared_dom_contract_contains_requested_order_and_controls(self) -> None:
+    def test_both_tabs_use_the_same_canonical_structure_and_order(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         required = [
-            "cs-prep-v12-description",
-            "cs-prep-v12-toolbar",
+            "cs-prep-v13-description",
+            "cs-prep-v13-toolbar",
+            "cs-prep-v13-advanced",
+            "cs-prep-v13-meta",
+            "cs-prep-v13-bulk",
+            "cs-prep-v13-list",
+            "cs-prep-v13-pagination",
             "addition_preparation_version",
             "addition_preparation_relationship",
             "Selecionar todo resultado",
             "Limpar seleção",
-            "cs-prep-v12-meta",
-            "cs-prep-v12-list",
-            "cs-prep-v12-pagination",
         ]
         for value in required:
             self.assertIn(value, script)
 
-        update_order = "[description, toolbar, advanced, bulk, meta, progress, list, pagination]"
-        addition_order = "[description, toolbar, advanced, bulk, meta, feedback, list, pagination]"
+        update_order = "[description, toolbar, advanced, meta, bulk, progress, list, pagination]"
+        addition_order = "[description, toolbar, advanced, meta, bulk, feedback, list, pagination]"
         self.assertIn(update_order, script)
         self.assertIn(addition_order, script)
 
-    def test_update_empty_state_is_deduplicated_and_legacy_bottom_hint_removed(self) -> None:
+    def test_addition_deduplicates_clear_selection_and_legacy_bodies(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("function removeDuplicateUpdateEmpty", script)
-        self.assertIn("if (seen.has(key)) node.remove()", script)
-        self.assertIn(".cs-v4-preparation-hint", script)
-        self.assertIn("node.remove()", script)
+        self.assertIn('clean(button.textContent).toLowerCase() === "limpar seleção"', script)
+        self.assertIn("removeLegacyBodies", script)
+        self.assertIn("cs_addition_preparation_v13_body", script)
+        self.assertIn("cs_updates_preparation_v13_body", script)
+        self.assertIn("body.className = \"cs-prep-v13-body\"", script)
 
-    def test_addition_page_selection_bridge_keeps_original_private_set_in_sync(self) -> None:
-        script = SELECTION_FIX.read_text(encoding="utf-8")
+    def test_update_empty_state_is_deduplicated(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("function removeDuplicateEmpty", script)
+        self.assertIn("if (seen.has(key)) node.remove()", script)
+        self.assertIn("removeDuplicateEmpty(list)", script)
+
+    def test_bulk_actions_are_purple_and_individual_actions_remain_green(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("linear-gradient(135deg,#7c3aed,#6d28d9)", script)
+        self.assertIn(".update-prepare.btn-success", script)
+        self.assertIn(".addition-op-actions .btn-success", script)
+        self.assertIn("background:var(--success)!important", script)
+
+    def test_addition_page_and_all_results_selection_are_supported(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('target.id === "addition_preparation_select_all"', script)
+        self.assertIn('target.id === "cs_addition_select_all_results"', script)
         self.assertIn('box.dispatchEvent(new Event("change", {bubbles:true}))', script)
-        self.assertIn('all.checked = false', script)
+        self.assertIn("fetchAllAdditionIds", script)
 
 
 if __name__ == "__main__":

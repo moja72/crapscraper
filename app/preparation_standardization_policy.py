@@ -12,10 +12,7 @@ _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _BASE_OPERATIONS_PAYLOAD: Callable[[str], dict[str, Any]] | None = None
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-_SCRIPT_PATHS = (
-    _STATIC_DIR / "preparation_standardization_v12.js",
-    _STATIC_DIR / "preparation_standardization_v12_selection_fix.js",
-)
+_SCRIPT_PATH = _STATIC_DIR / "preparation_standardization_v13.js"
 
 
 def _query_value(query: dict[str, list[str]], key: str, default: str = "") -> str:
@@ -32,7 +29,7 @@ def _filtered_preparation_page(
     page: int = 1,
     page_size: int = 5,
 ) -> dict[str, Any]:
-    """Pagina a Preparação de Adicionar com os dois filtros compartilhados da UI."""
+    """Pagina a Preparação de Adicionar com os filtros compartilhados da UI."""
     safe_page = max(1, addition_ui._safe_int(page, 1))
     safe_size = max(1, min(100, addition_ui._safe_int(page_size, 5)))
     where, values = addition_ui._where_jobs("preparation", q, state)
@@ -105,23 +102,16 @@ def _patched_operations_payload(path_query: str) -> dict[str, Any]:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    blocks: list[str] = []
-    for index, path in enumerate(_SCRIPT_PATHS, start=1):
-        try:
-            script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
-        except OSError:
-            continue
-        blocks.append(
-            f"\n<script data-preparation-standardization-v12=\"{index}\">\n{script}\n</script>\n"
-        )
-    if not blocks:
+    try:
+        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+    except OSError:
         return html
-    block = "".join(blocks)
+    block = f"\n<script data-preparation-standardization-v13>\n{script}\n</script>\n"
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
 def install_preparation_standardization_policy() -> None:
-    """Instala a camada final da seção Preparação nas abas Atualizar e Adicionar."""
+    """Instala a seção canônica de Preparação nas abas Atualizar e Adicionar."""
     global _INSTALLED, _BASE_RENDER, _BASE_OPERATIONS_PAYLOAD
     if _INSTALLED:
         return
