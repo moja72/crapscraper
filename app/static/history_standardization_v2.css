@@ -1,0 +1,155 @@
+/* Histórico canônico v2: Atualizar e Adicionar compartilham exatamente a mesma moldura. */
+.operational-history-shared{
+  padding:16px 18px 18px!important;
+  overflow:visible!important;
+}
+.operational-history-shared>.op-history-summary{
+  min-height:38px!important;
+  margin:0!important;
+  padding:0!important;
+}
+.operational-history-shared .op-history-body{
+  gap:10px!important;
+  margin-top:8px!important;
+}
+.operational-history-shared .op-history-filter-grid{
+  grid-template-columns:minmax(210px,1.08fr) minmax(160px,.86fr) minmax(210px,1fr) minmax(170px,.9fr)!important;
+  gap:9px!important;
+}
+.operational-history-shared label{
+  gap:5px!important;
+  font-size:11px!important;
+  line-height:1.25!important;
+}
+.operational-history-shared .op-history-filter-grid input,
+.operational-history-shared .op-history-filter-grid select,
+.operational-history-shared .op-history-period input{
+  min-height:40px!important;
+  height:40px!important;
+  padding:8px 11px!important;
+  border-radius:10px!important;
+}
+.operational-history-shared .op-history-toolbar{
+  grid-template-columns:minmax(0,1fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.operational-history-shared .op-history-actions{
+  gap:8px!important;
+  flex-wrap:nowrap!important;
+}
+.operational-history-shared .op-history-actions button{
+  min-height:40px!important;
+  height:40px!important;
+  padding:8px 14px!important;
+  border-radius:10px!important;
+  font-size:11px!important;
+  font-weight:800!important;
+  white-space:nowrap!important;
+}
+.operational-history-shared .op-history-period{
+  grid-template-columns:minmax(160px,190px) minmax(160px,190px) minmax(245px,285px) minmax(150px,1fr)!important;
+  gap:9px!important;
+  padding:9px!important;
+  border-radius:11px!important;
+}
+.operational-history-shared .op-history-last-days{
+  grid-template-columns:minmax(100px,1fr) 92px!important;
+  gap:8px!important;
+}
+.operational-history-shared .op-history-period button{
+  min-height:40px!important;
+  height:40px!important;
+  padding:8px 14px!important;
+  border-radius:10px!important;
+  font-size:11px!important;
+  font-weight:800!important;
+}
+.operational-history-shared .op-history-clear-period{
+  width:100%!important;
+  min-width:150px!important;
+}
+/* Tabs seguem o visual mais limpo já usado no Histórico de Adicionar. */
+.operational-history-shared .op-history-tabs{
+  gap:4px!important;
+  margin-top:0!important;
+  border-bottom:1px solid var(--line)!important;
+}
+.operational-history-shared .op-history-tab{
+  min-height:42px!important;
+  padding:9px 15px!important;
+  border:1px solid var(--line)!important;
+  border-bottom:0!important;
+  border-radius:9px 9px 0 0!important;
+  background:rgba(255,255,255,.022)!important;
+  color:var(--text-muted)!important;
+  font-size:12px!important;
+  font-weight:850!important;
+}
+.operational-history-shared .op-history-tab.is-active,
+.operational-history-shared .op-history-tab.is-active:hover{
+  border-color:var(--accent)!important;
+  background:rgba(124,58,237,.055)!important;
+  color:var(--text)!important;
+  box-shadow:inset 0 0 0 1px var(--accent)!important;
+}
+.operational-history-shared .op-history-listing-meta{
+  min-height:32px!important;
+  margin:0!important;
+}
+.operational-history-shared .listing-page-size-input{
+  width:62px!important;
+  min-height:34px!important;
+  height:34px!important;
+  border-radius:10px!important;
+}
+.operational-history-shared .op-history-pagination{
+  gap:10px!important;
+  margin:0!important;
+}
+.operational-history-shared .op-history-pagination>button{
+  min-height:40px!important;
+  height:40px!important;
+  border-radius:10px!important;
+}
+.operational-history-shared .op-history-page{
+  min-height:40px!important;
+  padding:4px 10px!important;
+  border-radius:999px!important;
+}
+.operational-history-shared .op-history-page input{
+  width:52px!important;
+  min-width:52px!important;
+  height:30px!important;
+  min-height:30px!important;
+  margin:0!important;
+  padding:3px 7px!important;
+  border-radius:8px!important;
+  text-align:center!important;
+}
+.operational-history-shared .op-history-panel{
+  border-radius:11px!important;
+}
+.operational-history-shared .op-history-row{
+  gap:14px!important;
+  padding:13px 11px!important;
+}
+.operational-history-shared .op-history-row-actions button{
+  min-height:40px!important;
+  height:40px!important;
+  padding:8px 14px!important;
+  border-radius:10px!important;
+}
+@media(max-width:1120px){
+  .operational-history-shared .op-history-filter-grid{grid-template-columns:repeat(2,minmax(180px,1fr))!important}
+  .operational-history-shared .op-history-toolbar{grid-template-columns:1fr!important}
+  .operational-history-shared .op-history-actions{justify-content:flex-start!important}
+  .operational-history-shared .op-history-period{grid-template-columns:repeat(2,minmax(180px,1fr))!important}
+}
+@media(max-width:760px){
+  .operational-history-shared{padding:14px!important}
+  .operational-history-shared .op-history-filter-grid,
+  .operational-history-shared .op-history-period{grid-template-columns:1fr!important}
+  .operational-history-shared .op-history-actions{display:grid!important;grid-template-columns:1fr 1fr!important}
+  .operational-history-shared .op-history-last-days{grid-template-columns:1fr!important}
+}
