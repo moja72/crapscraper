@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from typing import Any, Callable, Mapping
-from urllib.parse import urlparse
 
 import app.addition_operational_ui_policy as operational
 import app.comparison_decisions as decisions
@@ -15,7 +14,7 @@ _BASE_LIST_APPROVED: Callable[[], list[dict[str, Any]]] | None = None
 _BASE_SAVE_DECISION: Callable[..., dict[str, Any]] | None = None
 
 _TARGET_NAME = "500codecanyonplugins"
-_IGNORE_NOTE = "Ignorado automaticamente: pack agregado 500 CodeCanyon Plugins do PluginTheme.net."
+_IGNORE_NOTE = "Ignorado automaticamente: pack agregado 500 CodeCanyon Plugins."
 
 
 def _clean(value: Any) -> str:
@@ -26,31 +25,22 @@ def _key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", _clean(value).lower())
 
 
-def _is_plugintheme_url(value: Any) -> bool:
-    raw = _clean(value)
-    if not raw:
-        return False
-    if "://" not in raw:
-        raw = "https://" + raw.lstrip("/")
-    try:
-        host = (urlparse(raw).hostname or "").lower().removeprefix("www.")
-    except Exception:
-        return False
-    return host == "plugintheme.net" or host.endswith(".plugintheme.net")
-
-
 def is_ignored_pack(row: Mapping[str, Any]) -> bool:
-    names = (
-        row.get("source_name"),
-        row.get("site_name"),
-        row.get("title"),
-    )
-    if not any(_key(value) == _TARGET_NAME for value in names):
-        return False
-    return _is_plugintheme_url(
-        row.get("source_product_url")
-        or row.get("source_official_url")
-        or row.get("site_product_url")
+    """Regra permanente e intencionalmente específica para este pack.
+
+    O registro antigo nem sempre carrega ``source_product_url`` na decisão/job.
+    Exigir o domínio PluginTheme fazia o mesmo pack escapar do filtro e voltar a
+    aparecer em Preparação. O nome exato normalizado é suficiente porque esta é
+    uma exclusão de negócio explícita, não uma heurística para bundles em geral.
+    """
+    return any(
+        _key(value) == _TARGET_NAME
+        for value in (
+            row.get("source_name"),
+            row.get("site_name"),
+            row.get("title"),
+            row.get("name"),
+        )
     )
 
 
@@ -121,6 +111,46 @@ def _retroactive_ignore() -> int:
     return changed
 
 
+def _scrub_existing_jobs() -> int:
+    """Oculta/desativa jobs já materializados antes da regra existir."""
+    changed = 0
+    try:
+        operational._ensure_schema()
+        now = operational._utc_now()
+        with operational.additions._db() as connection:
+            rows = connection.execute(
+                "SELECT job_id, source_name, title, queue_state FROM addition_jobs"
+            ).fetchall()
+            for raw in rows:
+                row = dict(raw)
+                if not is_ignored_pack(row):
+                    continue
+                state = _clean(row.get("queue_state"))
+                values: dict[str, Any] = {
+                    "approval_active": 0,
+                    "enqueue_after_prepare": 0,
+                    "hidden_from_queue": 1,
+                    "status_message": "Ignorado permanentemente pelo CrapScraper: pack 500 CodeCanyon Plugins.",
+                    "operation_error": "",
+                    "updated_at": now,
+                }
+                if state not in {"executing", "completed"}:
+                    values.update(
+                        queue_state="canceled",
+                        current_step="ignored_pack",
+                        queue_position=0,
+                    )
+                columns = ", ".join(f"{key}=?" for key in values)
+                connection.execute(
+                    f"UPDATE addition_jobs SET {columns} WHERE job_id=?",
+                    tuple(values.values()) + (str(row["job_id"]),),
+                )
+                changed += 1
+    except Exception:
+        return changed
+    return changed
+
+
 def install_addition_pack_ignore_policy() -> None:
     global _INSTALLED, _BASE_LIST_APPROVED, _BASE_SAVE_DECISION
     if _INSTALLED:
@@ -140,8 +170,10 @@ def install_addition_pack_ignore_policy() -> None:
     operational.list_approved_additions = _filtered_list_approved_additions
 
     _retroactive_ignore()
+    _scrub_existing_jobs()
 
-    # Desativa imediatamente um job antigo que já esteja visível em Preparação.
+    # Reprojeta as aprovações depois da limpeza para ele desaparecer da UI já no
+    # primeiro boot com esta versão.
     try:
         operational._sync_approved_operational()
     except Exception:
