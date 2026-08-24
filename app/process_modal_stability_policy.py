@@ -19,6 +19,9 @@ from app.store_pricing_cache_policy import install_store_pricing_cache_policy
 from app.operational_overview_standardization_policy import (
     install_operational_overview_standardization_policy,
 )
+from app.preparation_standardization_policy import (
+    install_preparation_standardization_policy,
+)
 
 
 _INSTALLED = False
@@ -78,10 +81,13 @@ def install_process_modal_stability_policy() -> None:
     # ainda não há cache ou quando o usuário pede explicitamente uma atualização.
     install_store_pricing_cache_policy()
 
-    # Última camada visual: Atualizar e Adicionar passam a compartilhar a mesma
-    # anatomia de título, descrição, progresso/processamento e cards, sem alterar
-    # IDs nem listeners das operações já instaladas.
+    # Resumo superior compartilhado entre Atualizar e Adicionar.
     install_operational_overview_standardization_policy()
+
+    # Última camada operacional de layout: as duas seções Preparação usam a mesma
+    # anatomia de filtros, seleção, metadados, jobs e paginação. A camada também
+    # acrescenta os filtros equivalentes de Versão/Relacionamento em Adicionar.
+    install_preparation_standardization_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
