@@ -12,6 +12,7 @@ from app.operations.models import JobState
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "app" / "static" / "queue_standardization_v1.js"
 COMPAT_SCRIPT = ROOT / "app" / "static" / "queue_standardization_v1_compat.js"
+HELP_CLEANUP_SCRIPT = ROOT / "app" / "static" / "queue_help_cleanup_v2.js"
 
 
 class DummyJob(SimpleNamespace):
@@ -29,8 +30,10 @@ class QueueStandardizationTests(unittest.TestCase):
             policy._BASE_RENDER = original
         self.assertIn('data-queue-standardization-v1="1"', html)
         self.assertIn('data-queue-standardization-v1="2"', html)
+        self.assertIn('data-queue-standardization-v1="3"', html)
         self.assertIn("cs-queue-v1", html)
         self.assertIn("ensureUpdateQueueMetaContract", html)
+        self.assertIn("__crapScraperQueueHelpCleanupV2Installed", html)
 
     def test_script_contains_shared_queue_contract(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
@@ -77,6 +80,14 @@ class QueueStandardizationTests(unittest.TestCase):
         ]
         for value in required:
             self.assertIn(value, script)
+
+    def test_final_cleanup_removes_orphan_help_wrappers(self) -> None:
+        script = HELP_CLEANUP_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("operational-action-control", script)
+        self.assertIn("comparison-help.operational-action-help", script)
+        self.assertIn("comparison-help.operational-field-help", script)
+        self.assertIn("MutationObserver", script)
+        self.assertIn("if (!realButton) wrapper.remove()", script)
 
     def test_cancel_selected_updates_only_cancels_queued_active_jobs(self) -> None:
         queued = DummyJob(queue_name="default", state=JobState.QUEUED, canceled_at="", queue_position=2)
