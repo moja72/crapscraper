@@ -14,6 +14,7 @@ from app.addition_pack_ignore_policy import install_addition_pack_ignore_policy
 from app.update_cross_source_latest_policy import install_update_cross_source_latest_policy
 from app.update_site_version_drift_policy import install_update_site_version_drift_policy
 from app.update_prepare_plan_reliability_policy import install_update_prepare_plan_reliability_policy
+from app.plugintema_catalog_refresh_policy import install_plugintema_catalog_refresh_policy
 
 
 _INSTALLED = False
@@ -63,6 +64,10 @@ def install_process_modal_stability_policy() -> None:
     # PREPARAR e PLANO viram uma transição confiável: preview válido já materializa
     # o plano e uma rematerialização não pode rebaixar a versão descoberta ao vivo.
     install_update_prepare_plan_reliability_policy()
+
+    # Comparação > Gerenciar catálogos PluginTema: adiciona atualização in-place,
+    # cache incremental do WooCommerce e preservação dos filtros/categorias nativos.
+    install_plugintema_catalog_refresh_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
