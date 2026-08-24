@@ -22,7 +22,9 @@ _META_SCHEMA = 1
 _FULL_REFRESH_AFTER = timedelta(hours=6)
 _MAX_INCREMENTAL_RUNS = 20
 _INCREMENTAL_OVERLAP = timedelta(minutes=5)
-_CACHE_STATUSES = ("publish", "draft", "private", "pending", "trash")
+_CACHE_REQUIRED_STATUSES = ("publish", "draft", "private")
+_CACHE_OPTIONAL_STATUSES = ("pending", "trash")
+_CACHE_STATUSES = _CACHE_REQUIRED_STATUSES + _CACHE_OPTIONAL_STATUSES
 _ROOT_CATEGORY_NAMES = {
     "plugin", "plugins", "plugin wordpress", "plugins wordpress",
     "tema", "temas", "theme", "themes", "tema wordpress", "temas wordpress",
@@ -175,12 +177,9 @@ def infer_catalog_definition(catalog_path: str | Path) -> tuple[str, CatalogFilt
     if not statuses:
         statuses = ("publish",)
 
-    # Em catálogos legados personalizados só preservamos categorias que todos os
-    # itens compartilham, excluindo as categorias-raiz Plugin/Tema/Template. Isso
-    # evita transformar categorias incidentais de um produto em filtro do catálogo.
     categories = _infer_common_categories(rows) if mode == "custom" else ()
     versions = [str(row.get("Metadado: pt_versao") or "").strip() for row in rows]
-    version_filter = "with" if versions and all(versions) else "all"
+    version_filter = "with" if mode == "custom" and versions and all(versions) else "all"
     return mode, CatalogFilters(
         kinds=kinds,
         categories=categories,
@@ -256,6 +255,23 @@ def _list_pages(
     return result
 
 
+def _list_status_safely(
+    woo: Any,
+    *,
+    status: str,
+    modified_after: str = "",
+    progress: Callable[[str, int, int, str], None] | None = None,
+) -> list[Mapping[str, Any]]:
+    try:
+        return _list_pages(woo, status=status, modified_after=modified_after, progress=progress)
+    except Exception:
+        if status not in _CACHE_OPTIONAL_STATUSES:
+            raise
+        if progress:
+            progress("sync", 0, 0, f"{status}: status opcional não disponível neste WooCommerce")
+        return []
+
+
 def sync_product_cache(
     woo: Any,
     *,
@@ -287,17 +303,17 @@ def sync_product_cache(
             if need_full:
                 fresh: dict[str, Mapping[str, Any]] = {}
                 for status in _CACHE_STATUSES:
-                    for product in _list_pages(woo, status=status, progress=progress):
+                    for product in _list_status_safely(woo, status=status, progress=progress):
                         product_id = int(product.get("id") or 0)
                         if product_id <= 0:
                             continue
                         touched += 1
                         if status != "trash" and str(product.get("status") or status) != "trash":
                             fresh[str(product_id)] = product
-                changed = len(set(fresh).symmetric_difference(set(products_by_id)))
-                for key, value in fresh.items():
-                    if products_by_id.get(key) != value:
-                        changed += 1
+                changed = sum(
+                    1 for key in set(fresh).union(products_by_id)
+                    if fresh.get(key) != products_by_id.get(key)
+                )
                 products_by_id = fresh
                 full_at = current_time
                 incremental_runs = 0
@@ -305,7 +321,7 @@ def sync_product_cache(
                 synced_at = _parse_time(cached.get("synced_at")) or full_at or current_time
                 modified_after = _iso(synced_at - _INCREMENTAL_OVERLAP)
                 for status in _CACHE_STATUSES:
-                    for product in _list_pages(
+                    for product in _list_status_safely(
                         woo, status=status, modified_after=modified_after, progress=progress
                     ):
                         product_id = int(product.get("id") or 0)
@@ -323,25 +339,23 @@ def sync_product_cache(
                             changed += 1
                 incremental_runs += 1
         except Exception:
-            # Alguns proxies/versões antigas do WooCommerce não aceitam
-            # modified_after. Nesse caso fazemos uma varredura completa em vez de
-            # deixar o botão Atualizar falhar ou usar dados possivelmente antigos.
             if mode != "incremental":
                 raise
             mode = "full-fallback"
             fresh = {}
             touched = 0
-            changed = 0
             for status in _CACHE_STATUSES:
-                for product in _list_pages(woo, status=status, progress=progress):
+                for product in _list_status_safely(woo, status=status, progress=progress):
                     product_id = int(product.get("id") or 0)
                     if product_id <= 0:
                         continue
                     touched += 1
                     if status != "trash" and str(product.get("status") or status) != "trash":
                         fresh[str(product_id)] = product
-            changed = sum(1 for key, value in fresh.items() if products_by_id.get(key) != value)
-            changed += len(set(products_by_id) - set(fresh))
+            changed = sum(
+                1 for key in set(fresh).union(products_by_id)
+                if fresh.get(key) != products_by_id.get(key)
+            )
             products_by_id = fresh
             full_at = current_time
             incremental_runs = 0
