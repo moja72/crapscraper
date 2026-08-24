@@ -80,6 +80,8 @@ from app.addition_final_validation_policy import install_addition_final_validati
 from app.addition_conversation_capture_policy import install_addition_conversation_capture_policy
 from app.addition_official_resolution_fallback_policy import install_addition_official_resolution_fallback_policy
 from app.addition_capture_pipeline_resilience_policy import install_addition_capture_pipeline_resilience_policy
+from app.addition_download_contract_v2_policy import install_addition_download_contract_v2_policy
+from app.process_modal_stability_policy import install_process_modal_stability_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -160,6 +162,10 @@ install_addition_conversation_capture_policy()
 install_addition_official_resolution_fallback_policy()
 # Resiliência final: reaproveita chats mapeados, amplia limites e aceita captura pendente como intenção de fila.
 install_addition_capture_pipeline_resilience_policy()
+# Contrato final de downloads: grava nome/caminho diretamente no postmeta da variação e valida no servidor, sem normalização da REST.
+install_addition_download_contract_v2_policy()
+# Processos: evita repintura completa do modal a cada segundo e preserva histórico/scroll durante atualizações reais.
+install_process_modal_stability_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
