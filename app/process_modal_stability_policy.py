@@ -12,6 +12,7 @@ from app.addition_plugintheme_entitlement_recovery_policy import (
 )
 from app.addition_pack_ignore_policy import install_addition_pack_ignore_policy
 from app.update_cross_source_latest_policy import install_update_cross_source_latest_policy
+from app.update_site_version_drift_policy import install_update_site_version_drift_policy
 from app.update_prepare_plan_reliability_policy import install_update_prepare_plan_reliability_policy
 
 
@@ -54,6 +55,10 @@ def install_process_modal_stability_policy() -> None:
     # Atualizações normais passam a comparar PluginTheme e UltraPackV2 ao vivo e
     # escolhem automaticamente a maior versão disponível antes de preparar o ZIP.
     install_update_cross_source_latest_policy()
+
+    # Se o WooCommerce avançou desde a comparação, mas ainda está abaixo da fonte,
+    # o estado atual passa a ser a nova base segura do plano em vez de bloquear.
+    install_update_site_version_drift_policy()
 
     # PREPARAR e PLANO viram uma transição confiável: preview válido já materializa
     # o plano e uma rematerialização não pode rebaixar a versão descoberta ao vivo.
