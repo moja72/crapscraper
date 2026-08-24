@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 import app.web as web
+from app.addition_download_validation_bridge_policy import (
+    install_addition_download_validation_bridge_policy,
+)
 
 
 _INSTALLED = False
@@ -26,6 +29,12 @@ def install_process_modal_stability_policy() -> None:
     global _INSTALLED, _BASE_RENDER
     if _INSTALLED:
         return
+
+    # This policy is installed immediately after download contract v2 in main.py.
+    # Attach the final store-validation bridge here so the legacy REST projection
+    # cannot overwrite/reject the authoritative local download contract.
+    install_addition_download_validation_bridge_policy()
+
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
