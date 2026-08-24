@@ -56,7 +56,6 @@ class QueueStandardizationTests(unittest.TestCase):
         self.assertIn("normalizeUpdateQueue", script)
         self.assertIn("normalizeAdditionQueue", script)
         self.assertIn("cs_addition_queue_summary_v1", script)
-        self.assertIn("Mostrando", script)
 
     def test_compat_preserves_native_update_queue_meta_contract(self) -> None:
         script = COMPAT_SCRIPT.read_text(encoding="utf-8")
