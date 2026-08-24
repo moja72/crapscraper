@@ -51,6 +51,13 @@ class FakeWoo:
         return rows[start:start + per_page]
 
 
+class OptionalStatusFailingWoo(FakeWoo):
+    def list_products(self, *, page: int = 1, per_page: int = 100, **filters):
+        if str(filters.get("status") or "") in {"pending", "trash"}:
+            raise RuntimeError("status não suportado neste proxy")
+        return super().list_products(page=page, per_page=per_page, **filters)
+
+
 class PluginTemaCatalogRefreshTests(unittest.TestCase):
     def test_legacy_plugin_catalog_infers_native_plugin_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -68,6 +75,7 @@ class PluginTemaCatalogRefreshTests(unittest.TestCase):
             self.assertEqual(filters.kinds, ("plugin",))
             self.assertEqual(filters.statuses, ("publish",))
             self.assertEqual(filters.categories, ())
+            self.assertEqual(filters.version, "all")
 
     def test_second_cache_sync_is_incremental(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -87,6 +95,22 @@ class PluginTemaCatalogRefreshTests(unittest.TestCase):
             self.assertEqual(second["mode"], "incremental")
             self.assertEqual(len(products), 2)
             self.assertTrue(any(call.get("modified_after") for call in woo.calls))
+
+    def test_optional_status_failure_does_not_break_full_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "products.json"
+            woo = OptionalStatusFailingWoo([
+                product(1, "Plugin publicado", "1.0.0", ["Plugins"]),
+                product(2, "Plugin rascunho", "1.0.0", ["Plugins"], status="draft"),
+            ])
+            products, result = sync_product_cache(
+                woo,
+                cache_path=cache,
+                force_full=True,
+                now=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+            )
+            self.assertEqual(result["mode"], "full")
+            self.assertEqual({int(row["id"]) for row in products}, {1, 2})
 
     def test_refresh_preserves_saved_kind_category_and_status_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
