@@ -15,6 +15,7 @@ from app.update_cross_source_latest_policy import install_update_cross_source_la
 from app.update_site_version_drift_policy import install_update_site_version_drift_policy
 from app.update_prepare_plan_reliability_policy import install_update_prepare_plan_reliability_policy
 from app.plugintema_catalog_refresh_policy import install_plugintema_catalog_refresh_policy
+from app.store_pricing_cache_policy import install_store_pricing_cache_policy
 
 
 _INSTALLED = False
@@ -68,6 +69,11 @@ def install_process_modal_stability_policy() -> None:
     # Comparação > Gerenciar catálogos PluginTema: adiciona atualização in-place,
     # cache incremental do WooCommerce e preservação dos filtros/categorias nativos.
     install_plugintema_catalog_refresh_policy()
+
+    # Loja > Preços: serve planos e packs a partir de cache persistente, mantém uma
+    # cópia visual no navegador e só consulta o WooCommerce em background quando
+    # ainda não há cache ou quando o usuário pede explicitamente uma atualização.
+    install_store_pricing_cache_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
