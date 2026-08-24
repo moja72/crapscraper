@@ -3,8 +3,8 @@
 Estados como ``validating`` e ``downloading`` só podem existir enquanto há um
 worker ativo. Se foram persistidos e o processo está iniciando novamente, a
 preparação anterior foi interrompida. O job volta para ``approved`` sem apagar
-o staging, SHA ou plano anterior; a próxima preparação fará todas as validações
-novamente e poderá reaproveitar o ZIP local quando houver prova suficiente.
+staging/SHA. Preview e plano incompletos são descartados para que a próxima
+preparação revalide tudo antes de reaproveitar qualquer ZIP local.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ def recover_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[di
     repaired = dict(payload or {})
     jobs = [dict(item) for item in repaired.get("jobs", []) if isinstance(item, Mapping)]
     changes: list[dict[str, Any]] = []
+    recovered_ids: set[str] = set()
     recovered_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     for job in jobs:
@@ -33,19 +34,21 @@ def recover_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[di
         if previous_state not in _TRANSIENT_PREPARATION_STATES:
             continue
 
+        job_id = _text(job.get("job_id"))
+        if job_id:
+            recovered_ids.add(job_id)
+
         job["state"] = "approved"
         job["queue_position"] = 0
-        job["execution_error"] = (
-            "A preparação anterior foi interrompida pelo encerramento ou reinício do CrapScraper. "
-            "Prepare novamente; se houver ZIP local válido com SHA e versão compatíveis, ele será reaproveitado."
-        )
+        job["execution_error"] = ""
 
         diagnostics = job.get("diagnostics")
         if not isinstance(diagnostics, list):
             diagnostics = []
             job["diagnostics"] = diagnostics
         diagnostics.append(
-            f"Estado transitório {previous_state} recuperado para approved em {recovered_at}."
+            f"Preparação interrompida em {previous_state} recuperada para approved em {recovered_at}; "
+            "preview/plano incompletos foram descartados e o staging local foi preservado."
         )
 
         history = job.get("execution_history")
@@ -59,10 +62,12 @@ def recover_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[di
             "recovered_at": recovered_at,
             "local_staging_preserved": bool(_text(job.get("local_staging_path"))),
             "new_sha256_preserved": bool(_text(job.get("new_sha256"))),
+            "stale_preview_removed": True,
+            "stale_plan_removed": True,
         })
 
         changes.append({
-            "job_id": _text(job.get("job_id")),
+            "job_id": job_id,
             "woo_product_id": int(job.get("woo_product_id") or 0),
             "name": _text(job.get("name")),
             "previous_state": previous_state,
@@ -71,6 +76,21 @@ def recover_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[di
         })
 
     repaired["jobs"] = jobs
+
+    # Preview/plano gerados antes de um encerramento podem apontar para estado,
+    # versão ou staging que não chegaram ao fim. Removê-los evita um falso
+    # bloqueio no próximo clique em "Preparar e gerar plano". O ZIP local e seu
+    # SHA continuam no próprio job e só serão reutilizados após nova validação.
+    for key in ("previews", "plans"):
+        current = repaired.get(key)
+        if not isinstance(current, Mapping):
+            continue
+        repaired[key] = {
+            str(job_id): value
+            for job_id, value in current.items()
+            if str(job_id) not in recovered_ids
+        }
+
     return repaired, changes
 
 
