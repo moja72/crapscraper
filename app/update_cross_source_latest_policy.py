@@ -16,6 +16,7 @@ from app.wordpress_manual_update import discover_catalog_candidates
 _INSTALLED = False
 _BASE_PREPARE: Callable[..., Any] | None = None
 _SAFE_RELATIONSHIPS = {"safe_auto", "manual_confirmed"}
+_LIVE_INSPECTION_TIMEOUT_SECONDS = 12.0
 
 
 def _clean(value: Any) -> str:
@@ -95,13 +96,7 @@ def _current_candidate(job: Any) -> dict[str, Any]:
 
 
 def _catalog_candidates_relaxed(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Varre todos os slots aceitando variantes seguras do mesmo nome.
-
-    O fluxo manual antigo exigia nome cru idêntico ou URL oficial idêntica. Isso
-    podia deixar de relacionar, por exemplo, ``AffiliateWP`` com
-    ``AffiliateWP WordPress Plugin``. Aqui usamos o mesmo normalizador do update
-    cruzado, mas ainda rejeitamos produtos com URL oficial conflitante.
-    """
+    """Varre os slots aceitando variantes seguras do mesmo nome."""
     product_name = _name_key(product.get("name") or getattr(job, "name", ""))
     job_name = _name_key(getattr(job, "name", ""))
     wanted_names = {value for value in (product_name, job_name) if value}
@@ -124,10 +119,9 @@ def _catalog_candidates_relaxed(job: Any, product: Mapping[str, Any]) -> list[di
                         continue
                     if wanted_official and row_official and row_official != wanted_official:
                         continue
-                    version = _version_text(raw.get("versao_produto"))
                     rows.append({
                         "source_name": _clean(raw.get("nome_produto")),
-                        "source_version": version,
+                        "source_version": _version_text(raw.get("versao_produto")),
                         "source_product_url": url,
                         "source_official_url": _clean(raw.get("pagina_oficial")),
                         "relationship_state": (
@@ -163,8 +157,6 @@ def _candidate_rows(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]
         row_official = _official_key(row.get("source_official_url"))
         official_conflict = bool(job_official and row_official and job_official != row_official)
 
-        # Se o job atual já possui vínculo seguro, a mesma identidade nominal na
-        # outra fonte pode herdar esse vínculo somente sem conflito oficial.
         if relationship not in _SAFE_RELATIONSHIPS:
             if (
                 job_relationship in _SAFE_RELATIONSHIPS
@@ -187,42 +179,70 @@ def _candidate_rows(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]
         if candidate_version > current_version:
             by_url[url] = row
 
-    # Evita revalidar várias cópias do mesmo produto em slots antigos. Mantém no
-    # máximo as duas versões catalogadas mais altas por origem.
     grouped: dict[str, list[dict[str, Any]]] = {"PluginTheme": [], "UltraPackV2": []}
     for row in by_url.values():
         origin = _source_name(row.get("source_product_url"))
         if origin in grouped:
             grouped[origin].append(row)
 
+    # Uma única URL por origem é suficiente. A versão do catálogo serve apenas
+    # para escolher a melhor URL; a versão final é sempre relida ao vivo abaixo.
     selected: list[dict[str, Any]] = []
     for origin in ("PluginTheme", "UltraPackV2"):
         candidates = grouped[origin]
         candidates.sort(key=lambda row: _version(row.get("source_version")) or (), reverse=True)
-        selected.extend(candidates[:2])
+        if candidates:
+            selected.append(candidates[0])
     return selected
 
 
+def _adapter_for(downloader: Any, url: str) -> Any:
+    chooser = getattr(downloader, "_for", None)
+    if callable(chooser):
+        try:
+            return chooser(url)
+        except Exception:
+            pass
+    return downloader
+
+
 def _inspect_candidate(self: UpdatePreparationService, job: Any, row: Mapping[str, Any]) -> str:
+    """Inspeção rápida: não deixa uma fonte secundária travar PREPARAR por minutos."""
     url = _clean(row.get("source_product_url"))
     if not url:
         return ""
 
+    adapter = _adapter_for(self.downloader, url)
     original_url = _clean(getattr(job, "ultrapack_url", ""))
-    original_session = getattr(self.downloader, "session", None)
+    original_session = getattr(adapter, "session", None)
+    original_timeout = getattr(adapter, "timeout", None)
+    original_retries = getattr(adapter, "retries", None)
     try:
         job.ultrapack_url = url
-        if self.session_provider is not None:
-            self.downloader.session = self.session_provider(job)
-        _resolved_url, found_version = self.downloader.inspect_product(url)
+
+        # Para descobrir versão, reutilize primeiro a sessão já carregada. Isso
+        # evita abrir/reler o perfil Chrome várias vezes. A sessão fresca será
+        # exigida novamente pelo fluxo base antes do download da fonte escolhida.
+        if getattr(adapter, "session", None) is None and self.session_provider is not None:
+            adapter.session = self.session_provider(job)
+
+        if original_timeout is not None:
+            adapter.timeout = min(float(original_timeout), _LIVE_INSPECTION_TIMEOUT_SECONDS)
+        if original_retries is not None:
+            adapter.retries = 0
+
+        _resolved_url, found_version = adapter.inspect_product(url)
         return _version_text(found_version)
     finally:
         job.ultrapack_url = original_url
-        self.downloader.session = original_session
+        if original_timeout is not None:
+            adapter.timeout = original_timeout
+        if original_retries is not None:
+            adapter.retries = original_retries
+        adapter.session = original_session
 
 
 def _select_latest_source(self: UpdatePreparationService, job: Any) -> None:
-    # Só arbitra jobs normais de atualização com vínculo seguro.
     if _clean(getattr(job, "queue_type", "")) != "update":
         return
     if _clean(getattr(job, "relationship", "")) not in _SAFE_RELATIONSHIPS:
@@ -247,7 +267,7 @@ def _select_latest_source(self: UpdatePreparationService, job: Any) -> None:
             found = _inspect_candidate(self, job, row)
         except Exception as error:
             self.logger(
-                f"⚠ {origin}: não foi possível revalidar ao vivo ({type(error).__name__}); "
+                f"⚠ {origin}: revalidação rápida indisponível ({type(error).__name__}); "
                 f"catálogo local={cached or '-'}"
             )
             continue
@@ -271,8 +291,6 @@ def _select_latest_source(self: UpdatePreparationService, job: Any) -> None:
             )
         return
 
-    # Maior versão ganha. Em empate, UltraPackV2 é preferido porque não depende
-    # do entitlement especial de bundles/assinaturas do PluginTheme.
     newer.sort(
         key=lambda row: (
             _version(row.get("source_version")) or (),
@@ -315,8 +333,7 @@ def _patched_prepare(self: UpdatePreparationService, job: Any) -> Any:
     try:
         _select_latest_source(self, job)
     except Exception as error:
-        # A arbitragem é melhoria de fonte, não um novo ponto de falha. Se os
-        # catálogos estiverem indisponíveis, o fluxo original continua intacto.
+        # Falha em uma fonte secundária nunca deve impedir a preparação normal.
         self.logger(f"⚠ Comparação cruzada de fontes indisponível: {type(error).__name__}: {error}")
     return _BASE_PREPARE(self, job)
 
