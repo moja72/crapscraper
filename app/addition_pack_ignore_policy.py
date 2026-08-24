@@ -33,7 +33,7 @@ def _is_plugintheme_url(value: Any) -> bool:
     if "://" not in raw:
         raw = "https://" + raw.lstrip("/")
     try:
-        host = (urlparse(raw).hostname or "").lower().lstrip("www.")
+        host = (urlparse(raw).hostname or "").lower().removeprefix("www.")
     except Exception:
         return False
     return host == "plugintheme.net" or host.endswith(".plugintheme.net")
