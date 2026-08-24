@@ -29,7 +29,7 @@ class OperationalOverviewStandardizationTests(unittest.TestCase):
         )
         self.assertIn('#updates_refresh_btn', script)
         self.assertIn('#updates_summary', script)
-        self.assertIn('#addition_sync_approved', script)
+        self.assertIn('#addition_intro_actions', script)
         self.assertIn('#addition_summary_grid', script)
         self.assertIn('flow.remove()', script)
         self.assertIn('Atualiza produtos', script)
