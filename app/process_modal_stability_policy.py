@@ -10,6 +10,8 @@ from app.addition_download_validation_bridge_policy import (
 from app.addition_plugintheme_entitlement_recovery_policy import (
     install_addition_plugintheme_entitlement_recovery_policy,
 )
+from app.addition_pack_ignore_policy import install_addition_pack_ignore_policy
+from app.update_cross_source_latest_policy import install_update_cross_source_latest_policy
 
 
 _INSTALLED = False
@@ -43,6 +45,14 @@ def install_process_modal_stability_policy() -> None:
     # Install this after all addition/session wrappers so Retry uses the upgraded
     # token reader and authorization contract without rebuilding prepared stages.
     install_addition_plugintheme_entitlement_recovery_policy()
+
+    # Regra permanente: o produto agregado "500 CodeCanyon Plugins" do
+    # PluginTheme não é um plugin unitário e nunca deve entrar no fluxo Adicionar.
+    install_addition_pack_ignore_policy()
+
+    # Atualizações normais passam a comparar PluginTheme e UltraPackV2 ao vivo e
+    # escolhem automaticamente a maior versão disponível antes de preparar o ZIP.
+    install_update_cross_source_latest_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
