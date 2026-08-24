@@ -24,6 +24,7 @@ from app.preparation_standardization_policy import (
 )
 from app.queue_standardization_policy import install_queue_standardization_policy
 from app.list_manager_standardization_policy import install_list_manager_standardization_policy
+from app.list_manager_visual_polish_policy import install_list_manager_visual_polish_policy
 
 
 _INSTALLED = False
@@ -96,6 +97,10 @@ def install_process_modal_stability_policy() -> None:
     # O gerenciador de Listas de Adições passa a seguir o modal canônico de
     # Atualização: modal amplo, X, cards, detalhe, busca, CSV e paginação.
     install_list_manager_standardization_policy()
+
+    # Acabamento visual final para manter largura, padding, botão X e ações no
+    # mesmo padrão do modal de listas de Atualização.
+    install_list_manager_visual_polish_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
