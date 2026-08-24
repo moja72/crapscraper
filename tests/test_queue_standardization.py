@@ -57,11 +57,26 @@ class QueueStandardizationTests(unittest.TestCase):
         self.assertIn("normalizeAdditionQueue", script)
         self.assertIn("cs_addition_queue_summary_v1", script)
 
-    def test_compat_preserves_native_update_queue_meta_contract(self) -> None:
+    def test_compat_preserves_meta_and_enforces_queue_visual_parity(self) -> None:
         script = COMPAT_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('getElementById("updates_queue_meta")', script)
-        self.assertIn('meta.id = "updates_queue_meta"', script)
-        self.assertIn("MutationObserver", script)
+        required = [
+            '$("#updates_queue_meta")',
+            'meta.id = "updates_queue_meta"',
+            "MutationObserver",
+            "cs_updates_queue_summary_v1",
+            "cs-queue-v1-state-hidden",
+            "cs-queue-v1-no-state",
+            "Rollback necessário",
+            "data-tooltip",
+            "addition_queue_recover",
+            "addition_queue_search",
+            "order:80!important",
+            '[class*="pagination"]',
+            "border-radius:999px!important",
+            "cs-queue-v1-total-filter",
+        ]
+        for value in required:
+            self.assertIn(value, script)
 
     def test_cancel_selected_updates_only_cancels_queued_active_jobs(self) -> None:
         queued = DummyJob(queue_name="default", state=JobState.QUEUED, canceled_at="", queue_position=2)
