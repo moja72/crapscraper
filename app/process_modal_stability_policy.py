@@ -23,6 +23,7 @@ from app.preparation_standardization_policy import (
     install_preparation_standardization_policy,
 )
 from app.queue_standardization_policy import install_queue_standardization_policy
+from app.list_manager_standardization_policy import install_list_manager_standardization_policy
 
 
 _INSTALLED = False
@@ -91,6 +92,10 @@ def install_process_modal_stability_policy() -> None:
     # Fila de atualização e Fila de adições passam a usar a mesma anatomia final:
     # gerenciamento, lista ativa, ações, cards, filtros, seleção, jobs e paginação.
     install_queue_standardization_policy()
+
+    # O gerenciador de Listas de Adições passa a seguir o modal canônico de
+    # Atualização: modal amplo, X, cards, detalhe, busca, CSV e paginação.
+    install_list_manager_standardization_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
