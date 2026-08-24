@@ -1,7 +1,0 @@
-Atualizar e Adicionar não devem exibir avisos auxiliares redundantes abaixo dos cards de resumo.
-
-Remover:
-- #updates_execution_lock (ex.: "Execução real habilitada...")
-- #addition_guidance (ex.: "Nenhuma adição pendente...")
-
-Ambas as divs de resumo devem terminar nos cards/contadores operacionais, mantendo a mesma hierarquia visual.
