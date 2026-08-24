@@ -11,6 +11,7 @@ from app.operations.models import JobState
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "app" / "static" / "queue_standardization_v1.js"
+COMPAT_SCRIPT = ROOT / "app" / "static" / "queue_standardization_v1_compat.js"
 
 
 class DummyJob(SimpleNamespace):
@@ -19,15 +20,17 @@ class DummyJob(SimpleNamespace):
 
 
 class QueueStandardizationTests(unittest.TestCase):
-    def test_render_injects_final_queue_script(self) -> None:
+    def test_render_injects_final_queue_scripts(self) -> None:
         original = policy._BASE_RENDER
         try:
             policy._BASE_RENDER = lambda: "<html><body>painel</body></html>"
             html = policy._patched_render_panel_page()
         finally:
             policy._BASE_RENDER = original
-        self.assertIn("data-queue-standardization-v1", html)
+        self.assertIn('data-queue-standardization-v1="1"', html)
+        self.assertIn('data-queue-standardization-v1="2"', html)
         self.assertIn("cs-queue-v1", html)
+        self.assertIn("ensureUpdateQueueMetaContract", html)
 
     def test_script_contains_shared_queue_contract(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
@@ -53,6 +56,13 @@ class QueueStandardizationTests(unittest.TestCase):
         self.assertIn("normalizeUpdateQueue", script)
         self.assertIn("normalizeAdditionQueue", script)
         self.assertIn("cs_addition_queue_summary_v1", script)
+        self.assertIn("Mostrando", script)
+
+    def test_compat_preserves_native_update_queue_meta_contract(self) -> None:
+        script = COMPAT_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('getElementById("updates_queue_meta")', script)
+        self.assertIn('meta.id = "updates_queue_meta"', script)
+        self.assertIn("MutationObserver", script)
 
     def test_cancel_selected_updates_only_cancels_queued_active_jobs(self) -> None:
         queued = DummyJob(queue_name="default", state=JobState.QUEUED, canceled_at="", queue_position=2)
