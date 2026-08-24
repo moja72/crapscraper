@@ -13,7 +13,11 @@ from app.operations.models import JobState, utc_now_iso
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _BASE_SERVER: Callable[..., Any] | None = None
-_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "queue_standardization_v1.js"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_SCRIPT_PATHS = (
+    _STATIC_DIR / "queue_standardization_v1.js",
+    _STATIC_DIR / "queue_standardization_v1_compat.js",
+)
 
 
 def _clean_job_ids(value: Any) -> list[str]:
@@ -73,11 +77,18 @@ def _clear_completed_update_queue() -> dict[str, Any]:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
-    except OSError:
+    blocks: list[str] = []
+    for index, path in enumerate(_SCRIPT_PATHS, start=1):
+        try:
+            script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+        except OSError:
+            continue
+        blocks.append(
+            f"\n<script data-queue-standardization-v1=\"{index}\">\n{script}\n</script>\n"
+        )
+    if not blocks:
         return html
-    block = f"\n<script data-queue-standardization-v1>\n{script}\n</script>\n"
+    block = "".join(blocks)
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
