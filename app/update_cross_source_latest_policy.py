@@ -86,8 +86,9 @@ def _current_candidate(job: Any) -> dict[str, Any]:
     return {
         "source_name": _clean(getattr(job, "name", "")),
         "source_version": _clean(
-            getattr(job, "approved_source_version", "")
+            getattr(job, "effective_source_version", "")
             or getattr(job, "ultrapack_version", "")
+            or getattr(job, "approved_source_version", "")
         ),
         "source_product_url": _clean(getattr(job, "ultrapack_url", "")),
         "source_official_url": _clean(getattr(job, "official_url", "")),
@@ -304,24 +305,32 @@ def _select_latest_source(self: UpdatePreparationService, job: Any) -> None:
     best_origin = _clean(best.get("origin")) or _source_name(best_url)
 
     previous_url = _clean(getattr(job, "ultrapack_url", ""))
-    previous_version = _clean(
-        getattr(job, "approved_source_version", "")
+    approved_snapshot = _clean(getattr(job, "approved_source_version", ""))
+    previous_live = _clean(
+        getattr(job, "effective_source_version", "")
         or getattr(job, "ultrapack_version", "")
+        or approved_snapshot
     )
 
     job.ultrapack_url = best_url
     job.ultrapack_version = best_version
-    job.approved_source_version = best_version
+    # IMPORTANT: approved_source_version é o snapshot auditável da comparação
+    # aprovada pelo usuário. A descoberta ao vivo pode avançar para 2.36.0, mas
+    # não deve reescrever esse snapshot (ex.: 2.35.2), pois o plano verifica a
+    # consistência entre job e preview. A versão efetiva será confirmada de novo
+    # pelo prepare base e gravada em effective_source_version.
+    job.approved_source_version = approved_snapshot
     job.effective_source_version = ""
     job.source_name = best_origin
     job.relationship = _clean(best.get("relationship_state")) or job.relationship
     if _clean(best.get("source_official_url")):
         job.official_url = _clean(best.get("source_official_url"))
 
-    if best_url != previous_url or best_version != previous_version:
+    if best_url != previous_url or best_version != previous_live:
         self.logger(
             f"🚀 Fonte escolhida automaticamente: {best_origin} {best_version} "
-            f"(alvo anterior {previous_version or '-'})."
+            f"(snapshot aprovado preservado em {approved_snapshot or '-'}; "
+            f"alvo vivo anterior {previous_live or '-'})."
         )
     else:
         self.logger(f"✅ Fonte atual já é a melhor: {best_origin} {best_version}.")
