@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
 
+from app import settings
 from app.integrations.woocommerce import pt_versao
 from app.operations.preparation import UpdatePreparationService
 from app.wordpress_manual_update import discover_catalog_candidates
@@ -91,8 +94,57 @@ def _current_candidate(job: Any) -> dict[str, Any]:
     }
 
 
+def _catalog_candidates_relaxed(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Varre todos os slots aceitando variantes seguras do mesmo nome.
+
+    O fluxo manual antigo exigia nome cru idêntico ou URL oficial idêntica. Isso
+    podia deixar de relacionar, por exemplo, ``AffiliateWP`` com
+    ``AffiliateWP WordPress Plugin``. Aqui usamos o mesmo normalizador do update
+    cruzado, mas ainda rejeitamos produtos com URL oficial conflitante.
+    """
+    product_name = _name_key(product.get("name") or getattr(job, "name", ""))
+    job_name = _name_key(getattr(job, "name", ""))
+    wanted_names = {value for value in (product_name, job_name) if value}
+    wanted_official = _official_key(getattr(job, "official_url", ""))
+    relationship = _clean(getattr(job, "relationship", ""))
+    rows: list[dict[str, Any]] = []
+
+    for path in Path(settings.DATA_DIR).glob("slots/**/catalog.csv"):
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                for raw in csv.DictReader(handle):
+                    url = _clean(raw.get("link_produto"))
+                    if not _source_name(url):
+                        continue
+                    row_name = _name_key(raw.get("nome_produto"))
+                    row_official = _official_key(raw.get("pagina_oficial"))
+                    name_match = bool(row_name and row_name in wanted_names)
+                    official_match = bool(wanted_official and row_official == wanted_official)
+                    if not name_match and not official_match:
+                        continue
+                    if wanted_official and row_official and row_official != wanted_official:
+                        continue
+                    version = _version_text(raw.get("versao_produto"))
+                    rows.append({
+                        "source_name": _clean(raw.get("nome_produto")),
+                        "source_version": version,
+                        "source_product_url": url,
+                        "source_official_url": _clean(raw.get("pagina_oficial")),
+                        "relationship_state": (
+                            "safe_auto" if official_match else
+                            relationship if relationship in _SAFE_RELATIONSHIPS else
+                            "relationship_required"
+                        ),
+                        "catalog_path": str(path),
+                    })
+        except (OSError, csv.Error, UnicodeError):
+            continue
+    return rows
+
+
 def _candidate_rows(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows = [dict(row) for row in discover_catalog_candidates(product)]
+    rows.extend(_catalog_candidates_relaxed(job, product))
     rows.append(_current_candidate(job))
 
     job_name = _name_key(getattr(job, "name", "") or product.get("name"))
@@ -111,9 +163,8 @@ def _candidate_rows(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]
         row_official = _official_key(row.get("source_official_url"))
         official_conflict = bool(job_official and row_official and job_official != row_official)
 
-        # discover_catalog_candidates já exige nome exato ou URL oficial exata.
-        # Se o job atual possui vínculo seguro, o mesmo produto em outra das duas
-        # fontes pode herdar o vínculo somente quando não há conflito oficial.
+        # Se o job atual já possui vínculo seguro, a mesma identidade nominal na
+        # outra fonte pode herdar esse vínculo somente sem conflito oficial.
         if relationship not in _SAFE_RELATIONSHIPS:
             if (
                 job_relationship in _SAFE_RELATIONSHIPS
@@ -140,7 +191,9 @@ def _candidate_rows(job: Any, product: Mapping[str, Any]) -> list[dict[str, Any]
     # máximo as duas versões catalogadas mais altas por origem.
     grouped: dict[str, list[dict[str, Any]]] = {"PluginTheme": [], "UltraPackV2": []}
     for row in by_url.values():
-        grouped[_source_name(row.get("source_product_url"))].append(row)
+        origin = _source_name(row.get("source_product_url"))
+        if origin in grouped:
+            grouped[origin].append(row)
 
     selected: list[dict[str, Any]] = []
     for origin in ("PluginTheme", "UltraPackV2"):
