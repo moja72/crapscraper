@@ -17,6 +17,7 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _SCRIPT_PATHS = (
     _STATIC_DIR / "queue_standardization_v1.js",
     _STATIC_DIR / "queue_standardization_v1_compat.js",
+    _STATIC_DIR / "queue_help_cleanup_v2.js",
 )
 
 

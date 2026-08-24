@@ -33,13 +33,25 @@ class HistoryStandardizationV2Tests(unittest.TestCase):
             script,
         )
 
-    def test_shared_visual_contract_uses_large_actions_and_same_tabs(self):
+    def test_shared_history_repairs_legacy_rerenders(self):
+        script = Path("app/static/operational_history_shared.js").read_text(encoding="utf-8")
+        self.assertIn("SHELL_VERSION", script)
+        self.assertIn("canonicalPresent", script)
+        self.assertIn("ensureMounted", script)
+        self.assertIn("MutationObserver", script)
+        self.assertIn("scheduleEnsure", script)
+        self.assertIn("window.__crapScraperOperationalHistoryShared", script)
+
+    def test_shared_visual_contract_uses_large_actions_and_tabs_without_bottom_indicator(self):
         css = Path("app/static/history_standardization_v2.css").read_text(encoding="utf-8")
         self.assertIn(".op-history-actions button", css)
         self.assertIn("min-height:40px!important", css)
         self.assertIn(".op-history-period button", css)
         self.assertIn(".op-history-tab.is-active", css)
         self.assertIn("border-radius:9px 9px 0 0!important", css)
+        self.assertIn(".op-history-tab::before", css)
+        self.assertIn("content:none!important", css)
+        self.assertIn("box-shadow:none!important", css)
 
 
 if __name__ == "__main__":
