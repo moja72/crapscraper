@@ -25,6 +25,7 @@ from app.preparation_standardization_policy import (
 from app.queue_standardization_policy import install_queue_standardization_policy
 from app.list_manager_standardization_policy import install_list_manager_standardization_policy
 from app.list_manager_visual_polish_policy import install_list_manager_visual_polish_policy
+from app.history_standardization_policy import install_history_standardization_policy
 
 
 _INSTALLED = False
@@ -104,4 +105,9 @@ def install_process_modal_stability_policy() -> None:
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
+
+    # Histórico é a última camada visual: substitui os dois históricos legados
+    # pelo mesmo componente, com filtros, período, tabs e paginação compartilhados.
+    install_history_standardization_policy()
+
     _INSTALLED = True
