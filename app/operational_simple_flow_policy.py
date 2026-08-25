@@ -274,6 +274,12 @@ def _run_batch(kind: str, job_ids: list[str], manager: Any) -> None:
 
 
 def _start_batch(kind: str, job_ids: list[str], manager: Any) -> dict[str, Any]:
+    if kind == "update" and not settings.UPDATE_EXECUTION_ENABLED:
+        raise ValueError(
+            "A execução real de atualizações está desabilitada. "
+            "Defina SCRAPER_UPDATE_EXECUTION_ENABLED=1 e reinicie o CrapScraper antes de usar Executar selecionados."
+        )
+
     with _BATCH_LOCK:
         if _BATCHES[kind].get("running"):
             label = "atualização" if kind == "update" else "adição"
