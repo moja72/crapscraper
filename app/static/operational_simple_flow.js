@@ -319,11 +319,13 @@
   function standardizeOperationalAddition(panel) {
     const execute = $("#addition_add_selected_from_prep", panel);
     if (execute) {
-      execute.textContent = "Executar selecionados";
+      if (text(execute.textContent) !== "Executar selecionados") execute.textContent = "Executar selecionados";
       execute.classList.add("cs-simple-primary");
     }
     $("#addition_prepare_selected", panel)?.classList.add("cs-simple-hidden-primary");
-    $$('[data-add-action="add"]', panel).forEach(button => { button.textContent = "Executar"; });
+    $$('[data-add-action="add"]', panel).forEach(button => {
+      if (text(button.textContent) !== "Executar") button.textContent = "Executar";
+    });
     $$('[data-add-action="prepare"]', panel).forEach(button => button.classList.add("cs-simple-hidden-primary"));
   }
 
@@ -386,7 +388,8 @@
       const nativeRun = $("[data-addition-one-click]", item);
       if (nativeRun) {
         const active = /adicionando|executando|processando/i.test(text(nativeRun.textContent));
-        nativeRun.textContent = active ? "Executando…" : "Executar";
+        const label = active ? "Executando…" : "Executar";
+        if (text(nativeRun.textContent) !== label) nativeRun.textContent = label;
         nativeRun.classList.add("cs-simple-primary");
       }
     });
