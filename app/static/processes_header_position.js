@@ -8,11 +8,6 @@
     if (window.__crapScraperProcessCreditFreezeGuardInstalled) return;
     window.__crapScraperProcessCreditFreezeGuardInstalled = true;
 
-    // O módulo de créditos observa childList no documento e também reescreve o
-    // innerHTML dos próprios contadores. Uma escrita idêntica pode disparar o
-    // observer novamente e formar um ciclo sem fim, congelando toda a interface.
-    // Esta proteção fica aqui porque este script é carregado antes do módulo de
-    // créditos e limita o no-op exclusivamente aos dois contadores conhecidos.
     const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
     if (!descriptor?.get || !descriptor?.set) return;
 
@@ -62,13 +57,9 @@
     const existingGroup = document.getElementById("cs_processes_header_group");
     if (existingGroup?.parentElement) return existingGroup.parentElement;
 
-    // O alvo canônico é o subtítulo imediatamente abaixo de CrapScraper.
-    // Não dependemos do texto exato para que pequenas mudanças de copy não
-    // façam o botão Processos voltar para perto da tab Loja.
     const canonical = document.querySelector(".page-brand-content .subtitle");
     if (canonical) return canonical;
 
-    // Compatibilidade com HTMLs antigos do painel.
     const matches = Array.from(document.body?.querySelectorAll("*") || [])
       .filter(node => !["SCRIPT", "STYLE", "BUTTON"].includes(node.tagName))
       .filter(node => normalize(node.textContent) === HEADER_TEXT);
@@ -99,7 +90,11 @@
   }
 
   function scheduleMove() {
-    [0, 60, 180, 450, 900, 1800, 2600].forEach(delay => setTimeout(moveProcessesButton, delay));
+    // Primeiro movimento é síncrono no DOMContentLoaded. Assim o cabeçalho fica
+    // correto antes de créditos/histórico iniciarem polling e antes de qualquer
+    // timer secundário do painel.
+    moveProcessesButton();
+    [60, 180, 450, 900, 1800, 2600].forEach(delay => setTimeout(moveProcessesButton, delay));
   }
 
   installCreditFreezeGuard();
