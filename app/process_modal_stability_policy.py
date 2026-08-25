@@ -28,6 +28,9 @@ from app.list_manager_visual_polish_policy import install_list_manager_visual_po
 from app.history_standardization_policy import install_history_standardization_policy
 from app.operational_simple_flow_v2_policy import install_operational_simple_flow_v2_policy
 from app.operational_simple_flow_policy import install_operational_simple_flow_policy
+from app.operational_simple_flow_recovery_policy import (
+    install_operational_simple_flow_recovery_policy,
+)
 
 
 _INSTALLED = False
@@ -113,5 +116,9 @@ def install_process_modal_stability_policy() -> None:
     # instala somente o backend /operacoes/simples/* e suas travas de segurança.
     install_operational_simple_flow_v2_policy()
     install_operational_simple_flow_policy()
+
+    # O fluxo canônico agora recupera uma única vez falhas transitórias de sessão
+    # e staging, sem repetir execução remota nem afrouxar as travas do helper.
+    install_operational_simple_flow_recovery_policy()
 
     _INSTALLED = True
