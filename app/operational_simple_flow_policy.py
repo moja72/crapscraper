@@ -123,15 +123,21 @@ def _prepare_update(job: Any, manager: Any, logger: Any) -> tuple[dict[str, Any]
     service = factory() if callable(factory) else web._build_update_preparation_service(primary, logger.log)
     preview = service.prepare(job).to_dict()
     preview["update_logs"] = logger.to_list()
-    runtime.save_preview(job.job_id, preview)
 
+    # Passa pela função exposta em web porque as policies de confiabilidade da
+    # main a envolvem para reconciliar snapshots e materializar o plano seguro.
+    preview = web.save_preview(job.job_id, preview)
     if preview.get("ready") is not True:
         raise RuntimeError("A preparação terminou sem liberar o produto para atualização.")
 
-    plan = build_execution_plan(job, preview, logger=logger.log)
-    plan["update_logs"] = logger.to_list()
-    runtime.save_plan(job.job_id, plan)
-    runtime.persist_job(job)
+    try:
+        plan = runtime.get_plan(job.job_id)
+    except (KeyError, ValueError):
+        # Fallback defensivo caso a policy de plano automático seja desativada.
+        plan = build_execution_plan(job, preview, logger=logger.log)
+        plan["update_logs"] = logger.to_list()
+        runtime.save_plan(job.job_id, plan)
+        runtime.persist_job(job)
     return preview, plan
 
 
