@@ -26,6 +26,7 @@ from app.queue_standardization_policy import install_queue_standardization_polic
 from app.list_manager_standardization_policy import install_list_manager_standardization_policy
 from app.list_manager_visual_polish_policy import install_list_manager_visual_polish_policy
 from app.history_standardization_policy import install_history_standardization_policy
+from app.operational_simple_flow_v2_policy import install_operational_simple_flow_v2_policy
 from app.operational_simple_flow_policy import install_operational_simple_flow_policy
 
 
@@ -89,31 +90,28 @@ def install_process_modal_stability_policy() -> None:
     # Resumo superior compartilhado entre Atualizar e Adicionar.
     install_operational_overview_standardization_policy()
 
-    # As duas seções Preparação usam o mesmo componente visual e operacional.
+    # As duas listas de aprovados usam o mesmo componente visual e operacional.
     install_preparation_standardization_policy()
 
-    # Fila de atualização e Fila de adições passam a usar a mesma anatomia final:
-    # gerenciamento, lista ativa, ações, cards, filtros, seleção, jobs e paginação.
+    # A infraestrutura de fila continua ativa por baixo para compatibilidade e
+    # persistência, mas a camada canônica abaixo a remove da experiência visível.
     install_queue_standardization_policy()
 
-    # O gerenciador de Listas de Adições passa a seguir o modal canônico de
-    # Atualização: modal amplo, X, cards, detalhe, busca, CSV e paginação.
+    # O gerenciador de Listas de Adições continua disponível internamente para
+    # compatibilidade dos dados existentes, sem fazer parte do fluxo principal.
     install_list_manager_standardization_policy()
-
-    # Acabamento visual final para manter largura, padding, botão X e ações no
-    # mesmo padrão do modal de listas de Atualização.
     install_list_manager_visual_polish_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
 
-    # Histórico é a última camada visual: substitui os dois históricos legados
-    # pelo mesmo componente, com filtros, período, tabs e paginação compartilhados.
+    # Histórico permanece como área final comum das duas operações.
     install_history_standardization_policy()
 
-    # A última camada operacional reduz Atualizar/Adicionar ao mesmo gesto principal:
-    # selecionar -> Executar selecionados. Preparação, plano, fila/execução e
-    # validações continuam internas e as ferramentas antigas permanecem como base.
+    # A v2 precisa ser instalada ANTES da policy v1: seu script é renderizado
+    # primeiro e marca a antiga camada visual como instalada. A policy v1 ainda
+    # instala somente o backend /operacoes/simples/* e suas travas de segurança.
+    install_operational_simple_flow_v2_policy()
     install_operational_simple_flow_policy()
 
     _INSTALLED = True
