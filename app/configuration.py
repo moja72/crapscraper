@@ -9,11 +9,15 @@ from dataclasses import dataclass
 from typing import Final, Iterable
 
 
-DEFAULT_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS: Final[frozenset[int]] = frozenset({94567})
+# O fluxo simplificado já exige que a execução global esteja explicitamente
+# habilitada e que o usuário selecione/confirme os produtos. A allowlist abaixo
+# é apenas uma restrição opcional adicional; ausência da variável significa
+# "todos os produtos", não um antigo Woo ID de homologação.
+DEFAULT_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS: Final[frozenset[int]] = frozenset()
 
 
 def parse_update_execution_allowed_product_ids(raw: str | None) -> frozenset[int]:
-    """Parseia IDs decimais positivos; configuracao ausente usa o fallback seguro."""
+    """Parseia IDs decimais positivos; configuração ausente permite todos."""
     if raw is None:
         return DEFAULT_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS
     parsed: set[int] = set()
@@ -23,8 +27,8 @@ def parse_update_execution_allowed_product_ids(raw: str | None) -> frozenset[int
             value = int(candidate)
             if value > 0:
                 parsed.add(value)
-    # Uma configuração explicitamente vazia (por exemplo ``*`` sem IDs)
-    # representa todos; o bloqueio global e as confirmações continuam obrigatórios.
+    # Configuração vazia ou ``*`` representa todos; o bloqueio global e as
+    # confirmações explícitas do fluxo continuam obrigatórios.
     return frozenset(parsed)
 
 
@@ -113,9 +117,7 @@ def prerequisite_status() -> dict[str, object]:
         "enabled": execution_enabled,
         "status": "HABILITADA" if execution_enabled else "BLOQUEADA",
         "allowed_product_ids": sorted(allowed_ids),
-        "allow_all_products": not bool(allowed_ids) and os.getenv(
-            "SCRAPER_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS", ""
-        ).strip() == "*",
+        "allow_all_products": not bool(allowed_ids),
     }
     result["remote_execution"] = {"ok": execution_enabled, "status": "HABILITADA" if execution_enabled else "BLOQUEADA"}
     result["woocommerce_write"] = {"ok": False, "status": "BLOQUEADA"}
