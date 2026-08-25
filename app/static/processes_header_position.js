@@ -4,6 +4,42 @@
   const HEADER_TEXT = "Coletar • Comparar • Atualizar • Adicionar • Loja";
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
 
+  function installCreditFreezeGuard() {
+    if (window.__crapScraperProcessCreditFreezeGuardInstalled) return;
+    window.__crapScraperProcessCreditFreezeGuardInstalled = true;
+
+    // O módulo de créditos observa childList no documento e também reescreve o
+    // innerHTML dos próprios contadores. Uma escrita idêntica pode disparar o
+    // observer novamente e formar um ciclo sem fim, congelando toda a interface.
+    // Esta proteção fica aqui porque este script é carregado antes do módulo de
+    // créditos e limita o no-op exclusivamente aos dois contadores conhecidos.
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+    if (!descriptor?.get || !descriptor?.set) return;
+
+    try {
+      Object.defineProperty(Element.prototype, "innerHTML", {
+        configurable: descriptor.configurable,
+        enumerable: descriptor.enumerable,
+        get: descriptor.get,
+        set(value) {
+          const protectedCreditNode =
+            this?.id === "cs_credit_ultrapack" ||
+            this?.id === "cs_credit_plugintheme";
+
+          if (protectedCreditNode) {
+            const next = String(value ?? "");
+            const current = descriptor.get.call(this);
+            if (current === next) return;
+          }
+
+          descriptor.set.call(this, value);
+        }
+      });
+    } catch (_error) {
+      // Falha do guard nunca pode impedir o carregamento do painel.
+    }
+  }
+
   function installStyles() {
     if (document.getElementById("cs-processes-header-position-style")) return;
     const style = document.createElement("style");
@@ -25,6 +61,14 @@
   function findHeaderTextNode() {
     const existingGroup = document.getElementById("cs_processes_header_group");
     if (existingGroup?.parentElement) return existingGroup.parentElement;
+
+    // O alvo canônico é o subtítulo imediatamente abaixo de CrapScraper.
+    // Não dependemos do texto exato para que pequenas mudanças de copy não
+    // façam o botão Processos voltar para perto da tab Loja.
+    const canonical = document.querySelector(".page-brand-content .subtitle");
+    if (canonical) return canonical;
+
+    // Compatibilidade com HTMLs antigos do painel.
     const matches = Array.from(document.body?.querySelectorAll("*") || [])
       .filter(node => !["SCRIPT", "STYLE", "BUTTON"].includes(node.tagName))
       .filter(node => normalize(node.textContent) === HEADER_TEXT);
@@ -57,6 +101,8 @@
   function scheduleMove() {
     [0, 60, 180, 450, 900, 1800, 2600].forEach(delay => setTimeout(moveProcessesButton, delay));
   }
+
+  installCreditFreezeGuard();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", scheduleMove, {once: true});

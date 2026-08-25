@@ -35,3 +35,21 @@ def test_process_observability_is_installed_at_startup() -> None:
     main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
     assert "install_process_observability_policy" in main
     assert "install_process_observability_policy()" in main
+
+
+def test_processes_header_uses_canonical_subtitle_and_credit_freeze_guard() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "static"
+        / "processes_header_position.js"
+    ).read_text(encoding="utf-8")
+
+    assert '.page-brand-content .subtitle' in script
+    assert "cs_processes_header_group" in script
+    assert "cs_download_credits" in script
+    assert "__crapScraperProcessCreditFreezeGuardInstalled" in script
+    assert 'this?.id === "cs_credit_ultrapack"' in script
+    assert 'this?.id === "cs_credit_plugintheme"' in script
+    assert "if (current === next) return;" in script
+    assert script.index("installCreditFreezeGuard();") < script.index('document.addEventListener("DOMContentLoaded"')
