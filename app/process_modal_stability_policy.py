@@ -26,6 +26,7 @@ from app.queue_standardization_policy import install_queue_standardization_polic
 from app.list_manager_standardization_policy import install_list_manager_standardization_policy
 from app.list_manager_visual_polish_policy import install_list_manager_visual_polish_policy
 from app.history_standardization_policy import install_history_standardization_policy
+from app.operational_simple_flow_policy import install_operational_simple_flow_policy
 
 
 _INSTALLED = False
@@ -109,5 +110,10 @@ def install_process_modal_stability_policy() -> None:
     # Histórico é a última camada visual: substitui os dois históricos legados
     # pelo mesmo componente, com filtros, período, tabs e paginação compartilhados.
     install_history_standardization_policy()
+
+    # A última camada operacional reduz Atualizar/Adicionar ao mesmo gesto principal:
+    # selecionar -> Executar selecionados. Preparação, plano, fila/execução e
+    # validações continuam internas e as ferramentas antigas permanecem como base.
+    install_operational_simple_flow_policy()
 
     _INSTALLED = True
