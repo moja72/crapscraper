@@ -8,7 +8,7 @@ import app.web as web
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
-_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "operational_simple_flow_v2.js"
+_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "operational_simple_flow_v3.js"
 
 
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
@@ -18,7 +18,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
         script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
     except OSError:
         return html
-    block = f"\n<script data-operational-simple-flow-v2>\n{script}\n</script>\n"
+    block = f"\n<script data-operational-simple-flow-v3>\n{script}\n</script>\n"
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
