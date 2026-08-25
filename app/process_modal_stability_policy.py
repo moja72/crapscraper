@@ -31,21 +31,34 @@ from app.operational_simple_flow_policy import install_operational_simple_flow_p
 from app.operational_simple_flow_recovery_policy import (
     install_operational_simple_flow_recovery_policy,
 )
+from app.operational_simple_flow_execution_policy import (
+    install_operational_simple_flow_execution_policy,
+)
 
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "process_modal_stability.js"
+_TECHNICAL_LOG_SCRIPT_PATH = (
+    Path(__file__).resolve().parent / "static" / "update_technical_log_fix.js"
+)
+
+
+def _script_block(path: Path, attribute: str) -> str:
+    try:
+        script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+    except OSError:
+        return ""
+    return f"\n<script {attribute}>\n{script}\n</script>\n"
 
 
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
-    except OSError:
+    block = _script_block(_SCRIPT_PATH, "data-process-modal-stability")
+    block += _script_block(_TECHNICAL_LOG_SCRIPT_PATH, "data-update-technical-log-fix")
+    if not block:
         return html
-    block = f"\n<script data-process-modal-stability>\n{script}\n</script>\n"
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
@@ -117,8 +130,12 @@ def install_process_modal_stability_policy() -> None:
     install_operational_simple_flow_v2_policy()
     install_operational_simple_flow_policy()
 
-    # O fluxo canônico agora recupera uma única vez falhas transitórias de sessão
-    # e staging, sem repetir execução remota nem afrouxar as travas do helper.
+    # O fluxo canônico recupera uma única vez falhas transitórias de sessão e
+    # staging, sem repetir execução remota nem afrouxar as travas do helper.
     install_operational_simple_flow_recovery_policy()
+
+    # A camada final preserva todas as travas e, se alguma pré-condição bloquear,
+    # informa exatamente qual predicado falhou em vez da mensagem genérica.
+    install_operational_simple_flow_execution_policy()
 
     _INSTALLED = True
