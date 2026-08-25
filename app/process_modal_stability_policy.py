@@ -42,6 +42,16 @@ _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "process_modal_stabi
 _TECHNICAL_LOG_SCRIPT_PATH = (
     Path(__file__).resolve().parent / "static" / "update_technical_log_fix.js"
 )
+_PROCESS_HISTORY_OBSERVER_BOOT = (
+    "    decorateModal();\n"
+    "    observeUi();\n"
+    "    window.setTimeout(pollCredits, 900);"
+)
+_PROCESS_HISTORY_SAFE_BOOT = (
+    "    decorateModal();\n"
+    "    // Sem MutationObserver global: o polling leve abaixo mantém créditos e histórico atualizados.\n"
+    "    window.setTimeout(pollCredits, 900);"
+)
 
 
 def _script_block(path: Path, attribute: str) -> str:
@@ -55,6 +65,14 @@ def _script_block(path: Path, attribute: str) -> str:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
+
+    # process_history_credits.js já possui polling periódico suficiente para
+    # manter créditos e histórico sincronizados. O MutationObserver global sobre
+    # document.documentElement reage às próprias mutações do painel e, em algumas
+    # combinações de scripts, pode formar um ciclo de microtasks que impede até os
+    # timers e cliques de rodarem. Removemos apenas a ativação desse observer.
+    html = html.replace(_PROCESS_HISTORY_OBSERVER_BOOT, _PROCESS_HISTORY_SAFE_BOOT)
+
     block = _script_block(_SCRIPT_PATH, "data-process-modal-stability")
     block += _script_block(_TECHNICAL_LOG_SCRIPT_PATH, "data-update-technical-log-fix")
     if not block:
