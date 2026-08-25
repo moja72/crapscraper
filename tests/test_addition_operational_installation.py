@@ -11,6 +11,9 @@ def test_operational_installation_contract():
     assert "data-addition-one-click" in suppression
     assert "install_addition_operational_performance_policy()" in suppression
     assert "install_addition_processes_bridge_policy()" in suppression
+    assert "install_addition_tab_diagnostics_policy" not in suppression
+    assert not Path("app/addition_tab_diagnostics_policy.py").exists()
+    assert not Path("app/static/addition_tab_diagnostics.js").exists()
 
 
 def test_performance_policy_uses_short_read_cache_and_sync_deduplication():
