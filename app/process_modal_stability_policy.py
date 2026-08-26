@@ -35,6 +35,7 @@ from app.operational_simple_flow_execution_policy import (
     install_operational_simple_flow_execution_policy,
 )
 from app.update_history_retry_policy import install_update_history_retry_policy
+from app.update_recoverability_policy import install_update_recoverability_policy
 from app.startup_fast_path_policy import install_startup_fast_path_policy
 from app.startup_remote_io_guard_policy import install_startup_remote_io_guard_policy
 
@@ -79,7 +80,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
 
     # Defesa para checkouts que ainda carreguem uma versão antiga do bridge de
     # Processos: nenhum MutationObserver global nem consulta autenticada de
-    # créditos deve ser iniciada durante a abertura do painel.
+    # créditos deve ser iniciado durante a abertura do painel.
     html = html.replace(_PROCESS_HISTORY_OBSERVER_BOOT, _PROCESS_HISTORY_SAFE_BOOT)
 
     block = _script_block(_SCRIPT_PATH, "data-process-modal-stability")
@@ -171,8 +172,13 @@ def install_process_modal_stability_policy() -> None:
 
     # Abertura do painel: não releia catálogos/logs de todos os runs antes do
     # socket HTTP existir. A hidratação do contexto ativo ocorre em background.
-    # Instalada por último para também neutralizar probes remotos adicionados por
-    # wrappers visuais anteriores.
     install_startup_fast_path_policy()
+
+    # Camada final do fluxo Atualizar: ao testar novamente, descarta preview/plano
+    # obsoletos, revalida a fonte ao vivo, reaproveita staging só por SHA+versão,
+    # permite reconstruir ZIP de produção ausente e corrige metadados antigos sem
+    # afrouxar a regra de nunca instalar uma versão menor que a do PluginTema.
+    # Também consolida os logs e estabiliza a UI de retry/log técnico.
+    install_update_recoverability_policy()
 
     _INSTALLED = True
