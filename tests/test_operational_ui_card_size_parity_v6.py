@@ -61,9 +61,7 @@ def test_size_layer_does_not_add_polling_fetch_or_observers() -> None:
     assert "fetch(" not in source
 
 
-def test_size_layer_loads_after_v5_behavior_layer() -> None:
+def test_size_layer_loads_without_removed_v5_behavior_layer() -> None:
     source = _read(PANEL_POLICY)
-    v5 = 'data-operational-ui-card-parity-v5'
-    v6 = 'data-operational-ui-card-size-parity-v6'
-    assert v5 in source and v6 in source
-    assert source.index(v5) < source.index(v6)
+    assert "data-operational-ui-card-parity-v5" not in source
+    assert "data-operational-ui-card-size-parity-v6" in source
