@@ -12,7 +12,6 @@ _SCRIPT_PATHS = (
     ("data-operational-ui-parity", Path(__file__).resolve().parent / "static" / "operational_ui_parity.js"),
     ("data-operational-ui-final-alignment", Path(__file__).resolve().parent / "static" / "operational_ui_final_alignment.js"),
     ("data-operational-ui-consistency-v4", Path(__file__).resolve().parent / "static" / "operational_ui_consistency_v4.js"),
-    ("data-operational-ui-card-parity-v5", Path(__file__).resolve().parent / "static" / "operational_ui_card_parity_v5.js"),
     ("data-operational-ui-card-size-parity-v6", Path(__file__).resolve().parent / "static" / "operational_ui_card_size_parity_v6.js"),
     ("data-operation-completion-visibility", Path(__file__).resolve().parent / "static" / "operation_completion_visibility.js"),
     ("data-preparation-sections-canonical-v8", Path(__file__).resolve().parent / "static" / "preparation_sections_canonical_v8.js"),
