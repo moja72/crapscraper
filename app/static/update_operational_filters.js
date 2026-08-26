@@ -48,6 +48,30 @@
     }),
   });
 
+  const ADDITION_HELP = Object.freeze({
+    "Total aprovado": "Quantidade total de produtos aprovados na comparação e disponíveis para o fluxo de adições.",
+    Aguardando: "Itens aguardando início da preparação.",
+    Preparando: "Itens que estão tendo conteúdo, imagem, categoria, preços ou ZIP preparados.",
+    Pronto: "Itens já preparados e liberados para entrar na fila de execução.",
+    "Na fila": "Itens posicionados na fila de adições, aguardando processamento.",
+    "Em execução": "Itens atualmente sendo processados no fluxo de adição.",
+    Concluído: "Itens finalizados com sucesso no WooCommerce.",
+    "Com erro": "Itens cuja execução terminou com erro e pode exigir revisão.",
+    Cancelado: "Itens removidos ou cancelados antes da conclusão.",
+  });
+
+  const FIELD_HELP = Object.freeze({
+    updates_queue_search: "Filtra a fila pelo nome do produto ou pelo ID do WooCommerce.",
+    updates_queue_status_filter: "Filtro técnico por um estado individual. Os cards usam grupos próprios.",
+    updates_queue_page_size: "Define quantos itens são exibidos em cada página.",
+  });
+
+  const ACTION_HELP = Object.freeze({
+    updates_queue_start: "Inicia ou continua o processamento sequencial da lista ativa.",
+    updates_queue_pause: "Pausa a fila após a etapa segura atual, preservando o progresso.",
+    updates_queue_cancel: "Cancela somente os itens pendentes que ainda não começaram.",
+  });
+
   const VIEW = {
     activeGroup: "total",
     page: 1,
@@ -72,6 +96,17 @@
       #updates_summary .comparison-help{flex:0 0 24px!important;width:24px!important;min-width:24px!important;height:24px!important;min-height:24px!important;font-size:11px!important}
       #updates_queue_meta .cs-update-stage1-context{display:inline-flex;align-items:center;gap:5px;margin-left:7px;padding:3px 7px;border:1px solid var(--line);border-radius:999px;color:var(--text-muted);font-size:10px;font-weight:800}
       .cs-stage1-local-zip{display:inline-flex;margin-left:7px;padding:3px 7px;border:1px solid rgba(16,185,129,.38);border-radius:999px;background:rgba(16,185,129,.09);color:#8ce0bf;font-size:10px;font-weight:800}
+      #addition_intro_card,#tab_panel_atualizacoes .updates-queue-section{overflow:visible!important}
+      #addition_summary_grid.operational-summary-grid{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important;margin:12px 0 10px!important}
+      #addition_summary_grid .addition-summary-chip{position:relative!important;overflow:visible!important}
+      .operational-summary-footer{display:flex!important;align-items:center!important;gap:6px!important;color:var(--text-muted)!important}
+      .operational-summary-label{color:var(--text-muted)!important;font-size:12px!important;font-weight:600!important}
+      .operational-summary-help,.operational-field-help,.operational-action-help{flex:0 0 24px!important;width:24px!important;min-width:24px!important;height:24px!important;min-height:24px!important;font-size:11px!important}
+      #tab_panel_atualizacoes .updates-queue-actions.operational-action-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;width:100%!important;margin:12px 0!important}
+      #tab_panel_atualizacoes .operational-action-control{display:grid!important;grid-template-columns:minmax(0,1fr) 28px!important;gap:6px!important;align-items:center!important;min-width:0!important}
+      #tab_panel_atualizacoes .operational-action-control>button:not(.comparison-help){width:100%!important;min-width:0!important;min-height:46px!important}
+      #updates_queue_list_controls.operational-queue-controls{display:grid!important;align-content:start!important;gap:10px!important;margin-top:12px!important;padding:12px!important}
+      .operational-field-label-row{display:inline-flex!important;align-items:center!important;gap:6px!important;width:max-content!important;max-width:100%!important;color:var(--text-muted)!important;font-size:11px!important;font-weight:700!important}
       @media(max-width:1180px){#updates_summary.cs-update-stage1-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
       @media(max-width:760px){#updates_summary.cs-update-stage1-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
       @media(max-width:480px){#updates_summary.cs-update-stage1-summary{grid-template-columns:1fr!important}}
@@ -138,6 +173,83 @@
     $$(".comparison-help", summary).forEach(button => button.addEventListener("click", event => {
       event.preventDefault(); event.stopPropagation();
     }));
+  }
+
+  function helpMarkup(label, tooltip, cls = "operational-summary-help") {
+    return `<span class="comparison-help ${cls}" aria-label="Ajuda sobre ${esc(label)}" data-tooltip="${esc(tooltip)}">?</span>`;
+  }
+
+  function decorateField(controlId) {
+    const control = $(`#${controlId}`);
+    const label = control?.closest("label");
+    const tooltip = FIELD_HELP[controlId];
+    if (!control || !label || !tooltip || label.dataset.operationalHelpBound === "1") return;
+    label.dataset.operationalHelpBound = "1";
+    const labelText = text(Array.from(label.childNodes).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join(" "));
+    Array.from(label.childNodes).forEach(node => { if (node.nodeType === Node.TEXT_NODE) node.remove(); });
+    const row = document.createElement("span");
+    row.className = "operational-field-label-row";
+    const copy = document.createElement("span");
+    copy.textContent = labelText || (controlId === "updates_queue_search" ? "Buscar na fila" : controlId === "updates_queue_status_filter" ? "Estado" : "Itens por página");
+    row.appendChild(copy);
+    row.insertAdjacentHTML("beforeend", helpMarkup(copy.textContent, tooltip, "operational-field-help"));
+    label.insertBefore(row, control);
+  }
+
+  function decorateUpdateActions() {
+    const root = $("#tab_panel_atualizacoes .updates-queue-actions");
+    if (!root) return;
+    root.classList.add("operational-action-grid");
+    Object.entries(ACTION_HELP).forEach(([id, tooltip]) => {
+      const button = $(`#${id}`, root);
+      if (!button || button.closest(".operational-action-control")) return;
+      const wrapper = document.createElement("div");
+      wrapper.className = "operational-action-control";
+      button.insertAdjacentElement("beforebegin", wrapper);
+      wrapper.appendChild(button);
+      wrapper.insertAdjacentHTML("beforeend", helpMarkup(text(button.textContent), tooltip, "operational-action-help"));
+    });
+  }
+
+  function decorateQueueControls() {
+    const controls = $("#updates_queue_list_controls");
+    if (!controls) return;
+    controls.classList.add("operational-queue-controls");
+    decorateField("updates_queue_search");
+    decorateField("updates_queue_status_filter");
+    decorateField("updates_queue_page_size");
+  }
+
+  function additionCardLabel(card) {
+    return text($(".operational-summary-label", card)?.textContent || $(":scope > span", card)?.textContent || "");
+  }
+
+  function decorateAdditionCard(card) {
+    if (!card || card.dataset.operationalMetricDecorated === "1") return;
+    const label = additionCardLabel(card);
+    const original = $(":scope > span", card);
+    if (!label || !original) return;
+    card.dataset.operationalMetricDecorated = "1";
+    original.className = "operational-summary-label";
+    const footer = document.createElement("span");
+    footer.className = "operational-summary-footer";
+    footer.appendChild(original);
+    footer.insertAdjacentHTML("beforeend", helpMarkup(label, ADDITION_HELP[label] || "Informação sobre este estado das adições."));
+    card.appendChild(footer);
+    $(".comparison-help", footer)?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
+  }
+
+  function decorateAdditionSummary() {
+    const root = $("#addition_summary_grid");
+    if (!root) return;
+    root.classList.add("operational-summary-grid");
+    $$(".addition-summary-chip", root).forEach(decorateAdditionCard);
+    const current = text($("#addition_queue_state")?.value);
+    $$(".addition-summary-chip", root).forEach(card => {
+      const label = additionCardLabel(card);
+      const state = text(card.dataset.summaryState);
+      card.classList.toggle("is-filter-active", state ? state === current : label === "Total aprovado" && !current);
+    });
   }
 
   function stateLabel(state) {
@@ -220,6 +332,8 @@
     VIEW.refreshing = true;
     try {
       improveSelects();
+      decorateUpdateActions();
+      decorateQueueControls();
       const data = await loadRuntime();
       VIEW.runtime = data;
       renderSummary(data);
@@ -262,6 +376,8 @@
       } else if (event.target?.id === "updates_queue_select") {
         VIEW.page = 1;
         schedule([80, 300]);
+      } else if (event.target?.id === "addition_queue_state") {
+        decorateAdditionSummary();
       }
     }, true);
 
@@ -286,9 +402,11 @@
     }, true);
 
     $("#tab_btn_atualizacoes")?.addEventListener("click", () => schedule([0, 100, 400]));
+    $("#tab_btn_adicoes")?.addEventListener("click", () => window.setTimeout(decorateAdditionSummary, 80));
     document.addEventListener("crapscraper:main-tab-changed", event => {
       const key = String(event?.detail?.key || document.body?.dataset?.activeTab || "");
       if (key === "atualizacoes") schedule([0, 100, 400]);
+      if (key === "adicoes") window.setTimeout(decorateAdditionSummary, 80);
     });
   }
 
@@ -303,6 +421,9 @@
   function start() {
     installStyles();
     improveSelects();
+    decorateUpdateActions();
+    decorateQueueControls();
+    decorateAdditionSummary();
     observeNativeRenders();
     bindControls();
     exposeContract();
