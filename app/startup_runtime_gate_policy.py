@@ -13,6 +13,7 @@ _BASE_SERVER: Any = None
 _BLOCKED_POST_PREFIXES = ("/atualizacoes/",)
 _BLOCKED_POST_EXACT = {
     "/operacoes/simples/atualizar",
+    "/operacoes/simples/retry-update",
     "/operacoes/historico/apagar",
     "/loja/wordpress-manual/control",
 }
