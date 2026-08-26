@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +16,19 @@ _BASE_MATERIALIZE: Callable[..., list[dict[str, Any]]] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "active_processes.js"
 _HEADER_POSITION_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "processes_header_position.js"
 _STATE_SYNC_SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_state_sync.js"
+_BRAND_IMAGE_PATH = Path(__file__).resolve().parent / "static" / "CrapScraper.webp"
+_BRAND_TITLE_ROW_RE = re.compile(
+    r'<div class="page-brand-title-row">\s*<h1>.*?</h1>\s*'
+    r'<img class="page-brand-title-image"[^>]*>\s*</div>',
+    re.I | re.S,
+)
+_BRAND_STYLE = """
+<style data-crapscraper-brand-image>
+.page-brand-logo-row{display:flex;align-items:center;min-height:54px}
+.page-brand-logo{display:block;width:auto;height:54px;max-width:min(430px,72vw);object-fit:contain;object-position:left center}
+@media(max-width:700px){.page-brand-logo-row{min-height:44px}.page-brand-logo{height:44px;max-width:72vw}}
+</style>
+"""
 _SUCCESS_RESULTS = frozenset({"completed", "already_current"})
 _SUCCESS_STEPS = frozenset({"pt_versao_updated", "already_current"})
 
@@ -119,9 +134,32 @@ def _script_block(path: Path, attribute: str) -> str:
     return f"\n<script {attribute}>\n{script}\n</script>\n"
 
 
+def _apply_header_brand_image(html: str) -> str:
+    """Troca somente o título visual pelo CrapScraper.webp local, sem criar nova rota HTTP."""
+    try:
+        raw = _BRAND_IMAGE_PATH.read_bytes()
+    except OSError:
+        return html
+    if not raw:
+        return html
+
+    data_uri = "data:image/webp;base64," + base64.b64encode(raw).decode("ascii")
+    replacement = (
+        '<div class="page-brand-title-row page-brand-logo-row">'
+        f'<img class="page-brand-logo" src="{data_uri}" alt="CrapScraper">'
+        "</div>"
+    )
+    updated, count = _BRAND_TITLE_ROW_RE.subn(replacement, html, count=1)
+    if not count:
+        return html
+    if "data-crapscraper-brand-image" not in updated:
+        updated = updated.replace("</head>", _BRAND_STYLE + "\n</head>", 1)
+    return updated
+
+
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
-    html = base(*args, **kwargs)
+    html = _apply_header_brand_image(base(*args, **kwargs))
     block = (
         _script_block(_SCRIPT_PATH, "data-active-processes")
         + _script_block(_HEADER_POSITION_SCRIPT_PATH, "data-processes-header-position")
