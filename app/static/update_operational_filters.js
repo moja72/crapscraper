@@ -1,65 +1,51 @@
 (() => {
   "use strict";
 
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
+  const esc = value => String(value ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  const int = (value, fallback = 0) => {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
   const STATE_OPTIONS = [
-    ["", "Todos"],
-    ["approved", "Aprovado"],
-    ["validating", "Validando"],
-    ["downloading", "Baixando"],
-    ["staging", "Preparando staging"],
-    ["prepared", "Preparado"],
-    ["planned", "Planejado"],
-    ["plan_ready", "Plano pronto"],
-    ["queued", "Aguardando execução"],
-    ["executing", "Executando"],
-    ["installing", "Instalando"],
-    ["filesystem_validated", "Sistema de arquivos validado"],
-    ["updating_wordpress", "Atualizando WordPress"],
-    ["validating_wordpress", "Validando WordPress"],
-    ["validated", "Validado"],
-    ["dry_run_ready", "Simulação pronta"],
-    ["completed", "Concluído"],
-    ["blocked", "Bloqueado"],
-    ["error", "Erro"],
-    ["failed", "Falhou"],
-    ["interrupted", "Interrompido"],
-    ["canceled", "Cancelado"],
-    ["rollback_required", "Rollback necessário"],
-    ["rolling_back", "Rollback em andamento"],
-    ["rolled_back", "Rollback concluído"],
+    ["", "Todos"], ["approved", "Aprovado"], ["validating", "Validando"],
+    ["downloading", "Baixando"], ["staging", "Preparando staging"],
+    ["prepared", "Preparado"], ["planned", "Planejado"], ["plan_ready", "Plano pronto"],
+    ["queued", "Aguardando execução"], ["executing", "Executando"], ["installing", "Instalando"],
+    ["filesystem_validated", "Sistema de arquivos validado"], ["updating_wordpress", "Atualizando WordPress"],
+    ["validating_wordpress", "Validando WordPress"], ["validated", "Validado"],
+    ["dry_run_ready", "Simulação pronta"], ["completed", "Concluído"], ["blocked", "Bloqueado"],
+    ["error", "Erro"], ["failed", "Falhou"], ["interrupted", "Interrompido"],
+    ["canceled", "Cancelado"], ["rollback_required", "Rollback necessário"],
+    ["rolling_back", "Rollback em andamento"], ["rolled_back", "Rollback concluído"],
   ];
 
   const PREPARATION_OPTIONS = [
-    ["", "Todos"],
-    ["approved", "Aprovado"],
-    ["validating", "Validando"],
-    ["downloading", "Baixando"],
-    ["staging", "Preparando staging"],
-    ["prepared", "Preparado"],
-    ["planned", "Planejado"],
-    ["plan_ready", "Plano pronto"],
-    ["blocked", "Bloqueado"],
+    ["", "Todos"], ["approved", "Aprovado"], ["validating", "Validando"],
+    ["downloading", "Baixando"], ["staging", "Preparando staging"], ["prepared", "Preparado"],
+    ["planned", "Planejado"], ["plan_ready", "Plano pronto"], ["blocked", "Bloqueado"],
   ];
 
-  const TERMINAL_ERROR = new Set(["blocked", "error", "failed", "interrupted", "rollback_required"]);
-  const PREPARATION = new Set(["approved", "validating", "downloading", "staging", "prepared", "planned"]);
-  const EXECUTION = new Set([
-    "executing", "installing", "filesystem_validated", "updating_wordpress",
-    "validating_wordpress", "validated", "dry_run_ready", "rolling_back"
-  ]);
-
-  const UPDATE_HELP = Object.freeze({
-    Total: "Quantidade total de itens pertencentes à lista de atualização ativa.",
-    Concluídos: "Itens da lista ativa cuja atualização foi concluída com sucesso.",
-    Aprovados: "Itens aprovados que ainda precisam avançar pelo fluxo de preparação ou execução.",
-    Validando: "Itens que estão passando pelas validações necessárias antes da atualização.",
-    "Plano pronto": "Itens já preparados, com plano de atualização pronto para seguir para a fila.",
-    "Na fila": "Itens aguardando execução sequencial na fila de atualização.",
-    Executando: "Itens atualmente em execução. Clique no card para filtrar este estado.",
-    Bloqueados: "Itens impedidos de avançar porque alguma validação ou requisito bloqueou a execução.",
-    Erros: "Itens encerrados com erro ou falha e que exigem revisão.",
-    "Rollback necessário": "Itens que precisam de rollback antes de poderem ser considerados concluídos.",
-    "ZIP local registrado": "Itens que possuem ZIP de staging e SHA-256 registrados localmente para possível reaproveitamento após revalidação.",
+  // Contrato público da Etapa 1. A mesma definição alimenta contagem e listagem.
+  const UPDATE_GROUPS = Object.freeze({
+    total: Object.freeze({label: "Total", states: null, help: "Todos os produtos da lista de atualização ativa."}),
+    prepared: Object.freeze({label: "Preparados", states: Object.freeze(["plan_ready"]), help: "Produtos realmente liberados para execução: plano pronto."}),
+    running: Object.freeze({
+      label: "Em andamento",
+      states: Object.freeze(["executing", "installing", "filesystem_validated", "updating_wordpress", "validating_wordpress", "validated", "dry_run_ready", "rolling_back"]),
+      help: "Produtos que já entraram na execução e ainda não chegaram a um estado terminal.",
+    }),
+    completed: Object.freeze({label: "Concluídos", states: Object.freeze(["completed"]), help: "Atualizações concluídas com sucesso."}),
+    errors: Object.freeze({
+      label: "Erros",
+      states: Object.freeze(["blocked", "error", "failed", "interrupted", "rollback_required"]),
+      help: "Itens bloqueados, com erro, falha, interrupção ou rollback necessário.",
+    }),
   });
 
   const ADDITION_HELP = Object.freeze({
@@ -70,168 +56,60 @@
     "Na fila": "Itens posicionados na fila de adições, aguardando processamento.",
     "Em execução": "Itens atualmente sendo processados no fluxo de adição.",
     Concluído: "Itens finalizados com sucesso no WooCommerce.",
-    "Com erro": "Itens cuja execução terminou com erro e podem exigir revisão.",
+    "Com erro": "Itens cuja execução terminou com erro e pode exigir revisão.",
     Cancelado: "Itens removidos ou cancelados antes da conclusão.",
   });
 
   const FIELD_HELP = Object.freeze({
     updates_queue_search: "Filtra a fila pelo nome do produto ou pelo ID do WooCommerce.",
-    updates_queue_status_filter: "Mostra somente os itens no estado escolhido. Clicar nos cards de status acima também altera este filtro.",
-    updates_queue_page_size: "Define quantos itens da fila são exibidos em cada página.",
+    updates_queue_status_filter: "Filtro técnico por um estado individual. Os cards usam grupos próprios.",
+    updates_queue_page_size: "Define quantos itens são exibidos em cada página.",
   });
 
   const ACTION_HELP = Object.freeze({
     updates_queue_start: "Inicia ou continua o processamento sequencial da lista ativa.",
-    updates_queue_pause: "Pausa a fila após a etapa segura atual, preservando o progresso para continuação.",
-    updates_queue_cancel: "Cancela somente os itens pendentes que ainda não começaram a execução.",
+    updates_queue_pause: "Pausa a fila após a etapa segura atual, preservando o progresso.",
+    updates_queue_cancel: "Cancela somente os itens pendentes que ainda não começaram.",
   });
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-  const text = value => String(value ?? "").replace(/\s+/g, " ").trim();
-  const esc = value => String(value ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  const VIEW = {
+    activeGroup: "total",
+    page: 1,
+    runtime: null,
+    refreshing: false,
+    timers: [],
+    summaryObserver: null,
+    rowsObserver: null,
+  };
 
   function installStyles() {
-    if ($("#cs-update-operational-filter-style")) return;
+    if ($("#cs-update-stage1-style")) return;
     const style = document.createElement("style");
-    style.id = "cs-update-operational-filter-style";
+    style.id = "cs-update-stage1-style";
     style.textContent = `
-      #addition_intro_card,
-      #tab_panel_atualizacoes .updates-queue-section{overflow:visible!important}
-
-      .cs-update-operational-summary,
-      #addition_summary_grid.operational-summary-grid{
-        display:grid!important;
-        gap:8px!important;
-        margin:12px 0 10px!important;
-        padding:0!important;
-        border:0!important;
-        background:transparent!important;
-      }
-      .cs-update-operational-summary{grid-template-columns:repeat(6,minmax(0,1fr))!important}
-      #addition_summary_grid.operational-summary-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-
-      .cs-update-operational-chip,
-      #addition_summary_grid .addition-summary-chip{
-        position:relative!important;
-        display:flex!important;
-        flex-direction:column!important;
-        justify-content:center!important;
-        align-items:stretch!important;
-        gap:5px!important;
-        width:100%!important;
-        min-width:0!important;
-        min-height:82px!important;
-        padding:12px!important;
-        border:1px solid var(--line)!important;
-        border-radius:10px!important;
-        background:rgba(255,255,255,.025)!important;
-        color:var(--text)!important;
-        text-align:left!important;
-        font:inherit!important;
-        box-shadow:none!important;
-        transform:none!important;
-        overflow:visible!important;
-      }
-      button.cs-update-operational-chip,
-      #addition_summary_grid button.addition-summary-chip,
-      #addition_summary_grid .addition-summary-chip[role="button"]{cursor:pointer!important}
-      button.cs-update-operational-chip:hover,
-      .cs-update-operational-chip[role="button"]:hover,
-      #addition_summary_grid button.addition-summary-chip:hover,
-      #addition_summary_grid .addition-summary-chip[role="button"]:hover{
-        border-color:var(--line-accent)!important;
-        background:var(--accent-soft)!important;
-      }
-      .cs-update-operational-chip.is-filter-active,
-      #addition_summary_grid .addition-summary-chip.is-filter-active{
-        border-color:rgba(124,58,237,.72)!important;
-        background:rgba(124,58,237,.13)!important;
-        box-shadow:inset 0 0 0 1px rgba(124,58,237,.16)!important;
-      }
-      .cs-update-operational-chip>strong,
-      #addition_summary_grid .addition-summary-chip>strong{
-        display:block!important;
-        margin:0!important;
-        color:var(--text)!important;
-        font-size:20px!important;
-        font-weight:800!important;
-        line-height:1!important;
-        font-variant-numeric:tabular-nums;
-      }
-      .operational-summary-footer{
-        display:flex!important;
-        align-items:center!important;
-        justify-content:flex-start!important;
-        gap:6px!important;
-        min-width:0;
-        margin-top:3px!important;
-        color:var(--text-muted)!important;
-      }
-      .operational-summary-label{
-        min-width:0;
-        color:var(--text-muted)!important;
-        font-size:12px!important;
-        font-weight:600!important;
-        line-height:1.25!important;
-        overflow-wrap:anywhere;
-      }
-      .operational-summary-help,.operational-field-help,.operational-action-help{
-        flex:0 0 24px!important;width:24px!important;min-width:24px!important;max-width:24px!important;
-        height:24px!important;min-height:24px!important;max-height:24px!important;font-size:11px!important;z-index:80
-      }
-      .cs-update-operational-chip:has(.operational-summary-help:hover),
-      #addition_summary_grid .addition-summary-chip:has(.operational-summary-help:hover){z-index:90}
-      .cs-update-operational-guidance{
-        grid-column:1/-1!important;margin:0!important;padding:9px 11px!important;
-        border:1px solid var(--line)!important;border-radius:10px!important;
-        background:rgba(255,255,255,.018)!important;color:var(--text-muted)!important;
-        font-size:11px!important;line-height:1.45!important
-      }
-
-      #tab_panel_atualizacoes .updates-queue-actions.operational-action-grid{
-        display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
-        gap:8px!important;width:100%!important;margin:12px 0!important
-      }
-      #tab_panel_atualizacoes .operational-action-control{
-        display:grid;grid-template-columns:minmax(0,1fr) 28px;gap:6px;align-items:center;min-width:0
-      }
-      #tab_panel_atualizacoes .operational-action-control>button:not(.comparison-help){
-        width:100%!important;min-width:0!important;min-height:46px!important
-      }
-
-      #updates_queue_list_controls.operational-queue-controls{
-        display:grid!important;align-content:start!important;gap:10px!important;
-        margin-top:12px!important;padding:12px!important
-      }
-      #updates_queue_list_controls.operational-queue-controls .updates-list-controls,
-      #updates_queue_list_controls.operational-queue-controls .cs-op-filterbar{
-        grid-template-columns:minmax(280px,1.45fr) minmax(220px,.7fr)!important;
-        gap:10px!important;margin:0!important
-      }
-      #updates_queue_list_controls.operational-queue-controls .cs-op-list-meta[data-cs-update-queue-meta]{
-        min-height:30px!important;margin:0!important;padding:0 2px!important
-      }
-      #updates_queue_list_controls.operational-queue-controls .listing-pagination,
-      #updates_queue_list_controls.operational-queue-controls .cs-op-pagination{margin:0!important}
-      .operational-field-label-row{display:inline-flex;align-items:center;gap:6px;width:max-content;max-width:100%;color:var(--text-muted);font-size:11px;font-weight:700;line-height:1.2}
-      #updates_queue_list_controls .cs-op-inline-page-size .operational-field-label-row{margin-right:2px}
-
-      .cs-zip-local-badge{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:3px 7px;border:1px solid rgba(16,185,129,.38);border-radius:999px;background:rgba(16,185,129,.09);color:#8ce0bf;font-size:10px;font-weight:800;vertical-align:middle}
-
-      @media(max-width:1180px){
-        .cs-update-operational-summary{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-        #addition_summary_grid.operational-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-      }
-      @media(max-width:760px){
-        #tab_panel_atualizacoes .updates-queue-actions.operational-action-grid{grid-template-columns:1fr!important}
-        #updates_queue_list_controls.operational-queue-controls .updates-list-controls,
-        #updates_queue_list_controls.operational-queue-controls .cs-op-filterbar{grid-template-columns:1fr!important}
-        .cs-update-operational-summary,#addition_summary_grid.operational-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-      }
-      @media(max-width:480px){.cs-update-operational-summary,#addition_summary_grid.operational-summary-grid{grid-template-columns:1fr!important}}
+      #cs_update_operational_summary{display:none!important}
+      #updates_summary.cs-update-stage1-summary{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important;margin:12px 0 10px!important;padding:0!important;border:0!important;background:transparent!important}
+      #updates_summary .cs-update-stage1-card{display:flex!important;flex-direction:column!important;align-items:stretch!important;justify-content:center!important;gap:5px!important;min-width:0!important;min-height:82px!important;padding:12px!important;border:1px solid var(--line)!important;border-radius:10px!important;background:rgba(255,255,255,.025)!important;color:var(--text)!important;text-align:left!important;font:inherit!important;box-shadow:none!important;transform:none!important;cursor:pointer!important}
+      #updates_summary .cs-update-stage1-card:hover,#updates_summary .cs-update-stage1-card.is-active{border-color:rgba(124,58,237,.72)!important;background:rgba(124,58,237,.13)!important}
+      #updates_summary .cs-update-stage1-card>strong{font-size:20px!important;font-weight:800!important;line-height:1!important}
+      #updates_summary .cs-update-stage1-footer{display:flex!important;align-items:center!important;gap:6px!important;color:var(--text-muted)!important;font-size:12px!important;font-weight:600!important}
+      #updates_summary .comparison-help{flex:0 0 24px!important;width:24px!important;min-width:24px!important;height:24px!important;min-height:24px!important;font-size:11px!important}
+      #updates_queue_meta .cs-update-stage1-context{display:inline-flex;align-items:center;gap:5px;margin-left:7px;padding:3px 7px;border:1px solid var(--line);border-radius:999px;color:var(--text-muted);font-size:10px;font-weight:800}
+      .cs-stage1-local-zip{display:inline-flex;margin-left:7px;padding:3px 7px;border:1px solid rgba(16,185,129,.38);border-radius:999px;background:rgba(16,185,129,.09);color:#8ce0bf;font-size:10px;font-weight:800}
+      #addition_intro_card,#tab_panel_atualizacoes .updates-queue-section{overflow:visible!important}
+      #addition_summary_grid.operational-summary-grid{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important;margin:12px 0 10px!important}
+      #addition_summary_grid .addition-summary-chip{position:relative!important;overflow:visible!important}
+      .operational-summary-footer{display:flex!important;align-items:center!important;gap:6px!important;color:var(--text-muted)!important}
+      .operational-summary-label{color:var(--text-muted)!important;font-size:12px!important;font-weight:600!important}
+      .operational-summary-help,.operational-field-help,.operational-action-help{flex:0 0 24px!important;width:24px!important;min-width:24px!important;height:24px!important;min-height:24px!important;font-size:11px!important}
+      #tab_panel_atualizacoes .updates-queue-actions.operational-action-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;width:100%!important;margin:12px 0!important}
+      #tab_panel_atualizacoes .operational-action-control{display:grid!important;grid-template-columns:minmax(0,1fr) 28px!important;gap:6px!important;align-items:center!important;min-width:0!important}
+      #tab_panel_atualizacoes .operational-action-control>button:not(.comparison-help){width:100%!important;min-width:0!important;min-height:46px!important}
+      #updates_queue_list_controls.operational-queue-controls{display:grid!important;align-content:start!important;gap:10px!important;margin-top:12px!important;padding:12px!important}
+      .operational-field-label-row{display:inline-flex!important;align-items:center!important;gap:6px!important;width:max-content!important;max-width:100%!important;color:var(--text-muted)!important;font-size:11px!important;font-weight:700!important}
+      @media(max-width:1180px){#updates_summary.cs-update-stage1-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+      @media(max-width:760px){#updates_summary.cs-update-stage1-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+      @media(max-width:480px){#updates_summary.cs-update-stage1-summary{grid-template-columns:1fr!important}}
     `;
     document.head.appendChild(style);
   }
@@ -239,203 +117,66 @@
   function fillSelect(select, options) {
     if (!select) return;
     const current = select.value;
-    const values = new Set(options.map(([value]) => value));
-    [...select.options].forEach(option => {
-      if (!values.has(option.value)) option.remove();
-    });
+    const allowed = new Set(options.map(([value]) => value));
+    [...select.options].forEach(option => { if (!allowed.has(option.value)) option.remove(); });
     options.forEach(([value, label]) => {
       let option = [...select.options].find(item => item.value === value);
-      if (!option) {
-        option = document.createElement("option");
-        option.value = value;
-        select.appendChild(option);
-      }
+      if (!option) { option = document.createElement("option"); option.value = value; select.appendChild(option); }
       option.textContent = label;
     });
-    if (values.has(current)) select.value = current;
+    if (allowed.has(current)) select.value = current;
   }
 
-  function improveFilterControls() {
-    const queueState = $("#updates_queue_status_filter");
-    if (queueState) fillSelect(queueState, STATE_OPTIONS);
-    const preparationState = $("#updates_status_filter");
-    if (preparationState) fillSelect(preparationState, PREPARATION_OPTIONS);
+  function improveSelects() {
+    fillSelect($("#updates_queue_status_filter"), STATE_OPTIONS);
+    fillSelect($("#updates_status_filter"), PREPARATION_OPTIONS);
   }
 
   async function loadRuntime() {
-    const response = await fetch("/atualizacoes/jobs", {cache:"no-store", credentials:"same-origin"});
+    const response = await fetch("/atualizacoes/jobs", {cache: "no-store", credentials: "same-origin"});
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data?.ok === false) throw new Error(data?.message || `HTTP ${response.status}`);
     return data;
   }
 
   function activeQueueJobs(data) {
-    const activeName = text(data?.queue?.active_queue || "default");
-    const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
-    return jobs.filter(job => text(job?.queue_name || "default") === activeName);
+    const queueName = text(data?.queue?.active_queue || "default");
+    return (Array.isArray(data?.jobs) ? data.jobs : []).filter(job => text(job?.queue_name || "default") === queueName);
   }
 
-  function localArtifact(job) {
-    return Boolean(text(job?.local_staging_path) && text(job?.new_sha256));
+  function jobsForGroup(data, key) {
+    const jobs = activeQueueJobs(data);
+    const group = UPDATE_GROUPS[key] || UPDATE_GROUPS.total;
+    return group.states ? jobs.filter(job => group.states.includes(text(job?.state))) : jobs;
+  }
+
+  function helpButton(group) {
+    return `<button type="button" class="comparison-help" aria-label="Ajuda sobre ${esc(group.label)}" data-tooltip="${esc(group.help)}">?</button>`;
+  }
+
+  function renderSummary(data) {
+    const summary = $("#updates_summary");
+    if (!summary) return;
+    $("#cs_update_operational_summary")?.remove();
+    VIEW.summaryObserver?.disconnect();
+    summary.className = "cs-update-stage1-summary";
+    summary.innerHTML = Object.entries(UPDATE_GROUPS).map(([key, group]) => {
+      const count = jobsForGroup(data, key).length;
+      return `<button type="button" class="cs-update-stage1-card${VIEW.activeGroup === key && !text($("#updates_queue_status_filter")?.value) ? " is-active" : ""}" data-cs-stage1-group="${esc(key)}" aria-pressed="${VIEW.activeGroup === key ? "true" : "false"}"><strong>${count}</strong><span class="cs-update-stage1-footer"><span>${esc(group.label)}</span>${helpButton(group)}</span></button>`;
+    }).join("");
+    VIEW.summaryObserver?.observe(summary, {childList: true});
+
+    $$('[data-cs-stage1-group]', summary).forEach(card => card.addEventListener("click", event => {
+      if (event.target.closest?.(".comparison-help")) return;
+      activateGroup(card.dataset.csStage1Group || "total");
+    }));
+    $$(".comparison-help", summary).forEach(button => button.addEventListener("click", event => {
+      event.preventDefault(); event.stopPropagation();
+    }));
   }
 
   function helpMarkup(label, tooltip, cls = "operational-summary-help") {
     return `<span class="comparison-help ${cls}" aria-label="Ajuda sobre ${esc(label)}" data-tooltip="${esc(tooltip)}">?</span>`;
-  }
-
-  function selectState(state) {
-    const select = $("#updates_queue_status_filter");
-    if (!select) return;
-    select.value = state;
-    select.dispatchEvent(new Event("change", {bubbles:true}));
-  }
-
-  function updateChip(label, count, state, filterable = true) {
-    const tooltip = UPDATE_HELP[label] || "Informação sobre este estado da fila.";
-    const tag = filterable ? "button" : "div";
-    const attrs = filterable ? `type="button" data-cs-update-state="${esc(state)}"` : "";
-    return `<${tag} ${attrs} class="cs-update-operational-chip"><strong>${esc(count)}</strong><span class="operational-summary-footer"><span class="operational-summary-label">${esc(label)}</span>${helpMarkup(label, tooltip)}</span></${tag}>`;
-  }
-
-  function syncUpdateActiveCard(summary = $("#cs_update_operational_summary")) {
-    if (!summary) return;
-    const current = text($("#updates_queue_status_filter")?.value);
-    $$("[data-cs-update-state]", summary).forEach(card => card.classList.toggle("is-filter-active", text(card.dataset.csUpdateState) === current));
-  }
-
-  function renderSummary(data) {
-    const controls = $("#updates_queue_list_controls");
-    if (!controls) return;
-    let summary = $("#cs_update_operational_summary");
-    if (!summary) {
-      summary = document.createElement("div");
-      summary.id = "cs_update_operational_summary";
-      summary.className = "cs-update-operational-summary";
-      controls.before(summary);
-    }
-
-    const jobs = activeQueueJobs(data);
-    const counts = Object.create(null);
-    jobs.forEach(job => { counts[job.state] = (counts[job.state] || 0) + 1; });
-    const local = jobs.filter(localArtifact).length;
-    const preparing = jobs.filter(job => PREPARATION.has(job.state)).length;
-    const executing = jobs.filter(job => EXECUTION.has(job.state)).length;
-    const attention = jobs.filter(job => TERMINAL_ERROR.has(job.state)).length;
-    const completed = counts.completed || 0;
-    const queued = counts.queued || 0;
-    const planReady = counts.plan_ready || 0;
-
-    let guidance = "";
-    if (executing > 0) guidance = `${executing} item(ns) em execução. A linha da fila mostra a etapa e o log ao vivo.`;
-    else if (queued > 0) guidance = `${queued} item(ns) aguardando execução. A fila pode ser iniciada.`;
-    else if (planReady > 0) guidance = `Não há itens aguardando execução, mas ${planReady} possuem plano pronto.`;
-    else if (preparing > 0) guidance = `${preparing} item(ns) ainda estão na preparação.`;
-    else if (attention > 0) guidance = `${attention} item(ns) exigem atenção. Use o filtro Estado para separar Bloqueados, Erros e Rollback necessário.`;
-    else if (completed > 0) guidance = `Os concluídos ficam disponíveis pelo filtro “Concluído” e no Histórico.`;
-    else guidance = "Nenhum item pendente de execução nesta lista.";
-
-    summary.innerHTML = [
-      updateChip("Total", jobs.length, "", true),
-      updateChip("Concluídos", completed, "completed", true),
-      updateChip("Aprovados", counts.approved || 0, "approved", true),
-      updateChip("Validando", counts.validating || 0, "validating", true),
-      updateChip("Plano pronto", planReady, "plan_ready", true),
-      updateChip("Na fila", queued, "queued", true),
-      updateChip("Executando", executing, "executing", true),
-      updateChip("Bloqueados", counts.blocked || 0, "blocked", true),
-      updateChip("Erros", (counts.error || 0) + (counts.failed || 0), counts.error ? "error" : "failed", true),
-      updateChip("Rollback necessário", counts.rollback_required || 0, "rollback_required", true),
-      updateChip("ZIP local registrado", local, "", false),
-      `<div class="cs-update-operational-guidance">${esc(guidance)}</div>`,
-    ].join("");
-
-    summary.querySelectorAll("[data-cs-update-state]").forEach(button => {
-      button.addEventListener("click", event => {
-        if (event.target.closest?.(".comparison-help")) return;
-        selectState(button.dataset.csUpdateState || "");
-      });
-    });
-    summary.querySelectorAll(".comparison-help").forEach(help => {
-      help.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
-    });
-    syncUpdateActiveCard(summary);
-  }
-
-  function additionCardLabel(card) {
-    return text($(".operational-summary-label", card)?.textContent || $(":scope > span", card)?.textContent || "");
-  }
-
-  function decorateAdditionCard(card) {
-    if (!card || card.dataset.operationalMetricDecorated === "1") return;
-    const label = additionCardLabel(card);
-    if (!label) return;
-    card.dataset.operationalMetricDecorated = "1";
-
-    const originalLabel = $(":scope > span", card);
-    if (!originalLabel) return;
-    const footer = document.createElement("span");
-    footer.className = "operational-summary-footer";
-    originalLabel.className = "operational-summary-label";
-    footer.appendChild(originalLabel);
-    footer.insertAdjacentHTML("beforeend", helpMarkup(label, ADDITION_HELP[label] || "Informação sobre este estado das adições."));
-    card.appendChild(footer);
-    $(".comparison-help", footer)?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
-
-    if (label === "Total aprovado") {
-      card.setAttribute("role", "button");
-      card.tabIndex = 0;
-      const clearFilter = () => {
-        const select = $("#addition_queue_state");
-        if (!select) return;
-        select.value = "";
-        select.dispatchEvent(new Event("change", {bubbles:true}));
-        const accordion = $("#addition_queue_accordion");
-        if (accordion) accordion.open = true;
-        accordion?.scrollIntoView({behavior:"smooth", block:"start"});
-      };
-      card.addEventListener("click", event => { if (!event.target.closest?.(".comparison-help")) clearFilter(); });
-      card.addEventListener("keydown", event => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        clearFilter();
-      });
-    }
-  }
-
-  function syncAdditionActiveCard(root = $("#addition_summary_grid")) {
-    if (!root) return;
-    const current = text($("#addition_queue_state")?.value);
-    $$(".addition-summary-chip", root).forEach(card => {
-      const label = additionCardLabel(card);
-      const state = text(card.dataset.summaryState);
-      card.classList.toggle("is-filter-active", state ? state === current : label === "Total aprovado" && !current);
-    });
-  }
-
-  function decorateAdditionSummary(root = $("#addition_summary_grid")) {
-    if (!root) return false;
-    root.classList.add("operational-summary-grid");
-    $$(".addition-summary-chip", root).forEach(decorateAdditionCard);
-    syncAdditionActiveCard(root);
-    return true;
-  }
-
-  function annotateVisibleRows(data) {
-    const map = new Map((Array.isArray(data?.jobs) ? data.jobs : []).map(job => [text(job.job_id), job]));
-    document.querySelectorAll("#updates_queue_jobs [data-update-detail]").forEach(detail => {
-      const job = map.get(text(detail.dataset.updateDetail));
-      if (!job || !localArtifact(job)) return;
-      const row = detail.closest(".update-queue-row") || detail.parentElement;
-      const main = row?.children?.[1] || row?.querySelector("div");
-      if (!main || $(".cs-zip-local-badge", main)) return;
-      const badge = document.createElement("span");
-      badge.className = "cs-zip-local-badge";
-      badge.textContent = "ZIP local";
-      badge.title = "Há caminho de staging e SHA-256 persistidos para este job. O arquivo ainda será revalidado antes do reaproveitamento.";
-      const firstStrong = main.querySelector("strong");
-      if (firstStrong) firstStrong.insertAdjacentElement("afterend", badge);
-      else main.prepend(badge);
-    });
   }
 
   function decorateField(controlId) {
@@ -457,7 +198,7 @@
 
   function decorateUpdateActions() {
     const root = $("#tab_panel_atualizacoes .updates-queue-actions");
-    if (!root) return false;
+    if (!root) return;
     root.classList.add("operational-action-grid");
     Object.entries(ACTION_HELP).forEach(([id, tooltip]) => {
       const button = $(`#${id}`, root);
@@ -468,105 +209,256 @@
       wrapper.appendChild(button);
       wrapper.insertAdjacentHTML("beforeend", helpMarkup(text(button.textContent), tooltip, "operational-action-help"));
     });
-    return true;
   }
 
-  function compactUpdateQueueControls() {
+  function decorateQueueControls() {
     const controls = $("#updates_queue_list_controls");
-    if (!controls) return false;
+    if (!controls) return;
     controls.classList.add("operational-queue-controls");
     decorateField("updates_queue_search");
     decorateField("updates_queue_status_filter");
     decorateField("updates_queue_page_size");
-    return true;
   }
 
-  function panelVisible(id) {
-    const panel = $(id);
-    return !!panel && !panel.classList.contains("hidden");
+  function additionCardLabel(card) {
+    return text($(".operational-summary-label", card)?.textContent || $(":scope > span", card)?.textContent || "");
   }
 
-  let refreshTimer = null;
-  let refreshing = false;
-  async function refresh(force = false) {
-    if (refreshing || !$("#updates_queue_jobs")) return;
-    if (!force && !panelVisible("#tab_panel_atualizacoes")) return;
-    refreshing = true;
-    try {
-      improveFilterControls();
-      decorateUpdateActions();
-      compactUpdateQueueControls();
-      const data = await loadRuntime();
-      renderSummary(data);
-      annotateVisibleRows(data);
-    } catch (_error) {
-      // A interface nativa continua funcional mesmo se este refinamento falhar.
-    } finally {
-      refreshing = false;
+  function decorateAdditionCard(card) {
+    if (!card || card.dataset.operationalMetricDecorated === "1") return;
+    const label = additionCardLabel(card);
+    const original = $(":scope > span", card);
+    if (!label || !original) return;
+    card.dataset.operationalMetricDecorated = "1";
+    original.className = "operational-summary-label";
+    const footer = document.createElement("span");
+    footer.className = "operational-summary-footer";
+    footer.appendChild(original);
+    footer.insertAdjacentHTML("beforeend", helpMarkup(label, ADDITION_HELP[label] || "Informação sobre este estado das adições."));
+    card.appendChild(footer);
+    $(".comparison-help", footer)?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
+
+    if (label === "Total aprovado" && card.dataset.operationalTotalBound !== "1") {
+      card.dataset.operationalTotalBound = "1";
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      const clearFilter = () => {
+        const select = $("#addition_queue_state");
+        if (!select) return;
+        select.value = "";
+        select.dispatchEvent(new Event("change", {bubbles: true}));
+        const accordion = $("#addition_queue_accordion");
+        if (accordion) accordion.open = true;
+        accordion?.scrollIntoView({behavior: "smooth", block: "start"});
+      };
+      card.addEventListener("click", event => { if (!event.target.closest?.(".comparison-help")) clearFilter(); });
+      card.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        clearFilter();
+      });
     }
   }
 
-  function scheduleRefresh(delays = [80, 350, 900]) {
-    clearTimeout(refreshTimer);
-    delays.forEach(delay => {
-      window.setTimeout(() => refresh(), delay);
+  function decorateAdditionSummary() {
+    const root = $("#addition_summary_grid");
+    if (!root) return;
+    root.classList.add("operational-summary-grid");
+    $$(".addition-summary-chip", root).forEach(decorateAdditionCard);
+    const current = text($("#addition_queue_state")?.value);
+    $$(".addition-summary-chip", root).forEach(card => {
+      const label = additionCardLabel(card);
+      const state = text(card.dataset.summaryState);
+      card.classList.toggle("is-filter-active", state ? state === current : label === "Total aprovado" && !current);
     });
   }
 
-  function scheduleAddition(delays = [0, 60, 180, 450, 900, 1800, 3500, 5500]) {
-    delays.forEach(delay => window.setTimeout(() => {
-      const root = $("#addition_summary_grid");
-      if (!root) return;
-      decorateAdditionSummary(root);
-      if (root.dataset.operationalSummaryObserver !== "1") {
-        root.dataset.operationalSummaryObserver = "1";
-        new MutationObserver(() => decorateAdditionSummary(root)).observe(root, {childList:true});
-      }
-    }, delay));
+  function observeAdditionSummary() {
+    const root = $("#addition_summary_grid");
+    if (!root || root.dataset.operationalSummaryObserver === "1") return;
+    root.dataset.operationalSummaryObserver = "1";
+    new MutationObserver(() => decorateAdditionSummary()).observe(root, {childList: true});
   }
 
-  function observeQueueRows() {
+  function stateLabel(state) {
+    return STATE_OPTIONS.find(([value]) => value === state)?.[1] || text(state, "Estado não reconhecido");
+  }
+
+  function sourceLabel(job) {
+    const explicit = text(job?.source_name || job?.source_site || job?.source_site_key || job?.origin_site || job?.origin);
+    if (explicit) return explicit;
+    const url = text(job?.source_product_url || job?.source_url || job?.ultrapack_url).toLowerCase();
+    if (url.includes("plugintheme")) return "PluginTheme";
+    if (url.includes("ultrapack")) return "UltraPackV2";
+    return "Origem não informada";
+  }
+
+  function compactRow(job, position) {
+    const nextVersion = text(job?.effective_source_version || job?.approved_source_version || job?.ultrapack_version, "-");
+    const error = text(job?.execution_error || job?.blocked_reason);
+    const local = text(job?.local_staging_path) && text(job?.new_sha256) ? '<span class="cs-stage1-local-zip">ZIP local</span>' : "";
+    return `<article class="update-queue-row" data-cs-stage1-job="${esc(job?.job_id)}"><div class="update-queue-position">${esc(position)}</div><div><strong>${esc(job?.name || "Produto sem nome")}</strong>${local}<div class="small">Woo #${esc(job?.woo_product_id)} · ${esc(job?.plugintema_version || "-")} → ${esc(nextVersion)}</div><div class="small">Origem: ${esc(sourceLabel(job))}</div>${error ? `<div class="updates-error">${esc(error)}</div>` : ""}</div><span class="badge">${esc(stateLabel(text(job?.state)))}</span><button type="button" class="btn-secondary" data-cs-stage1-detail="${esc(job?.job_id)}" aria-expanded="false">Detalhes</button><div class="update-operational-detail hidden"></div></article>`;
+  }
+
+  function bindDetails(root, jobs) {
+    $$('[data-cs-stage1-detail]', root).forEach(button => button.addEventListener("click", () => {
+      const job = jobs.find(item => text(item?.job_id) === text(button.dataset.csStage1Detail));
+      const slot = $(".update-operational-detail", button.closest(".update-queue-row"));
+      if (!job || !slot) return;
+      const hidden = slot.classList.toggle("hidden");
+      button.setAttribute("aria-expanded", String(!hidden));
+      if (!hidden && slot.dataset.rendered !== "1") {
+        const logs = Array.isArray(job?.execution_logs) ? job.execution_logs.join("\n") : "";
+        slot.innerHTML = `<div class="small"><strong>${esc(job?.name)}</strong><br>Woo #${esc(job?.woo_product_id)} · Tentativas: ${esc(job?.attempts ?? 0)} · Última etapa: ${esc(job?.last_completed_step || "-")}</div>${logs ? `<details><summary>Ver log técnico</summary><pre>${esc(logs)}</pre></details>` : ""}`;
+        slot.dataset.rendered = "1";
+      }
+    }));
+  }
+
+  function rangeText(total, page, size) {
+    if (!total) return "Mostrando 0 de 0 itens";
+    const start = ((page - 1) * size) + 1;
+    return `Mostrando ${start}–${Math.min(page * size, total)} de ${total} itens`;
+  }
+
+  function renderGroupedList(data) {
+    if (!VIEW.activeGroup) return false;
+    const wrap = $("#updates_queue_jobs");
+    if (!wrap) return false;
+    const query = text($("#updates_queue_search")?.value).toLowerCase();
+    const source = jobsForGroup(data, VIEW.activeGroup);
+    const filtered = source.filter(job => !query || `${job?.name || ""} ${job?.woo_product_id || ""}`.toLowerCase().includes(query));
+    const size = Math.max(1, int($("#updates_queue_page_size")?.value, 5));
+    const pages = Math.max(1, Math.ceil(filtered.length / size));
+    VIEW.page = Math.min(Math.max(1, VIEW.page), pages);
+    const visible = filtered.slice((VIEW.page - 1) * size, VIEW.page * size);
+    const group = UPDATE_GROUPS[VIEW.activeGroup] || UPDATE_GROUPS.total;
+
+    VIEW.rowsObserver?.disconnect();
+    $("#updates_queue_list_controls")?.classList.toggle("hidden", activeQueueJobs(data).length === 0);
+    if ($("#updates_queue_found_count")) $("#updates_queue_found_count").textContent = rangeText(filtered.length, VIEW.page, size);
+    if ($("#updates_queue_page")) $("#updates_queue_page").textContent = `Página ${VIEW.page} de ${pages}`;
+    if ($("#updates_queue_prev")) $("#updates_queue_prev").disabled = VIEW.page <= 1;
+    if ($("#updates_queue_next")) $("#updates_queue_next").disabled = VIEW.page >= pages;
+    if ($("#updates_queue_meta")) $("#updates_queue_meta").innerHTML = `${activeQueueJobs(data).length} produtos <span class="cs-update-stage1-context">Filtro: ${esc(group.label)}</span>`;
+    wrap.innerHTML = visible.map((job, index) => compactRow(job, job?.state === "executing" ? "Agora" : (job?.queue_position || ((VIEW.page - 1) * size) + index + 1))).join("") || '<div class="notice">Nenhum produto corresponde a este filtro.</div>';
+    VIEW.rowsObserver?.observe(wrap, {childList: true});
+    bindDetails(wrap, visible);
+    return true;
+  }
+
+  function activateGroup(key) {
+    VIEW.activeGroup = UPDATE_GROUPS[key] ? key : "total";
+    VIEW.page = 1;
+    const technical = $("#updates_queue_status_filter");
+    if (technical) technical.value = "";
+    if (VIEW.runtime) { renderSummary(VIEW.runtime); renderGroupedList(VIEW.runtime); }
+  }
+
+  async function refresh() {
+    if (VIEW.refreshing || !$("#updates_queue_jobs")) return;
+    VIEW.refreshing = true;
+    try {
+      improveSelects();
+      decorateUpdateActions();
+      decorateQueueControls();
+      const data = await loadRuntime();
+      VIEW.runtime = data;
+      renderSummary(data);
+      if (VIEW.activeGroup) renderGroupedList(data);
+    } catch (_error) {
+      // A implementação nativa continua disponível se a camada canônica falhar.
+    } finally {
+      VIEW.refreshing = false;
+    }
+  }
+
+  function schedule(delays = [0, 120]) {
+    VIEW.timers.forEach(window.clearTimeout);
+    VIEW.timers = delays.map(delay => window.setTimeout(refresh, delay));
+  }
+
+  function observeNativeRenders() {
+    const summary = $("#updates_summary");
+    if (summary) {
+      VIEW.summaryObserver = new MutationObserver(() => schedule([0]));
+      VIEW.summaryObserver.observe(summary, {childList: true});
+    }
     const rows = $("#updates_queue_jobs");
-    if (!rows || rows.dataset.operationalQueueObserver === "1") return;
-    rows.dataset.operationalQueueObserver = "1";
-    new MutationObserver(() => {
-      if (panelVisible("#tab_panel_atualizacoes")) scheduleRefresh([80]);
-    }).observe(rows, {childList:true});
+    if (rows) {
+      VIEW.rowsObserver = new MutationObserver(() => { if (VIEW.activeGroup) schedule([0]); });
+      VIEW.rowsObserver.observe(rows, {childList: true});
+    }
+  }
+
+  function bindControls() {
+    document.addEventListener("change", event => {
+      if (event.target?.id === "updates_queue_status_filter") {
+        // Só ação explícita no filtro técnico encerra o grupo. Polling não dispara change.
+        VIEW.activeGroup = "";
+        VIEW.page = 1;
+        schedule([20]);
+      } else if (event.target?.id === "updates_queue_page_size" && VIEW.activeGroup) {
+        VIEW.page = 1;
+        if (VIEW.runtime) renderGroupedList(VIEW.runtime);
+      } else if (event.target?.id === "updates_queue_select") {
+        VIEW.page = 1;
+        schedule([80, 300]);
+      } else if (event.target?.id === "addition_queue_state") {
+        decorateAdditionSummary();
+      }
+    }, true);
+
+    document.addEventListener("input", event => {
+      if (event.target?.id === "updates_queue_search" && VIEW.activeGroup) {
+        VIEW.page = 1;
+        if (VIEW.runtime) renderGroupedList(VIEW.runtime);
+      }
+    }, true);
+
+    $("#updates_queue_prev")?.addEventListener("click", event => {
+      if (!VIEW.activeGroup) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      VIEW.page = Math.max(1, VIEW.page - 1);
+      if (VIEW.runtime) renderGroupedList(VIEW.runtime);
+    }, true);
+    $("#updates_queue_next")?.addEventListener("click", event => {
+      if (!VIEW.activeGroup) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      VIEW.page += 1;
+      if (VIEW.runtime) renderGroupedList(VIEW.runtime);
+    }, true);
+
+    $("#tab_btn_atualizacoes")?.addEventListener("click", () => schedule([0, 100, 400]));
+    $("#tab_btn_adicoes")?.addEventListener("click", () => window.setTimeout(decorateAdditionSummary, 80));
+    document.addEventListener("crapscraper:main-tab-changed", event => {
+      const key = String(event?.detail?.key || document.body?.dataset?.activeTab || "");
+      if (key === "atualizacoes") schedule([0, 100, 400]);
+      if (key === "adicoes") window.setTimeout(decorateAdditionSummary, 80);
+    });
+  }
+
+  function exposeContract() {
+    window.__crapscraperUpdateOperationalStage1 = Object.freeze({
+      groups: UPDATE_GROUPS,
+      jobsForGroup,
+      get activeGroup() { return VIEW.activeGroup; },
+    });
   }
 
   function start() {
     installStyles();
-    improveFilterControls();
+    improveSelects();
     decorateUpdateActions();
-    compactUpdateQueueControls();
-    observeQueueRows();
-
-    if (panelVisible("#tab_panel_atualizacoes")) refresh(true);
-    if (panelVisible("#tab_panel_adicoes")) scheduleAddition();
-
-    $("#tab_btn_atualizacoes")?.addEventListener("click", () => scheduleRefresh([0, 100, 450, 1100]));
-    $("#tab_btn_adicoes")?.addEventListener("click", () => scheduleAddition());
-
-    document.addEventListener("crapscraper:main-tab-changed", event => {
-      const key = String(event?.detail?.key || document.body?.dataset?.activeTab || "");
-      if (key === "atualizacoes") scheduleRefresh([0, 100, 450, 1100]);
-      if (key === "adicoes") scheduleAddition();
-    });
-
-    document.addEventListener("change", event => {
-      if (event.target?.id === "updates_queue_status_filter") syncUpdateActiveCard();
-      if (event.target?.id === "addition_queue_state") syncAdditionActiveCard();
-    }, true);
-
-    document.addEventListener("click", event => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target) return;
-      if (target.closest("#updates_refresh_btn,#updates_queue_start,#updates_queue_pause,#updates_queue_cancel,#updates_queue_select,#open_update_lists_modal")) {
-        scheduleRefresh([100, 500, 1400]);
-      }
-    }, true);
+    decorateQueueControls();
+    decorateAdditionSummary();
+    observeAdditionSummary();
+    observeNativeRenders();
+    bindControls();
+    exposeContract();
+    schedule([0, 100]);
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once:true});
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once: true});
   else start();
 })();
