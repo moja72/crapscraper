@@ -37,6 +37,7 @@ from app.operational_simple_flow_execution_policy import (
 from app.update_history_retry_policy import install_update_history_retry_policy
 from app.update_recoverability_policy import install_update_recoverability_policy
 from app.update_metadata_preflight_policy import install_update_metadata_preflight_policy
+from app.update_recovery_finalizer_policy import install_update_recovery_finalizer_policy
 from app.server_manager_binding_policy import install_server_manager_binding_policy
 from app.startup_fast_path_policy import install_startup_fast_path_policy
 from app.startup_remote_io_guard_policy import install_startup_remote_io_guard_policy
@@ -145,6 +146,11 @@ def install_process_modal_stability_policy() -> None:
     # inspect read-only antes da troca. Erros puramente de metadados são migrados
     # para a estratégia transacional controlada, sem exigir correção manual.
     install_update_metadata_preflight_policy()
+
+    # Se uma falha ocorrer depois de preservar o ZIP antigo por rename e antes de
+    # instalar o novo .new, restaure o backup automaticamente. Isso fecha a janela
+    # em que produção poderia ficar sem ZIP embora a escrita nova não tivesse sido concluída.
+    install_update_recovery_finalizer_policy()
 
     # As rotas finais de retry precisam do mesmo ScraperRunManager capturado pelo
     # Handler original para reutilizar sessões do navegador e contexto ativo.
