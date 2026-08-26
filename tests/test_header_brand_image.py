@@ -34,6 +34,12 @@ class HeaderBrandImageTests(unittest.TestCase):
         self.assertIn(f"data:image/webp;base64,{expected}", rendered)
         self.assertEqual(rendered.count("data-crapscraper-brand-image"), 1)
 
+    def test_brand_logo_is_rendered_55_percent_larger(self) -> None:
+        self.assertIn("min-height:83.7px", policy._BRAND_STYLE)
+        self.assertIn("height:83.7px", policy._BRAND_STYLE)
+        self.assertIn("min-height:68.2px", policy._BRAND_STYLE)
+        self.assertIn("height:68.2px", policy._BRAND_STYLE)
+
     def test_missing_local_logo_keeps_existing_header(self) -> None:
         original_path = policy._BRAND_IMAGE_PATH
         sample = '<div class="page-brand-title-row"><h1>CrapScraper</h1></div>'
