@@ -11,6 +11,34 @@ _INSTALLED = False
 _BASE_PREPARE: Callable[..., Any] | None = None
 
 
+def _artifact_path(artifact: Any) -> str:
+    if not isinstance(artifact, dict):
+        return ""
+    for key in ("path", "local_staging_path", "local_path"):
+        value = str(artifact.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _numeric_version(value: Any) -> tuple[int, ...] | None:
+    text = str(value or "").strip()
+    parts = text.split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return None
+    parsed = tuple(int(part) for part in parts)
+    while len(parsed) > 1 and parsed[-1] == 0:
+        parsed = parsed[:-1]
+    return parsed
+
+
+def _same_version(left: Any, right: Any) -> bool:
+    a, b = _numeric_version(left), _numeric_version(right)
+    if a is not None and b is not None:
+        return a == b
+    return str(left or "").strip() == str(right or "").strip()
+
+
 def _previous_artifact(job: Any) -> tuple[str, str, str]:
     """Retorna caminho, SHA e versão persistidos anteriormente para o job."""
     path = str(getattr(job, "local_staging_path", "") or "").strip()
@@ -23,7 +51,7 @@ def _previous_artifact(job: Any) -> tuple[str, str, str]:
         preview = get_preview(str(getattr(job, "job_id", "") or "")) or {}
         artifact = preview.get("new_zip") or {}
         versions = preview.get("versions") or {}
-        path = path or str(artifact.get("path") or "").strip()
+        path = path or _artifact_path(artifact)
         sha256 = sha256 or str(artifact.get("sha256") or "").strip().lower()
         version = version or str(
             versions.get("effective_source_version")
@@ -49,7 +77,11 @@ def _candidate_paths(staging_dir: str | Path, persisted_path: str) -> list[Path]
 
 
 def _patched_prepare(self: Any, job: Any):
-    """Reusa somente artefato com prova persistida de SHA e versão."""
+    """Reusa somente artefato com prova persistida de SHA e versão.
+
+    Se a fonte avançou, o ZIP local antigo é deliberadamente descartado para que
+    o download novo use a versão mais recente encontrada ao vivo.
+    """
     original_download = self.downloader.download
     persisted_path, expected_sha, expected_version = _previous_artifact(job)
 
@@ -70,7 +102,7 @@ def _patched_prepare(self: Any, job: Any):
                     self.logger(f"⚠ Não foi possível confirmar a versão da fonte para reutilizar o ZIP: {error}")
                     break
                 current_version = str(current_version or "").strip()
-                if current_version != expected_version:
+                if not _same_version(current_version, expected_version):
                     self.logger(
                         f"ℹ ZIP local não reutilizado: fonte mudou de {expected_version or '-'} para {current_version or '-'}"
                     )

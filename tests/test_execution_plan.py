@@ -151,7 +151,7 @@ class ExecutionPlanTests(unittest.TestCase):
         parameters = set(inspect.signature(build_execution_plan).parameters)
         self.assertEqual(parameters, {"job", "preview", "logger"})
         plan = build_execution_plan(prepared_job(), prepared_preview())
-        self.assertFalse(plan["execution_enabled"])
+        self.assertEqual(plan["execution_enabled"], settings.UPDATE_EXECUTION_ENABLED)
         self.assertNotIn("execute", plan)
 
     def test_logs_are_complete_and_secret_free(self):
