@@ -108,6 +108,24 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertFalse(preview.ready)
         self.assertEqual(preview.state, "blocked")
 
+    def test_missing_production_zip_reports_the_exact_safe_path(self):
+        class MissingStorage:
+            def validate_file(self, path):
+                raise FileNotFoundError(2, "No such file", path)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            preview = UpdatePreparationService(
+                Woo(), MissingStorage(), Downloader(), staging_root=tmp,
+                helper_probe=lambda: True,
+            ).prepare(job())
+
+        current = next(item for item in preview.validations if item.key == "current_zip")
+        self.assertFalse(current.ok)
+        self.assertEqual(
+            current.detail,
+            "Falha ao validar ZIP atual: arquivo remoto de produção não existe: " + DOWNLOAD["file"],
+        )
+
     def test_download_divergence_blocks_preview(self):
         broken = [{**VARIATIONS[0]}, {**VARIATIONS[1], "downloads": [{**DOWNLOAD, "file": "/home/plugintema.com/downloads/Other.zip"}]}]
         with tempfile.TemporaryDirectory() as tmp:

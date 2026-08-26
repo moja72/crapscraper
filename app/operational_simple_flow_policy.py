@@ -138,7 +138,27 @@ def _prepare_update(job: Any, manager: Any, logger: Any) -> tuple[dict[str, Any]
         plan["update_logs"] = logger.to_list()
         runtime.save_plan(job.job_id, plan)
         runtime.persist_job(job)
+    # A geração automática já validou identidade, vínculo, ZIP atual, ZIP novo e
+    # rollback. Preserve o invariante do gate: plano ready implica job plan_ready.
+    # Isso não torna nenhum job elegível por si só; is_execution_eligible ainda
+    # revalida todos os predicados e a existência do artefato local.
+    if _reconcile_ready_plan_state(job, preview, plan):
+        runtime.persist_job(job)
     return preview, plan
+
+
+def _reconcile_ready_plan_state(job: Any, preview: dict[str, Any], plan: dict[str, Any]) -> bool:
+    """Restore the persisted job invariant without weakening execution eligibility."""
+    if not (
+        preview.get("ready") is True
+        and plan.get("ready") is True
+        and str(plan.get("job_id") or "") == str(job.job_id)
+        and int(plan.get("woo_product_id") or 0) == int(job.woo_product_id)
+        and job.state == JobState.PREPARED
+    ):
+        return False
+    job.set_state(JobState.PLAN_READY, "Estado reconciliado com o plano validado")
+    return True
 
 
 def _execute_update_one(job_id: str, manager: Any) -> dict[str, Any]:
