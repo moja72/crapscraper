@@ -1,0 +1,37 @@
+name: Stable Update Fix Validation
+
+on:
+  push:
+    branches:
+      - fix/update-session-module-log-toggle-stable
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest requests beautifulsoup4 paramiko playwright Pillow
+      - name: Compile Python
+        run: python -m py_compile app/*.py app/integrations/*.py
+      - name: Check JavaScript syntax
+        run: |
+          node --check app/static/update_technical_log_fix.js
+          node --check app/static/update_retry_recovery_v2.js
+      - name: Run focused update regressions
+        run: |
+          python -m pytest -q \
+            tests/test_update_session_compatibility.py \
+            tests/test_update_recoverability_contract.py \
+            tests/test_ultrapack_download_diagnostics.py \
+            tests/test_update_batch_stability.py \
+            tests/test_operational_simple_flow_recovery_policy.py \
+            tests/test_update_endpoint_safety.py \
+            tests/test_update_persistence.py
