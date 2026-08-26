@@ -16,9 +16,20 @@ class Settings:
 def load_settings() -> Settings:
     root = Path(__file__).resolve().parents[1]
     legacy_data = root.parent / "data"
-    return Settings(
+    settings = Settings(
         root=root,
         data_dir=Path(os.getenv("SCRAPER_DATA_DIR", legacy_data)).resolve(),
         host=os.getenv("SCRAPER_HOST", "127.0.0.1"),
         port=int(os.getenv("SCRAPER_PORT", "8766")),
     )
+    os.environ.setdefault("SCRAPER_DATA_DIR", str(settings.data_dir))
+    return settings
+
+
+def parse_update_execution_allowed_product_ids(value: str | None) -> frozenset[int]:
+    result: set[int] = set()
+    for item in str(value or "").split(","):
+        text = item.strip()
+        if text.isdigit() and int(text) > 0:
+            result.add(int(text))
+    return frozenset(result)
