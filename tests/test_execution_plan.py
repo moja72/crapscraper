@@ -74,6 +74,30 @@ class ExecutionPlanTests(unittest.TestCase):
         self.assertEqual(job.approved_source_version, "28.5.6")
         self.assertEqual(job.state, JobState.PLAN_READY)
 
+    def test_plan_accepts_canonical_local_staging_path_alias(self):
+        preview = prepared_preview()
+        expected_path = preview["new_zip"].pop("path")
+        preview["new_zip"]["local_staging_path"] = expected_path
+        plan = build_execution_plan(prepared_job(), preview)
+        self.assertEqual(plan["new_zip"]["local_staging_path"], expected_path)
+
+    def test_plan_recovers_persisted_job_staging_when_sha_matches(self):
+        job = prepared_job()
+        preview = prepared_preview()
+        expected_path = preview["new_zip"].pop("path")
+        job.local_staging_path = expected_path
+        job.new_sha256 = NEW_SHA
+        plan = build_execution_plan(job, preview)
+        self.assertEqual(plan["new_zip"]["local_staging_path"], expected_path)
+
+    def test_plan_rejects_persisted_staging_when_sha_does_not_match(self):
+        job = prepared_job()
+        preview = prepared_preview()
+        job.local_staging_path = preview["new_zip"].pop("path")
+        job.new_sha256 = "c" * 64
+        with self.assertRaisesRegex(ValueError, "execute Preparar novamente"):
+            build_execution_plan(job, preview)
+
     def test_each_generated_plan_has_a_new_nonempty_id(self):
         first = build_execution_plan(prepared_job(), prepared_preview())
         second = build_execution_plan(prepared_job(), prepared_preview())
