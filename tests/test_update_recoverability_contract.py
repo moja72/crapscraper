@@ -18,6 +18,7 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
             "app/accordion_cleanup_policy.py",
             "app/process_modal_stability_policy.py",
             "app/startup_runtime_gate_policy.py",
+            "app/integrations/ultrapack_session.py",
         ):
             source = (ROOT / relative).read_text(encoding="utf-8")
             ast.parse(source, filename=relative)
@@ -75,13 +76,21 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
         self.assertIn("_BLOCKED_POST_EXACT", source)
         self.assertIn("not is_runtime_ready()", source)
 
-    def test_retry_ui_uses_new_route_and_stable_technical_log_toggle(self) -> None:
-        source = (ROOT / "app/static/update_retry_recovery_v2.js").read_text(encoding="utf-8")
-        self.assertIn("/operacoes/simples/retry-update", source)
-        self.assertIn("Não atualizado:", source)
-        self.assertIn('window.addEventListener("click"', source)
-        self.assertIn("event.stopImmediatePropagation()", source)
-        self.assertIn("TECHNICAL_STATE_KEY", source)
+    def test_retry_ui_does_not_control_technical_accordion(self) -> None:
+        retry = (ROOT / "app/static/update_retry_recovery_v2.js").read_text(encoding="utf-8")
+        technical = (ROOT / "app/static/update_technical_log_fix.js").read_text(encoding="utf-8")
+        self.assertIn("/operacoes/simples/retry-update", retry)
+        self.assertIn("Não atualizado:", retry)
+        self.assertNotIn("TECHNICAL_SELECTOR", retry)
+        self.assertNotIn("details.open = !details.open", retry)
+        self.assertNotIn("stopImmediatePropagation", retry)
+        self.assertIn('details.addEventListener("toggle"', technical)
+        self.assertNotIn('summary.addEventListener("click"', technical)
+        self.assertNotIn('summary.addEventListener("keydown"', technical)
+        self.assertNotIn("details.open = !details.open", technical)
+        self.assertIn("MutationObserver", technical)
+        self.assertIn("{childList: true, subtree: true}", technical)
+        self.assertNotIn("characterData", technical)
 
     def test_global_update_mutation_observer_is_replaced(self) -> None:
         source = (ROOT / "app/accordion_cleanup_policy.py").read_text(encoding="utf-8")
