@@ -4,7 +4,7 @@ import json
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from app.configuration import Settings
 from app.web.api import ApplicationServices
@@ -31,7 +31,8 @@ class Application:
                         target = (static / path.removeprefix("/static/")).resolve()
                         if static.resolve() not in target.parents: raise FileNotFoundError
                         return self.send_bytes(target.read_bytes(), mimetypes.guess_type(target.name)[0] or "application/octet-stream")
-                    return self.send_json(get_route(services, path))
+                    query={key: values[-1] for key,values in parse_qs(urlparse(self.path).query).items()}
+                    return self.send_json(get_route(services, path, query))
                 except (KeyError, FileNotFoundError): self.send_json({"ok": False, "message": "Não encontrado"}, 404)
                 except Exception as error: self.send_json({"ok": False, "message": str(error)}, 500)
             def do_POST(self) -> None:

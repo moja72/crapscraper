@@ -4,7 +4,8 @@ from typing import Any
 from app.web.api import ApplicationServices
 
 
-def get_route(services: ApplicationServices, path: str) -> dict[str, Any]:
+def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | None=None) -> dict[str, Any]:
+    query=query or {}
     routes = {
         "/api/health": lambda: {"ok": True},
         "/api/collect": services.collection.context_payload,
@@ -13,7 +14,12 @@ def get_route(services: ApplicationServices, path: str) -> dict[str, Any]:
         "/api/compare": services.comparison.catalogs,
         "/api/comparison/catalogs": services.comparison.catalogs,
         "/api/comparison/approvals": services.comparison.approvals,
-        "/api/update": lambda: services.domains.jobs("approve_update"),
+        "/api/update": lambda: services.updates.list(query),
+        "/api/updates": lambda: services.updates.list(query),
+        "/api/updates/jobs": lambda: services.updates.list(query),
+        "/api/updates/job": lambda: services.updates.job(str(query.get("job_id") or "")),
+        "/api/updates/history": lambda: services.updates.job(str(query.get("job_id") or "")),
+        "/api/updates/logs": lambda: services.updates.job(str(query.get("job_id") or "")),
         "/api/add": lambda: services.domains.jobs("approve_new_product"),
         "/api/store": services.domains.store,
     }
@@ -30,6 +36,11 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/comparison/decision": return services.comparison.save_decision(payload)
     if path == "/api/comparison/candidates": return services.comparison.candidates(payload)
     if path == "/api/comparison/relationship": return services.comparison.save_relationship(payload)
+    if path == "/api/updates/materialize": return services.updates.materialize()
+    if path == "/api/updates/execute": return services.updates.execute(str(payload.get("job_id") or ""))
+    if path == "/api/updates/retry": return services.updates.retry(str(payload.get("job_id") or ""))
+    if path == "/api/updates/batch/start": return services.updates.batch_start(list(payload.get("job_ids") or []))
+    if path in {"/api/updates/batch/pause","/api/updates/batch/resume","/api/updates/batch/cancel"}: return services.updates.batch_control(path.rsplit("/",1)[-1])
     if path == "/api/store/monitor":
         return services.domains.monitor(bool(payload.get("enabled")))
     raise KeyError(path)
