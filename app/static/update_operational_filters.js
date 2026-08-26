@@ -237,6 +237,27 @@
     footer.insertAdjacentHTML("beforeend", helpMarkup(label, ADDITION_HELP[label] || "Informação sobre este estado das adições."));
     card.appendChild(footer);
     $(".comparison-help", footer)?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
+
+    if (label === "Total aprovado" && card.dataset.operationalTotalBound !== "1") {
+      card.dataset.operationalTotalBound = "1";
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      const clearFilter = () => {
+        const select = $("#addition_queue_state");
+        if (!select) return;
+        select.value = "";
+        select.dispatchEvent(new Event("change", {bubbles: true}));
+        const accordion = $("#addition_queue_accordion");
+        if (accordion) accordion.open = true;
+        accordion?.scrollIntoView({behavior: "smooth", block: "start"});
+      };
+      card.addEventListener("click", event => { if (!event.target.closest?.(".comparison-help")) clearFilter(); });
+      card.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        clearFilter();
+      });
+    }
   }
 
   function decorateAdditionSummary() {
@@ -250,6 +271,13 @@
       const state = text(card.dataset.summaryState);
       card.classList.toggle("is-filter-active", state ? state === current : label === "Total aprovado" && !current);
     });
+  }
+
+  function observeAdditionSummary() {
+    const root = $("#addition_summary_grid");
+    if (!root || root.dataset.operationalSummaryObserver === "1") return;
+    root.dataset.operationalSummaryObserver = "1";
+    new MutationObserver(() => decorateAdditionSummary()).observe(root, {childList: true});
   }
 
   function stateLabel(state) {
@@ -424,6 +452,7 @@
     decorateUpdateActions();
     decorateQueueControls();
     decorateAdditionSummary();
+    observeAdditionSummary();
     observeNativeRenders();
     bindControls();
     exposeContract();
