@@ -42,3 +42,13 @@ def test_stage1_polling_preserves_group_until_explicit_filter_change() -> None:
     assert 'VIEW.activeGroup = ""' in source
     assert 'Polling não dispara change' in source
     assert 'new MutationObserver(() => schedule([0]))' in source
+
+
+def test_stage1_keeps_existing_addition_and_queue_decorations() -> None:
+    source = _source()
+
+    assert 'function decorateAdditionSummary()' in source
+    assert 'function observeAdditionSummary()' in source
+    assert 'card.setAttribute("role", "button")' in source
+    assert 'function decorateUpdateActions()' in source
+    assert 'function decorateQueueControls()' in source
