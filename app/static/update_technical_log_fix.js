@@ -4,14 +4,16 @@
   if (window.__crapScraperUpdateTechnicalLogFixInstalled) return;
   window.__crapScraperUpdateTechnicalLogFixInstalled = true;
 
-  const SELECTOR = "#tab_panel_atualizacoes details.updates-technical-log";
-  const STATE_KEY = "crapscraper:update-technical-log:open:v3";
-  const bound = new WeakSet();
+  const STATE_KEY = "crapscraper:update-technical-log:open:v4";
+  const MOUNT_ID = "updates_technical_log_mount";
+  const STABLE_ATTR = "data-cs-stable-update-log";
   const $ = (selector, root = document) => root?.querySelector?.(selector) || null;
   const clean = value => String(value ?? "").replace(/\s+/g, " ").trim();
+
+  let stableDetails = null;
   let lastJobId = "";
-  let refreshTimer = null;
-  let observer = null;
+  let polling = null;
+  let refreshInFlight = false;
 
   async function requestJson(url, timeoutMs = 9000) {
     const controller = new AbortController();
@@ -32,8 +34,18 @@
     }
   }
 
-  function technicalDetails() {
-    return $(SELECTOR);
+  function installStyles() {
+    if ($("#cs-update-technical-log-stable-style")) return;
+    const style = document.createElement("style");
+    style.id = "cs-update-technical-log-stable-style";
+    style.textContent = `
+      #tab_panel_atualizacoes details.updates-technical-log:not([${STABLE_ATTR}="1"]){
+        display:none!important
+      }
+      #${MOUNT_ID}{display:block!important;min-width:0}
+      #${MOUNT_ID}>details.updates-technical-log{display:block!important}
+    `;
+    document.head.appendChild(style);
   }
 
   function storedOpenState() {
@@ -46,20 +58,57 @@
   }
 
   function persistOpenState(details) {
-    try { sessionStorage.setItem(STATE_KEY, details.open ? "1" : "0"); } catch (_error) {}
+    try {
+      sessionStorage.setItem(STATE_KEY, details.open ? "1" : "0");
+    } catch (_error) {}
   }
 
   function syncDisclosure(details) {
-    if (!details) return;
     const summary = $(":scope > summary", details);
     if (!summary) return;
     const title = $(".section-title", summary);
     const chevron = $(".updates-disclosure-chevron", summary);
-    if (title && clean(title.textContent) !== "Logs da atualização") {
-      title.textContent = "Logs da atualização";
-    }
+    if (title) title.textContent = "Logs da atualização";
     if (chevron) chevron.textContent = details.open ? "▾" : "▸";
     summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+  }
+
+  function ensureStableDetails() {
+    if (stableDetails?.isConnected) return stableDetails;
+
+    const panel = $("#tab_panel_atualizacoes");
+    if (!panel) return null;
+
+    const original = $(`details.updates-technical-log[${STABLE_ATTR}="1"]`, panel)
+      || $("details.updates-technical-log", panel);
+    if (!original) return null;
+
+    let mount = document.getElementById(MOUNT_ID);
+    if (!mount) {
+      mount = document.createElement("div");
+      mount.id = MOUNT_ID;
+      mount.dataset.csStableUpdateLogMount = "1";
+      panel.appendChild(mount);
+    }
+
+    original.setAttribute(STABLE_ATTR, "1");
+    if (original.parentElement !== mount) mount.appendChild(original);
+    stableDetails = original;
+
+    const preferred = storedOpenState();
+    if (preferred !== null) stableDetails.open = preferred;
+    syncDisclosure(stableDetails);
+
+    if (stableDetails.dataset.csStableToggleBound !== "1") {
+      stableDetails.dataset.csStableToggleBound = "1";
+      stableDetails.addEventListener("toggle", () => {
+        persistOpenState(stableDetails);
+        syncDisclosure(stableDetails);
+        if (stableDetails.open) refreshTechnicalLog();
+      });
+    }
+
+    return stableDetails;
   }
 
   function resolveBatchJobId(batch) {
@@ -74,14 +123,22 @@
   }
 
   async function refreshTechnicalLog() {
-    const details = technicalDetails();
-    const target = $("#updates_log");
-    if (!details?.open || !target) return;
+    const details = ensureStableDetails();
+    const target = $("#updates_log", details);
+    const panel = $("#tab_panel_atualizacoes");
+    if (
+      refreshInFlight || document.hidden || !details?.open || !target ||
+      !panel || panel.classList.contains("hidden")
+    ) {
+      return;
+    }
 
+    refreshInFlight = true;
     try {
       const status = await requestJson("/operacoes/simples/status", 7000);
       const resolved = resolveBatchJobId(status?.update);
       if (resolved) lastJobId = resolved;
+
       if (!lastJobId) {
         if (!clean(target.textContent) || clean(target.textContent) === "Nenhum evento nesta sessão.") {
           target.textContent = "Execute ou selecione uma atualização para carregar o log técnico correspondente.";
@@ -94,70 +151,43 @@
         7000,
       );
       const logs = Array.isArray(payload?.logs) ? payload.logs : [];
-      target.textContent = logs.length ? logs.join("\n") : "Nenhum evento técnico registrado para esta atualização.";
-      target.scrollTop = target.scrollHeight;
+      const nextText = logs.length
+        ? logs.join("\n")
+        : "Nenhum evento técnico registrado para esta atualização.";
+
+      // Polling altera SOMENTE o texto do <pre>. Nunca recria <details>,
+      // nunca toca em `open` e nunca reescreve o card pai.
+      if (target.textContent !== nextText) {
+        const stayAtBottom =
+          target.scrollHeight - target.scrollTop - target.clientHeight < 32;
+        target.textContent = nextText;
+        if (stayAtBottom) target.scrollTop = target.scrollHeight;
+      }
     } catch (_error) {
-      /* O log é diagnóstico auxiliar; nunca deve interferir na atualização. */
+      // O log é diagnóstico auxiliar; nunca interfere na atualização.
+    } finally {
+      refreshInFlight = false;
     }
   }
 
-  function bind(details = technicalDetails()) {
-    if (!details) return false;
-
-    if (!bound.has(details)) {
-      bound.add(details);
-      const preferred = storedOpenState();
-      if (preferred !== null && details.open !== preferred) details.open = preferred;
-      syncDisclosure(details);
-
-      // ÚNICO controlador do estado: o evento nativo <details> toggle.
-      // Não interceptamos click/keydown e nunca alternamos `open` manualmente.
-      details.addEventListener("toggle", () => {
-        persistOpenState(details);
-        syncDisclosure(details);
-        if (details.open) refreshTechnicalLog();
-      });
-    } else {
-      syncDisclosure(details);
-    }
-
-    return true;
-  }
-
-  function nodeContainsTechnicalDetails(node) {
-    if (!(node instanceof Element)) return false;
-    if (node.matches?.("details.updates-technical-log")) return true;
-    return Boolean(node.querySelector?.("details.updates-technical-log"));
-  }
-
-  function observeReplacement() {
-    const panel = $("#tab_panel_atualizacoes");
-    if (!panel || observer) return;
-    observer = new MutationObserver(records => {
-      // Observa somente substituição/adição de elementos. Mudanças de texto dos
-      // logs/progresso não disparam rebind nem alteram o estado da sanfona.
-      const replaced = records.some(record =>
-        Array.from(record.addedNodes || []).some(nodeContainsTechnicalDetails)
-      );
-      if (replaced) bind();
-    });
-    observer.observe(panel, {childList: true, subtree: true});
-  }
-
-  function startLogPolling() {
-    window.clearInterval(refreshTimer);
-    refreshTimer = window.setInterval(() => {
-      if (technicalDetails()?.open) refreshTechnicalLog();
-    }, 1400);
+  function startPolling() {
+    window.clearInterval(polling);
+    polling = window.setInterval(refreshTechnicalLog, 1600);
   }
 
   function boot() {
-    bind();
-    observeReplacement();
-    startLogPolling();
+    installStyles();
+    const details = ensureStableDetails();
+    if (!details) return;
+    startPolling();
 
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && stableDetails?.open) refreshTechnicalLog();
+    });
     document.addEventListener("crapscraper:main-tab-changed", event => {
-      if (String(event?.detail?.key || "") === "atualizacoes") bind();
+      if (String(event?.detail?.key || "") === "atualizacoes" && stableDetails?.open) {
+        refreshTechnicalLog();
+      }
     });
   }
 
