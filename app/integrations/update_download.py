@@ -72,8 +72,42 @@ class CanonicalPluginThemeDownloader(PluginThemeDownloader):
 class CanonicalSourceDownloader(SourceDownloader):
     """Um único seletor de fonte para preparação individual e em lote."""
 
+    def __init__(self, ultrapack: UltrapackDownloader, plugintheme: CanonicalPluginThemeDownloader) -> None:
+        super().__init__(ultrapack, plugintheme)
+        self._last_adapter: Any = None
+
+    def _select(self, url: str) -> Any:
+        adapter = self._for(url)
+        self._last_adapter = adapter
+        return adapter
+
+    @property
+    def request_trace(self) -> list[dict[str, Any]]:
+        if self._last_adapter is not None:
+            return list(getattr(self._last_adapter, "request_trace", None) or [])
+        return [
+            *list(getattr(self.ultrapack, "request_trace", None) or []),
+            *list(getattr(self.plugintheme, "request_trace", None) or []),
+        ]
+
+    @property
+    def last_download_diagnostic(self) -> dict[str, Any]:
+        if self._last_adapter is not None:
+            return dict(getattr(self._last_adapter, "last_download_diagnostic", None) or {})
+        for adapter in (self.plugintheme, self.ultrapack):
+            value = dict(getattr(adapter, "last_download_diagnostic", None) or {})
+            if value:
+                return value
+        return {}
+
     def authentication_probe(self, url: str) -> dict[str, Any]:
-        return self._for(url).authentication_probe(url)
+        return self._select(url).authentication_probe(url)
+
+    def inspect_product(self, url: str):
+        return self._select(url).inspect_product(url)
+
+    def download(self, url: str, staging_dir: str | Path):
+        return self._select(url).download(url, staging_dir)
 
 
 def build_canonical_source_downloader(ultrapack_session: Any, plugintheme_session: Any) -> CanonicalSourceDownloader:
