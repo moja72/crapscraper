@@ -34,10 +34,10 @@ def _download_diagnostic(preview: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def _category(message: str, diagnostic: Mapping[str, Any]) -> tuple[str, bool]:
     text = (message + " " + _clean(diagnostic.get("probable_cause"))).lower()
-    if any(term in text for term in ("sessão", "sessao", "autentic", "login", "401", "403")):
-        return "authentication", True
     if "cloudflare" in text:
         return "cloudflare", True
+    if any(term in text for term in ("sessão", "sessao", "autentic", "login", "401", "403")):
+        return "authentication", True
     if any(term in text for term in ("html", "magic bytes", "não corresponde a um zip", "nao corresponde a um zip")):
         return "download_invalid", False
     if any(term in text for term in ("download", "zip", "arquivo")):
@@ -49,6 +49,37 @@ def _category(message: str, diagnostic: Mapping[str, Any]) -> tuple[str, bool]:
     if any(term in text for term in ("rollback", "backup", "staging", "sha-256", "sha256")):
         return "filesystem", False
     return "validation", False
+
+
+def _display_lines(data: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    message = _clean(data.get("message"))
+    if message:
+        lines.append(message)
+    product = _clean(data.get("product"))
+    woo_id = int(data.get("woo_product_id") or 0)
+    if product:
+        lines.append(f"Produto: {product}" + (f" (Woo #{woo_id})" if woo_id else ""))
+    stage = _clean(data.get("stage"))
+    if stage:
+        lines.append(f"Etapa: {stage}")
+    source = _clean(data.get("source"))
+    if source:
+        lines.append(f"Fonte: {source}")
+    expected = _clean(data.get("expected_version"))
+    detected = _clean(data.get("detected_version"))
+    if expected or detected:
+        if expected and detected and expected != detected:
+            lines.append(f"Versão: esperada {expected}; detectada {detected}")
+        else:
+            lines.append(f"Versão: {detected or expected}")
+    attempt = int(data.get("attempt") or 0)
+    if attempt:
+        lines.append(f"Tentativa: {attempt}")
+    technical = _clean(data.get("technical_detail"))
+    if technical:
+        lines.append(technical)
+    return lines
 
 
 def normalize_update_error(
@@ -113,7 +144,7 @@ def normalize_update_error(
         or _value(job, "prepared_at")
     )
 
-    return {
+    result = {
         "message": message,
         "current_error": current_error,
         "diagnostics": diagnostics,
@@ -132,3 +163,10 @@ def normalize_update_error(
         "global_block": global_block,
         "has_error": bool(message),
     }
+    lines = _display_lines(result) if result["has_error"] else []
+    result["display_lines"] = lines
+    result["display_text"] = "\n".join(lines)
+    return result
+
+
+__all__ = ["normalize_update_error"]
