@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import os
 import sys
 import threading
@@ -45,8 +46,11 @@ from app.deferred_runtime_bootstrap import (
     start_runtime_recovery_background,
 )
 
-_RUNTIME_DEFER_INFO = defer_runtime_file_for_imports()
-print("[CrapScraper] Inicialização rápida: preparando a interface local…", flush=True)
+_RUNTIME_DEFER_INFO: dict[str, object] = {}
+if __name__ == "__main__":
+    _RUNTIME_DEFER_INFO = defer_runtime_file_for_imports()
+    atexit.register(restore_deferred_runtime_file)
+    print("[CrapScraper] Inicialização rápida: preparando a interface local…", flush=True)
 
 from app.app import ScraperApp
 from app.resume_policy import install_resume_policy
