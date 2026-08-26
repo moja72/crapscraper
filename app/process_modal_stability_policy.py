@@ -36,6 +36,8 @@ from app.operational_simple_flow_execution_policy import (
 )
 from app.update_history_retry_policy import install_update_history_retry_policy
 from app.update_recoverability_policy import install_update_recoverability_policy
+from app.update_metadata_preflight_policy import install_update_metadata_preflight_policy
+from app.server_manager_binding_policy import install_server_manager_binding_policy
 from app.startup_fast_path_policy import install_startup_fast_path_policy
 from app.startup_remote_io_guard_policy import install_startup_remote_io_guard_policy
 
@@ -95,19 +97,8 @@ def install_process_modal_stability_policy() -> None:
     if _INSTALLED:
         return
 
-    # This policy is installed immediately after download contract v2 in main.py.
-    # Attach the final store-validation bridge here so the legacy REST projection
-    # cannot overwrite/reject the authoritative local download contract.
     install_addition_download_validation_bridge_policy()
-
-    # PluginTheme bundles can expose their entitlement with a different explicit
-    # access flag and renewed profiles may store the bearer token as a raw value.
-    # Install this after all addition/session wrappers so Retry uses the upgraded
-    # token reader and authorization contract without rebuilding prepared stages.
     install_addition_plugintheme_entitlement_recovery_policy()
-
-    # Regra permanente: o produto agregado "500 CodeCanyon Plugins" nunca deve
-    # entrar no fluxo Adicionar, mesmo que um registro antigo não tenha URL salva.
     install_addition_pack_ignore_policy()
 
     # Atualizações normais passam a comparar PluginTheme e UltraPackV2 ao vivo e
@@ -122,63 +113,41 @@ def install_process_modal_stability_policy() -> None:
     # o plano e uma rematerialização não pode rebaixar a versão descoberta ao vivo.
     install_update_prepare_plan_reliability_policy()
 
-    # Comparação > Gerenciar catálogos PluginTema: adiciona atualização in-place,
-    # cache incremental do WooCommerce e preservação dos filtros/categorias nativos.
     install_plugintema_catalog_refresh_policy()
-
-    # Loja > Preços: serve planos e packs a partir de cache persistente, mantém uma
-    # cópia visual no navegador e só consulta o WooCommerce em background quando
-    # ainda não há cache ou quando o usuário pede explicitamente uma atualização.
     install_store_pricing_cache_policy()
-
-    # Resumo superior compartilhado entre Atualizar e Adicionar.
     install_operational_overview_standardization_policy()
-
-    # As duas listas de aprovados usam o mesmo componente visual e operacional.
     install_preparation_standardization_policy()
-
-    # A infraestrutura de fila continua ativa por baixo para compatibilidade e
-    # persistência, mas a camada canônica abaixo a remove da experiência visível.
     install_queue_standardization_policy()
-
-    # O gerenciador de Listas de Adições continua disponível internamente para
-    # compatibilidade dos dados existentes, sem fazer parte do fluxo principal.
     install_list_manager_standardization_policy()
     install_list_manager_visual_polish_policy()
 
     _BASE_RENDER = web.render_panel_page
     web.render_panel_page = _patched_render_panel_page
 
-    # Histórico permanece como área final comum das duas operações.
     install_history_standardization_policy()
-
-    # A v2 precisa ser instalada ANTES da policy v1: seu script é renderizado
-    # primeiro e marca a antiga camada visual como instalada. A policy v1 ainda
-    # instala somente o backend /operacoes/simples/* e suas travas de segurança.
     install_operational_simple_flow_v2_policy()
     install_operational_simple_flow_policy()
-
-    # O fluxo canônico recupera uma única vez falhas transitórias de sessão e
-    # staging, sem repetir execução remota nem afrouxar as travas do helper.
     install_operational_simple_flow_recovery_policy()
-
-    # A camada final preserva todas as travas e, se alguma pré-condição bloquear,
-    # informa exatamente qual predicado falhou em vez da mensagem genérica.
     install_operational_simple_flow_execution_policy()
-
-    # Erros do histórico de atualização reutilizam o mesmo fluxo seguro em uma
-    # nova tentativa e, quando concluem, migram naturalmente para Concluídos.
     install_update_history_retry_policy()
 
     # Abertura do painel: não releia catálogos/logs de todos os runs antes do
     # socket HTTP existir. A hidratação do contexto ativo ocorre em background.
     install_startup_fast_path_policy()
 
-    # Camada final do fluxo Atualizar: ao testar novamente, descarta preview/plano
-    # obsoletos, revalida a fonte ao vivo, reaproveita staging só por SHA+versão,
-    # permite reconstruir ZIP de produção ausente e corrige metadados antigos sem
-    # afrouxar a regra de nunca instalar uma versão menor que a do PluginTema.
-    # Também consolida os logs e estabiliza a UI de retry/log técnico.
+    # Camada final do fluxo Atualizar: retry é uma nova tentativa real, não uma
+    # simples repetição do preview antigo. Revalida fonte/WooCommerce, reaproveita
+    # ZIP local só com SHA+versão, permite reconstruir arquivo remoto ausente e
+    # consolida os logs de preparação + execução + tentativas anteriores.
     install_update_recoverability_policy()
+
+    # Mesmo quando owner/group/mode não chegaram ao preview, o helper faz um
+    # inspect read-only antes da troca. Erros puramente de metadados são migrados
+    # para a estratégia transacional controlada, sem exigir correção manual.
+    install_update_metadata_preflight_policy()
+
+    # As rotas finais de retry precisam do mesmo ScraperRunManager capturado pelo
+    # Handler original para reutilizar sessões do navegador e contexto ativo.
+    install_server_manager_binding_policy()
 
     _INSTALLED = True
