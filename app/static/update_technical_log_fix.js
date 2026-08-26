@@ -4,10 +4,14 @@
   if (window.__crapScraperUpdateTechnicalLogFixInstalled) return;
   window.__crapScraperUpdateTechnicalLogFixInstalled = true;
 
+  const SELECTOR = "#tab_panel_atualizacoes details.updates-technical-log";
+  const STATE_KEY = "crapscraper:update-technical-log:open:v3";
+  const bound = new WeakSet();
   const $ = (selector, root = document) => root?.querySelector?.(selector) || null;
   const clean = value => String(value ?? "").replace(/\s+/g, " ").trim();
   let lastJobId = "";
   let refreshTimer = null;
+  let observer = null;
 
   async function requestJson(url, timeoutMs = 9000) {
     const controller = new AbortController();
@@ -29,7 +33,20 @@
   }
 
   function technicalDetails() {
-    return $("#tab_panel_atualizacoes details.updates-technical-log");
+    return $(SELECTOR);
+  }
+
+  function storedOpenState() {
+    try {
+      const value = sessionStorage.getItem(STATE_KEY);
+      return value === "1" ? true : value === "0" ? false : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function persistOpenState(details) {
+    try { sessionStorage.setItem(STATE_KEY, details.open ? "1" : "0"); } catch (_error) {}
   }
 
   function syncDisclosure(details) {
@@ -41,12 +58,8 @@
     if (title && clean(title.textContent) !== "Logs da atualização") {
       title.textContent = "Logs da atualização";
     }
-    const chevronText = details.open ? "▾" : "▸";
-    const expanded = details.open ? "true" : "false";
-    if (chevron && chevron.textContent !== chevronText) chevron.textContent = chevronText;
-    if (summary.getAttribute("aria-expanded") !== expanded) {
-      summary.setAttribute("aria-expanded", expanded);
-    }
+    if (chevron) chevron.textContent = details.open ? "▾" : "▸";
+    summary.setAttribute("aria-expanded", details.open ? "true" : "false");
   }
 
   function resolveBatchJobId(batch) {
@@ -88,63 +101,64 @@
     }
   }
 
-  function startLogPolling() {
-    window.clearInterval(refreshTimer);
-    refreshTechnicalLog();
-    refreshTimer = window.setInterval(() => {
-      const details = technicalDetails();
-      if (details?.open) refreshTechnicalLog();
-    }, 1400);
-  }
-
-  function bindTechnicalAccordion() {
-    const details = technicalDetails();
+  function bind(details = technicalDetails()) {
     if (!details) return false;
-    const summary = $(":scope > summary", details);
-    if (!summary) return false;
 
-    syncDisclosure(details);
-    if (details.dataset.csTechnicalLogFixed === "1") return true;
-    details.dataset.csTechnicalLogFixed = "1";
-
-    // Algumas camadas de padronização antigas interceptam/reconstroem accordions.
-    // O listener em captura torna esta sanfona determinística: um clique = um toggle.
-    summary.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      details.open = !details.open;
+    if (!bound.has(details)) {
+      bound.add(details);
+      const preferred = storedOpenState();
+      if (preferred !== null && details.open !== preferred) details.open = preferred;
       syncDisclosure(details);
-      if (details.open) refreshTechnicalLog();
-    }, true);
 
-    summary.addEventListener("keydown", event => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      details.open = !details.open;
+      // ÚNICO controlador do estado: o evento nativo <details> toggle.
+      // Não interceptamos click/keydown e nunca alternamos `open` manualmente.
+      details.addEventListener("toggle", () => {
+        persistOpenState(details);
+        syncDisclosure(details);
+        if (details.open) refreshTechnicalLog();
+      });
+    } else {
       syncDisclosure(details);
-      if (details.open) refreshTechnicalLog();
-    }, true);
-
-    details.addEventListener("toggle", () => {
-      syncDisclosure(details);
-      if (details.open) refreshTechnicalLog();
-    });
+    }
 
     return true;
   }
 
+  function nodeContainsTechnicalDetails(node) {
+    if (!(node instanceof Element)) return false;
+    if (node.matches?.("details.updates-technical-log")) return true;
+    return Boolean(node.querySelector?.("details.updates-technical-log"));
+  }
+
+  function observeReplacement() {
+    const panel = $("#tab_panel_atualizacoes");
+    if (!panel || observer) return;
+    observer = new MutationObserver(records => {
+      // Observa somente substituição/adição de elementos. Mudanças de texto dos
+      // logs/progresso não disparam rebind nem alteram o estado da sanfona.
+      const replaced = records.some(record =>
+        Array.from(record.addedNodes || []).some(nodeContainsTechnicalDetails)
+      );
+      if (replaced) bind();
+    });
+    observer.observe(panel, {childList: true, subtree: true});
+  }
+
+  function startLogPolling() {
+    window.clearInterval(refreshTimer);
+    refreshTimer = window.setInterval(() => {
+      if (technicalDetails()?.open) refreshTechnicalLog();
+    }, 1400);
+  }
+
   function boot() {
-    bindTechnicalAccordion();
+    bind();
+    observeReplacement();
     startLogPolling();
 
     document.addEventListener("crapscraper:main-tab-changed", event => {
-      if (String(event?.detail?.key || "") === "atualizacoes") bindTechnicalAccordion();
+      if (String(event?.detail?.key || "") === "atualizacoes") bind();
     });
-    $("#tab_btn_atualizacoes")?.addEventListener("click", () => {
-      window.setTimeout(bindTechnicalAccordion, 0);
-    });
-    window.setInterval(bindTechnicalAccordion, 1200);
   }
 
   if (document.readyState === "loading") {
