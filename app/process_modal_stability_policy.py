@@ -34,6 +34,8 @@ from app.operational_simple_flow_recovery_policy import (
 from app.operational_simple_flow_execution_policy import (
     install_operational_simple_flow_execution_policy,
 )
+from app.update_history_retry_policy import install_update_history_retry_policy
+from app.startup_fast_path_policy import install_startup_fast_path_policy
 
 
 _INSTALLED = False
@@ -49,8 +51,8 @@ _PROCESS_HISTORY_OBSERVER_BOOT = (
 )
 _PROCESS_HISTORY_SAFE_BOOT = (
     "    decorateModal();\n"
-    "    // Sem MutationObserver global: o polling leve abaixo mantém créditos e histórico atualizados.\n"
-    "    window.setTimeout(pollCredits, 900);"
+    "    // Sem MutationObserver global e sem consulta autenticada no boot.\n"
+    "    // Créditos/histórico são carregados somente quando Processos é aberto."
 )
 
 
@@ -66,11 +68,9 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
 
-    # process_history_credits.js já possui polling periódico suficiente para
-    # manter créditos e histórico sincronizados. O MutationObserver global sobre
-    # document.documentElement reage às próprias mutações do painel e, em algumas
-    # combinações de scripts, pode formar um ciclo de microtasks que impede até os
-    # timers e cliques de rodarem. Removemos apenas a ativação desse observer.
+    # Defesa para checkouts que ainda carreguem uma versão antiga do bridge de
+    # Processos: nenhum MutationObserver global nem consulta autenticada de
+    # créditos deve ser iniciada durante a abertura do painel.
     html = html.replace(_PROCESS_HISTORY_OBSERVER_BOOT, _PROCESS_HISTORY_SAFE_BOOT)
 
     block = _script_block(_SCRIPT_PATH, "data-process-modal-stability")
@@ -155,5 +155,15 @@ def install_process_modal_stability_policy() -> None:
     # A camada final preserva todas as travas e, se alguma pré-condição bloquear,
     # informa exatamente qual predicado falhou em vez da mensagem genérica.
     install_operational_simple_flow_execution_policy()
+
+    # Erros do histórico de atualização reutilizam o mesmo fluxo seguro em uma
+    # nova tentativa e, quando concluem, migram naturalmente para Concluídos.
+    install_update_history_retry_policy()
+
+    # Abertura do painel: não releia catálogos/logs de todos os runs antes do
+    # socket HTTP existir. A hidratação do contexto ativo ocorre em background.
+    # Instalada por último para também neutralizar probes remotos adicionados por
+    # wrappers visuais anteriores.
+    install_startup_fast_path_policy()
 
     _INSTALLED = True
