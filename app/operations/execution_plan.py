@@ -37,6 +37,26 @@ def _require(value: Any, label: str) -> Any:
     return value
 
 
+def _prepared_local_path(job: OperationalJob, fresh: Mapping[str, Any]) -> str:
+    """Resolve o staging local entre formatos atuais/legados sem aceitar artefato sem prova."""
+    for key in ("path", "local_staging_path", "local_path"):
+        value = str(fresh.get(key) or "").strip()
+        if value:
+            return value
+
+    job_path = str(getattr(job, "local_staging_path", "") or "").strip()
+    job_sha = str(getattr(job, "new_sha256", "") or "").strip().lower()
+    preview_sha = str(fresh.get("sha256") or "").strip().lower()
+    if job_path and job_sha and preview_sha and job_sha == preview_sha:
+        return job_path
+
+    raise ValueError(
+        "Preview preparado não possui caminho local do novo ZIP. "
+        "O staging salvo não pôde ser associado com segurança ao SHA-256 do ZIP; "
+        "execute Preparar novamente para reconstruí-lo."
+    )
+
+
 def build_execution_plan(
     job: OperationalJob,
     preview: Mapping[str, Any],
@@ -70,7 +90,7 @@ def build_execution_plan(
 
     log("📥 Registrando ZIP preparado")
     fresh = dict(preview.get("new_zip") or {})
-    local_path = str(_require(fresh.get("path"), "caminho local do novo ZIP"))
+    local_path = _prepared_local_path(job, fresh)
     new_sha = str(_require(fresh.get("sha256"), "SHA-256 do novo ZIP"))
     entries = int(fresh.get("entries") or 0)
     if entries <= 0:
