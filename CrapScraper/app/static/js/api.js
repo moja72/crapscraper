@@ -1,0 +1,2 @@
+export async function request(path, options={}){const response=await fetch(path,{headers:{"Content-Type":"application/json"},...options});const data=await response.json();if(!response.ok||data.ok===false)throw new Error(data.message||`HTTP ${response.status}`);return data}
+export const get=path=>request(path);export const post=(path,body={})=>request(path,{method:"POST",body:JSON.stringify(body)});
