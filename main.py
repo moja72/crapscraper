@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import atexit
 import os
 import sys
+import threading
 
 from app.configuration import WINDOWS_USER_ENVIRONMENT_KEYS
 
@@ -34,11 +36,21 @@ def load_windows_user_environment() -> dict[str, bool]:
 
 load_windows_user_environment()
 
-from app.operations.runtime_repair import repair_update_runtime
-from app.operations.transient_recovery import recover_interrupted_preparations
+# update_runtime.json pode crescer bastante porque guarda jobs, planos, previews,
+# logs e histórico. app.operations.runtime ainda restaura esse arquivo no import.
+# Para que a porta 8765 não dependa desse I/O, escondemos o arquivo por rename
+# atômico durante os imports e o recolocamos antes da recuperação em background.
+from app.deferred_runtime_bootstrap import (
+    defer_runtime_file_for_imports,
+    restore_deferred_runtime_file,
+    start_runtime_recovery_background,
+)
 
-repair_update_runtime()
-recover_interrupted_preparations()
+_RUNTIME_DEFER_INFO: dict[str, object] = {}
+if __name__ == "__main__":
+    _RUNTIME_DEFER_INFO = defer_runtime_file_for_imports()
+    atexit.register(restore_deferred_runtime_file)
+    print("[CrapScraper] Inicialização rápida: preparando a interface local…", flush=True)
 
 from app.app import ScraperApp
 from app.resume_policy import install_resume_policy
@@ -83,6 +95,7 @@ from app.addition_developer_resolution_fix_policy import install_addition_develo
 from app.addition_capture_pipeline_resilience_policy import install_addition_capture_pipeline_resilience_policy
 from app.addition_download_contract_v2_policy import install_addition_download_contract_v2_policy
 from app.process_modal_stability_policy import install_process_modal_stability_policy
+from app.startup_runtime_gate_policy import install_startup_runtime_gate_policy
 from app.models import ScraperContext, build_context
 from app.storage import (
     build_context_paths,
@@ -92,6 +105,7 @@ from app.storage import (
     load_slots_meta,
 )
 from app.web import serve
+import app.web as web_module
 
 install_resume_policy()
 install_update_recovery_policy()
@@ -169,6 +183,9 @@ install_addition_capture_pipeline_resilience_policy()
 install_addition_download_contract_v2_policy()
 # Processos: evita repintura completa do modal a cada segundo e preserva histórico/scroll durante atualizações reais.
 install_process_modal_stability_policy()
+# Startup: enquanto o runtime persistido é restaurado em background, somente escritas
+# de atualização ficam bloqueadas; o restante do painel abre normalmente.
+install_startup_runtime_gate_policy()
 
 
 def prepare_environment(slot_name: str | None = None) -> str:
@@ -195,10 +212,61 @@ def build_app(
     return ScraperApp(context=context, auto_load_summary=auto_load_summary)
 
 
+def _restore_environment_value(key: str, original: str | None) -> None:
+    if original is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = original
+
+
 def main() -> None:
     load_windows_user_environment()
     app = build_app()
-    serve(app)
+
+    # O worker WordPress também usa o runtime de atualizações. Ele só deve começar
+    # depois que o estado persistido tiver sido reparado e hidratado em memória.
+    polling_key = "SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED"
+    original_polling = os.environ.get(polling_key)
+    os.environ[polling_key] = "0"
+    environment_lock = threading.RLock()
+
+    def restore_polling_setting() -> None:
+        with environment_lock:
+            _restore_environment_value(polling_key, original_polling)
+
+    def runtime_ready() -> None:
+        restore_polling_setting()
+        try:
+            manager = web_module._ensure_manager(app)
+            web_module._start_wordpress_manual_worker(manager)
+        except Exception as error:
+            print(f"[CrapScraper] Monitor WordPress não pôde iniciar após o boot: {error}", flush=True)
+        print("[CrapScraper] Histórico operacional restaurado em segundo plano.", flush=True)
+
+    def runtime_error(error: BaseException) -> None:
+        restore_polling_setting()
+        print(
+            "[CrapScraper] Falha ao restaurar o histórico operacional; "
+            f"atualizações permanecerão bloqueadas: {type(error).__name__}: {error}",
+            flush=True,
+        )
+
+    # Esta função recoloca update_runtime.json imediatamente, porém toda leitura,
+    # reparo e migração pesada começa só depois de uma pequena janela para o socket
+    # HTTP ser criado. A UI final bloqueia POSTs de atualização enquanto isso.
+    start_runtime_recovery_background(
+        delay_seconds=1.25,
+        on_ready=runtime_ready,
+        on_error=runtime_error,
+    )
+
+    try:
+        serve(app)
+    finally:
+        # Se o processo for encerrado durante os imports/boot, nunca deixe o arquivo
+        # persistido preso com o sufixo .boot-deferred.
+        restore_deferred_runtime_file()
+        restore_polling_setting()
 
 
 if __name__ == "__main__":
