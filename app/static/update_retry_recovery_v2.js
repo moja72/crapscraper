@@ -5,12 +5,8 @@
   window.__crapScraperUpdateRetryRecoveryV2Installed = true;
 
   const RETRY_ATTR = "data-update-history-retry";
-  const TECHNICAL_SELECTOR = "#tab_panel_atualizacoes details.updates-technical-log";
-  const TECHNICAL_STATE_KEY = "crapscraper:update-technical-log:open:v2";
   const POLL_MS = 850;
   const TIMEOUT_MS = 35 * 60 * 1000;
-  let technicalRefreshTimer = 0;
-  let lastTechnicalJobId = "";
 
   const $ = (selector, root = document) => root?.querySelector?.(selector) || null;
   const clean = value => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -25,7 +21,6 @@
       #updates_history_accordion .cs-retry-feedback{grid-column:1/-1;margin-top:7px;padding:8px 10px;border-radius:7px;font-size:12px;line-height:1.4;background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.30)}
       #updates_history_accordion .cs-retry-feedback.is-success{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.36)}
       #updates_history_accordion .cs-retry-feedback.is-error{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.38)}
-      ${TECHNICAL_SELECTOR} > summary{cursor:pointer;user-select:none}
     `;
     document.head.appendChild(style);
   }
@@ -140,121 +135,19 @@
     }
   }
 
-  function technicalDetails() {
-    return $(TECHNICAL_SELECTOR);
-  }
-
-  function persistTechnicalOpen(details) {
-    try { sessionStorage.setItem(TECHNICAL_STATE_KEY, details?.open ? "1" : "0"); } catch (_error) {}
-  }
-
-  function desiredTechnicalOpen() {
-    try { return sessionStorage.getItem(TECHNICAL_STATE_KEY) === "1"; } catch (_error) { return false; }
-  }
-
-  function syncTechnicalHeader(details) {
-    if (!details) return;
-    const summary = $(":scope > summary", details);
-    const chevron = $(".updates-disclosure-chevron", summary);
-    const title = $(".section-title", summary);
-    if (title && clean(title.textContent) !== "Logs da atualização") title.textContent = "Logs da atualização";
-    if (chevron) chevron.textContent = details.open ? "▾" : "▸";
-    summary?.setAttribute("aria-expanded", details.open ? "true" : "false");
-  }
-
-  function toggleTechnical(details) {
-    if (!details) return;
-    details.open = !details.open;
-    persistTechnicalOpen(details);
-    syncTechnicalHeader(details);
-    if (details.open) refreshTechnicalLog();
-  }
-
-  function resolveBatchJobId(batch) {
-    const current = clean(batch?.current_job_id);
-    if (current) return current;
-    const results = Array.isArray(batch?.results) ? batch.results : [];
-    for (let index = results.length - 1; index >= 0; index -= 1) {
-      const jobId = clean(results[index]?.job_id);
-      if (jobId) return jobId;
-    }
-    return "";
-  }
-
-  async function refreshTechnicalLog() {
-    const details = technicalDetails();
-    const target = $("#updates_log");
-    if (!details?.open || !target) return;
-    try {
-      const status = await request("/operacoes/simples/status", {timeoutMs: 7000});
-      const current = resolveBatchJobId(status?.update);
-      if (current) lastTechnicalJobId = current;
-      if (!lastTechnicalJobId) {
-        target.textContent = "Selecione, execute ou teste novamente uma atualização para exibir o log técnico completo.";
-        return;
-      }
-      const payload = await request(`/atualizacoes/logs?job_id=${encodeURIComponent(lastTechnicalJobId)}`, {timeoutMs: 7000});
-      const logs = Array.isArray(payload?.logs) ? payload.logs : [];
-      target.textContent = logs.length ? logs.join("\n") : "Nenhum evento técnico registrado para esta atualização.";
-      target.scrollTop = target.scrollHeight;
-    } catch (_error) {
-      /* Log auxiliar nunca interfere no executor. */
-    }
-  }
-
-  function restoreTechnicalState() {
-    const details = technicalDetails();
-    if (!details) return;
-    if (desiredTechnicalOpen()) details.open = true;
-    syncTechnicalHeader(details);
-    if (details.open) refreshTechnicalLog();
-  }
-
-  function startTechnicalRefresh() {
-    window.clearInterval(technicalRefreshTimer);
-    technicalRefreshTimer = window.setInterval(() => {
-      if (technicalDetails()?.open) refreshTechnicalLog();
-    }, 1800);
-  }
-
-  // Captura no WINDOW: executa antes dos listeners antigos de document/summary.
-  // Assim um clique nunca chega a duas implementações diferentes de toggle/retry.
-  window.addEventListener("click", event => {
+  // Esta policy cuida SOMENTE de retry. A sanfona de log pertence exclusivamente
+  // a update_technical_log_fix.js; manter dois controladores para o mesmo <details>
+  // fazia o clique abrir e fechar no mesmo ciclo de evento.
+  document.addEventListener("click", event => {
     const retry = event.target?.closest?.(`[${RETRY_ATTR}]`);
-    if (retry) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      retryFromHistory(retry);
-      return;
-    }
-
-    const summary = event.target?.closest?.(`${TECHNICAL_SELECTOR} > summary`);
-    if (summary) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      toggleTechnical(summary.parentElement);
-    }
-  }, true);
-
-  window.addEventListener("keydown", event => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const summary = event.target?.closest?.(`${TECHNICAL_SELECTOR} > summary`);
-    if (!summary) return;
+    if (!retry) return;
     event.preventDefault();
-    event.stopImmediatePropagation();
-    toggleTechnical(summary.parentElement);
-  }, true);
+    event.stopPropagation();
+    retryFromHistory(retry);
+  });
 
   function boot() {
     installStyle();
-    restoreTechnicalState();
-    startTechnicalRefresh();
-
-    document.addEventListener("crapscraper:main-tab-changed", event => {
-      if (clean(event?.detail?.key) !== "atualizacoes") return;
-      window.setTimeout(restoreTechnicalState, 30);
-    });
-    $("#tab_btn_atualizacoes")?.addEventListener("click", () => window.setTimeout(restoreTechnicalState, 30));
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, {once:true});
