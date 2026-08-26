@@ -36,6 +36,15 @@ from app.operational_simple_flow_execution_policy import (
 )
 from app.update_history_retry_policy import install_update_history_retry_policy
 from app.startup_fast_path_policy import install_startup_fast_path_policy
+from app.startup_remote_io_guard_policy import install_startup_remote_io_guard_policy
+
+
+# Este módulo é importado por main.py antes da sequência de install_* começar.
+# A proteção precisa entrar AQUI, e não dentro de install_process_modal_stability_policy,
+# porque addition_operational_ui_policy faz uma sincronização durante sua própria
+# instalação e o contrato de downloads a transformava em dezenas de requests
+# WooCommerce/SSH antes de a porta 8765 existir.
+install_startup_remote_io_guard_policy()
 
 
 _INSTALLED = False
