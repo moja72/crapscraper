@@ -20,7 +20,12 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/updates/job": lambda: services.updates.job(str(query.get("job_id") or "")),
         "/api/updates/history": lambda: services.updates.job(str(query.get("job_id") or "")),
         "/api/updates/logs": lambda: services.updates.job(str(query.get("job_id") or "")),
-        "/api/add": lambda: services.domains.jobs("approve_new_product"),
+        "/api/add": lambda: services.additions.list(query),
+        "/api/additions": lambda: services.additions.list(query),
+        "/api/additions/jobs": lambda: services.additions.list(query),
+        "/api/additions/job": lambda: services.additions.job(str(query.get("job_id") or "")),
+        "/api/additions/history": lambda: services.additions.job(str(query.get("job_id") or "")),
+        "/api/additions/logs": lambda: services.additions.job(str(query.get("job_id") or "")),
         "/api/store": services.domains.store,
     }
     if path not in routes: raise KeyError(path)
@@ -41,6 +46,11 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/updates/retry": return services.updates.retry(str(payload.get("job_id") or ""))
     if path == "/api/updates/batch/start": return services.updates.batch_start(list(payload.get("job_ids") or []))
     if path in {"/api/updates/batch/pause","/api/updates/batch/resume","/api/updates/batch/cancel"}: return services.updates.batch_control(path.rsplit("/",1)[-1])
+    if path == "/api/additions/materialize": return services.additions.materialize()
+    if path == "/api/additions/execute": return services.additions.execute(str(payload.get("job_id") or ""))
+    if path == "/api/additions/retry": return services.additions.retry(str(payload.get("job_id") or ""))
+    if path == "/api/additions/batch/start": return services.additions.batch_start(list(payload.get("job_ids") or []))
+    if path in {"/api/additions/batch/pause","/api/additions/batch/resume","/api/additions/batch/cancel"}: return services.additions.batch_control(path.rsplit("/",1)[-1])
     if path == "/api/store/monitor":
         return services.domains.monitor(bool(payload.get("enabled")))
     raise KeyError(path)

@@ -33,6 +33,7 @@ td small,.job-facts small,.history-item small{display:block;color:var(--muted)}
 .job-facts span{padding:5px 9px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
 .history-item{padding:10px 0;border-bottom:1px solid var(--border)}
 .error-text{color:#fecaca}
+.details-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}.details-grid div{min-width:0}.details-grid dt{color:var(--muted);font-size:13px}.details-grid dd{margin:2px 0;overflow-wrap:anywhere}
 .panel{margin:12px 0}
 .panel h2{margin-top:0;font-size:18px}
 label{display:grid;gap:5px;color:var(--muted)}
