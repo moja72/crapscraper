@@ -1,16 +1,21 @@
 """Descoberta e download autenticado de ZIPs do Ultrapack para staging local."""
 from __future__ import annotations
 
-import hashlib
 import re
 import time
-import zipfile
 from dataclasses import asdict, dataclass
 from html import unescape
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
+from app.integrations.download_validation import (
+    InvalidDownloadPayload,
+    extract_distinct_download_candidate,
+    safe_url,
+    validate_zip_file,
+    write_validated_zip_response,
+)
 from app.integrations.wordpress import IntegrationError, sanitize_text
 
 
@@ -28,7 +33,9 @@ class LocalZipArtifact:
 
 
 class UltrapackDownloadError(IntegrationError):
-    pass
+    def __init__(self, message: str, *, diagnostic: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic = dict(diagnostic or {})
 
 
 class UltrapackDownloader:
@@ -42,6 +49,7 @@ class UltrapackDownloader:
         self.retry_delay = max(0.0, float(retry_delay))
         self.max_bytes = int(max_bytes)
         self.request_trace: list[dict[str, Any]] = []
+        self.last_download_diagnostic: dict[str, Any] = {}
 
     def _record_response(self, stage: str, requested_url: str, response: Any) -> None:
         history = list(getattr(response, "history", None) or []) + [response]
@@ -53,12 +61,18 @@ class UltrapackDownloader:
             for item in history
         ]
         cookies = []
-        for cookie in getattr(getattr(self.session, "cookies", None), "__iter__", lambda: [])():
-            cookies.append({
-                "name": str(getattr(cookie, "name", "") or ""),
-                "domain": str(getattr(cookie, "domain", "") or ""),
-                "path": str(getattr(cookie, "path", "") or "/"),
-            })
+        cookie_jar = getattr(self.session, "cookies", None)
+        if cookie_jar is not None:
+            try:
+                iterator = iter(cookie_jar)
+            except TypeError:
+                iterator = iter(())
+            for cookie in iterator:
+                cookies.append({
+                    "name": str(getattr(cookie, "name", "") or ""),
+                    "domain": str(getattr(cookie, "domain", "") or ""),
+                    "path": str(getattr(cookie, "path", "") or "/"),
+                })
         headers = getattr(self.session, "headers", {}) or {}
         self.request_trace.append({
             "stage": stage,
@@ -75,23 +89,33 @@ class UltrapackDownloader:
             "referer": self._safe_source_url(str(headers.get("Referer", "") or "")),
             "user_agent_present": bool(str(headers.get("User-Agent", "") or "")),
         })
-        self.request_trace[:] = self.request_trace[-20:]
+        self.request_trace[:] = self.request_trace[-30:]
 
-    def _get(self, url: str, *, stream: bool = False, stage: str = "request") -> Any:
+    def _get(
+        self,
+        url: str,
+        *,
+        stream: bool = False,
+        stage: str = "request",
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
-                response = self.session.get(url, timeout=self.timeout, stream=stream,
-                                            allow_redirects=True)
+                response = self.session.get(
+                    url,
+                    timeout=self.timeout,
+                    stream=stream,
+                    allow_redirects=True,
+                    headers=dict(headers or {}),
+                )
                 self._record_response(stage, url, response)
-                if int(response.status_code) >= 400:
+                status = int(response.status_code)
+                if status >= 400:
                     error = UltrapackDownloadError(
-                        f"HTTP {response.status_code} em {stage}: {self._safe_source_url(url)}"
+                        f"HTTP {status} em {stage}: {self._safe_source_url(url)}"
                     )
-                    # 401/403 invalidate the authenticated discovery chain. Retrying
-                    # the same one-time URL cannot recover it; the outer workflow
-                    # must discard the session, reload the product and rediscover it.
-                    if int(response.status_code) in {401, 403}:
+                    if status in {401, 403}:
                         raise error from None
                     raise error
                 return response
@@ -104,33 +128,48 @@ class UltrapackDownloader:
                 if attempt >= self.retries:
                     break
                 time.sleep(self.retry_delay)
+        if isinstance(last, UltrapackDownloadError):
+            raise last
         raise UltrapackDownloadError("Falha no download Ultrapack: " + sanitize_text(last)) from None
 
     @staticmethod
     def discover_download_url(product_url: str, html: str) -> str:
-        # O botao real nao aponta para um ZIP. O JavaScript do Ultrapack le
-        # data-f de .single-bt-download-a e navega para a pagina atual com ?f=.
         tags = re.findall(r'''<a\b[^>]*>''', html, re.I)
         for tag in tags:
             class_match = re.search(r'''\bclass\s*=\s*["']([^"']*)["']''', tag, re.I)
             classes = (class_match.group(1).lower().split() if class_match else [])
             if "single-bt-download-a" not in classes:
                 continue
+
+            for attribute in ("href", "data-url", "data-download"):
+                match = re.search(rf'''\b{attribute}\s*=\s*["']([^"']+)["']''', tag, re.I)
+                if not match:
+                    continue
+                raw = unescape(match.group(1)).strip()
+                if raw and not raw.startswith(("#", "javascript:")):
+                    resolved = urljoin(product_url, raw)
+                    if resolved != product_url:
+                        return resolved
+
             token_match = re.search(r'''\bdata-f\s*=\s*["']([^"']+)["']''', tag, re.I)
             if not token_match:
-                raise UltrapackDownloadError("Botao de download sem identificador data-f")
+                raise UltrapackDownloadError("Botão de download sem URL ou identificador data-f")
             identifier = unescape(token_match.group(1)).strip()
             if not identifier:
-                raise UltrapackDownloadError("Botao de download com identificador vazio")
+                raise UltrapackDownloadError("Botão de download com identificador vazio")
             parts = urlsplit(product_url)
             query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
                      if key != "f"]
             query.append(("f", identifier))
             return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
-        raise UltrapackDownloadError("Botao real de download nao encontrado no produto autenticado")
+        raise UltrapackDownloadError("Botão real de download não encontrado no produto autenticado")
 
     def inspect_product(self, product_url: str) -> tuple[str, str]:
-        response = self._get(product_url, stage="authenticated_product_page")
+        response = self._get(
+            product_url,
+            stage="authenticated_product_page",
+            headers={"Referer": self._origin(product_url)},
+        )
         html = response.text
         version = ""
         patterns = (
@@ -145,11 +184,25 @@ class UltrapackDownloader:
                 break
         return self.discover_download_url(product_url, html), version
 
+    def authentication_probe(self, product_url: str) -> dict[str, Any]:
+        download_url, version = self.inspect_product(product_url)
+        if not download_url:
+            raise UltrapackDownloadError("Sessão não expôs um download autorizado no produto")
+        return {
+            "authenticated": True,
+            "version": version,
+            "download_url": self._safe_source_url(download_url),
+            "proof": "authenticated_product_with_download_control",
+        }
+
+    @staticmethod
+    def _origin(url: str) -> str:
+        parts = urlsplit(str(url or ""))
+        return f"{parts.scheme}://{parts.netloc}/" if parts.scheme and parts.netloc else ""
+
     @staticmethod
     def _safe_source_url(url: str) -> str:
-        parts = urlsplit(str(url or ""))
-        keys = [(key, "[redacted]") for key, _value in parse_qsl(parts.query, keep_blank_values=True)]
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(keys), ""))
+        return safe_url(url)
 
     @staticmethod
     def _response_file_name(response: Any, fallback_url: str) -> str:
@@ -165,45 +218,79 @@ class UltrapackDownloader:
     @staticmethod
     def validate_zip(path: Path, *, source_url: str = "") -> LocalZipArtifact:
         if path.suffix.lower() != ".zip":
-            raise UltrapackDownloadError("Arquivo baixado nao possui extensao .zip")
-        size = path.stat().st_size if path.exists() else 0
-        if size <= 0:
-            raise UltrapackDownloadError("Download vazio")
-        head = path.read_bytes()[:512].lstrip().lower()
-        if head.startswith((b"<!doctype html", b"<html", b"<body")):
-            raise UltrapackDownloadError("Resposta HTML recebida no lugar do ZIP")
-        digest = hashlib.sha256()
-        with path.open("rb") as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(chunk)
+            raise UltrapackDownloadError("Arquivo baixado não possui extensão .zip")
         try:
-            with zipfile.ZipFile(path) as archive:
-                bad = archive.testzip()
-                entries = len(archive.infolist())
-                if bad or entries == 0:
-                    raise UltrapackDownloadError("ZIP corrompido ou sem conteudo")
-        except (zipfile.BadZipFile, OSError):
-            raise UltrapackDownloadError("ZIP corrompido") from None
-        return LocalZipArtifact(str(path), path.name, source_url, size, digest.hexdigest(), entries)
+            size, digest, entries = validate_zip_file(path, source_url=source_url)
+        except Exception as error:
+            raise UltrapackDownloadError(str(error)) from None
+        return LocalZipArtifact(str(path), path.name, source_url, size, digest, entries)
+
+    def _validated_response_artifact(
+        self,
+        response: Any,
+        *,
+        requested_url: str,
+        target_dir: Path,
+    ) -> LocalZipArtifact:
+        name = self._response_file_name(response, requested_url)
+        target = target_dir / name
+        try:
+            size, sha256, entries, diag = write_validated_zip_response(
+                response,
+                requested_url=requested_url,
+                target=target,
+                max_bytes=self.max_bytes,
+            )
+        except InvalidDownloadPayload as error:
+            self.last_download_diagnostic = dict(error.diagnostic)
+            wrapped = UltrapackDownloadError(str(error), diagnostic=error.diagnostic)
+            setattr(wrapped, "html_sample", getattr(error, "html_sample", b""))
+            raise wrapped from None
+        except Exception as error:
+            raise UltrapackDownloadError(sanitize_text(error)) from None
+        self.last_download_diagnostic = diag.to_dict()
+        return LocalZipArtifact(
+            str(target), target.name, self._safe_source_url(str(getattr(response, "url", "") or requested_url)),
+            size, sha256, entries,
+        )
 
     def download(self, product_url: str, staging_dir: str | Path) -> tuple[LocalZipArtifact, str]:
         download_url, version = self.inspect_product(product_url)
         target_dir = Path(staging_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
-        response = self._get(download_url, stream=True, stage="final_download")
-        content_type = str(response.headers.get("Content-Type", "")).lower()
-        if "text/html" in content_type:
-            raise UltrapackDownloadError("Resposta HTML recebida no lugar do ZIP")
-        target = target_dir / self._response_file_name(response, download_url)
-        total = 0
-        with target.open("wb") as output:
-            for chunk in response.iter_content(1024 * 1024):
-                if not chunk:
-                    continue
-                total += len(chunk)
-                if total > self.max_bytes:
-                    target.unlink(missing_ok=True)
-                    raise UltrapackDownloadError("ZIP excede o limite de tamanho")
-                output.write(chunk)
-        final_url = str(getattr(response, "url", "") or download_url)
-        return self.validate_zip(target, source_url=self._safe_source_url(final_url)), version
+        headers = {
+            "Referer": product_url,
+            "Accept": "application/zip,application/octet-stream,*/*;q=0.8",
+        }
+        response = self._get(download_url, stream=True, stage="final_download", headers=headers)
+        try:
+            return self._validated_response_artifact(
+                response, requested_url=download_url, target_dir=target_dir
+            ), version
+        except UltrapackDownloadError as first_error:
+            diagnostic = dict(getattr(first_error, "diagnostic", {}) or {})
+            if diagnostic.get("response_kind") != "html":
+                raise
+            cause = str(diagnostic.get("probable_cause") or "").lower()
+            if any(token in cause for token in ("login", "sessão", "cloudflare", "recusado")):
+                raise
+            sample = getattr(first_error, "html_sample", b"")
+            alternate = extract_distinct_download_candidate(
+                sample,
+                base_url=str(getattr(response, "url", "") or download_url),
+                current_url=download_url,
+            )
+            if not alternate:
+                raise
+            second = self._get(
+                alternate,
+                stream=True,
+                stage="intermediate_download_target",
+                headers={
+                    "Referer": str(getattr(response, "url", "") or product_url),
+                    "Accept": "application/zip,application/octet-stream,*/*;q=0.8",
+                },
+            )
+            return self._validated_response_artifact(
+                second, requested_url=alternate, target_dir=target_dir
+            ), version
