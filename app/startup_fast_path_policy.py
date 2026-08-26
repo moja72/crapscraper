@@ -12,9 +12,56 @@ _INSTALLED = False
 _BASE_LOAD_INITIAL_SUMMARY: Callable[..., dict[str, Any]] | None = None
 _BASE_PREPARE_APP: Callable[..., Any] | None = None
 _BASE_CREATE_SERVER: Callable[..., Any] | None = None
+_BASE_RENDER: Callable[..., str] | None = None
 _STARTUP_PHASE = True
 _HYDRATION_LOCK = threading.RLock()
 _HYDRATION_STARTED: set[int] = set()
+
+_PROCESS_HISTORY_START = '''  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    observeUi();
+    window.setTimeout(pollCredits, 900);
+    window.setInterval(pollCredits, 60000);
+    window.setTimeout(pollBackendHistory, 1400);
+    window.setInterval(pollBackendHistory, 2600);
+    window.setInterval(() => { ensureCreditsNode(); decorateModal(); }, 1200);
+  }'''
+_PROCESS_HISTORY_START_WITHOUT_OBSERVER = '''  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    // Sem MutationObserver global: o polling leve abaixo mantém créditos e histórico atualizados.
+    window.setTimeout(pollCredits, 900);
+    window.setInterval(pollCredits, 60000);
+    window.setTimeout(pollBackendHistory, 1400);
+    window.setInterval(pollBackendHistory, 2600);
+    window.setInterval(() => { ensureCreditsNode(); decorateModal(); }, 1200);
+  }'''
+_PROCESS_HISTORY_LAZY_START = '''  function processMonitorVisible() {
+    const overlay = $("#cs_processes_overlay");
+    return !!overlay && !overlay.classList.contains("hidden");
+  }
+
+  function activateProcessMonitor() {
+    pollCredits();
+    pollBackendHistory();
+    decorateModal();
+  }
+
+  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    $("#cs_processes_button")?.addEventListener("click", () => {
+      window.setTimeout(activateProcessMonitor, 0);
+    });
+    window.setInterval(() => { if (processMonitorVisible()) pollBackendHistory(); }, 5000);
+    window.setInterval(() => { if (processMonitorVisible()) pollCredits(); }, 60000);
+    window.setInterval(() => { if (processMonitorVisible()) decorateModal(); }, 1500);
+    if (processMonitorVisible()) window.setTimeout(activateProcessMonitor, 0);
+  }'''
 
 
 def _memory_snapshot(app: Any) -> dict[str, Any]:
@@ -112,8 +159,22 @@ def _create_server_fast(*args: Any, **kwargs: Any) -> Any:
     return result
 
 
+def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
+    base = _BASE_RENDER or web.render_panel_page
+    html = base(*args, **kwargs)
+
+    # A consulta de créditos autentica PluginTheme/UltraPack e pode abrir/reler
+    # perfis do navegador. Ela não pertence ao caminho de abertura do painel.
+    # Aplique a correção como camada FINAL de HTML para não depender da ordem das
+    # policies anteriores que também refinam o modal Processos.
+    html = html.replace(_PROCESS_HISTORY_START, _PROCESS_HISTORY_LAZY_START)
+    html = html.replace(_PROCESS_HISTORY_START_WITHOUT_OBSERVER, _PROCESS_HISTORY_LAZY_START)
+    return html
+
+
 def install_startup_fast_path_policy() -> None:
-    global _INSTALLED, _BASE_LOAD_INITIAL_SUMMARY, _BASE_PREPARE_APP, _BASE_CREATE_SERVER
+    global _INSTALLED, _BASE_LOAD_INITIAL_SUMMARY, _BASE_PREPARE_APP
+    global _BASE_CREATE_SERVER, _BASE_RENDER
     if _INSTALLED:
         return
 
@@ -132,5 +193,10 @@ def install_startup_fast_path_policy() -> None:
     # funciona mesmo que main.py já tenha importado ``serve`` anteriormente.
     _BASE_CREATE_SERVER = web.create_server
     web.create_server = _create_server_fast
+
+    # Finaliza a proteção também no frontend: nada que dependa de sessão remota
+    # deve rodar só porque o painel foi aberto.
+    _BASE_RENDER = web.render_panel_page
+    web.render_panel_page = _patched_render_panel_page
 
     _INSTALLED = True
