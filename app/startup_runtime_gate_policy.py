@@ -75,7 +75,8 @@ def _must_gate_post(path: str) -> bool:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
-    block = f"\n<script data-runtime-boot-gate>\n{_SCRIPT.replace('</script>', '<\\/script>')}\n</script>\n"
+    escaped_script = _SCRIPT.replace("</script>", "<\\/script>")
+    block = f"\n<script data-runtime-boot-gate>\n{escaped_script}\n</script>\n"
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
 
 
