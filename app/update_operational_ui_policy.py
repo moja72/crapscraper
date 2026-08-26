@@ -24,6 +24,17 @@ _CACHE_LOCK = threading.RLock()
 _PREREQUISITE_REFRESH_LOCK = threading.Lock()
 _PREREQUISITE_TTL_SECONDS = 30.0
 
+# O panel.js legado ainda escreve cards <div> no mesmo #updates_summary durante o
+# polling. A camada canônica usa <button>. Esconder os <div> na resposta inicial
+# elimina o frame intermediário sem criar um segundo resumo nem outro observer.
+_SUMMARY_GUARD_STYLE = """
+<style data-update-summary-single-owner>
+#tab_panel_atualizacoes #updates_summary > div { display:none!important; }
+#tab_panel_atualizacoes #cs_update_operational_summary,
+#tab_panel_atualizacoes #cs_update_summary_canonical { display:none!important; }
+</style>
+"""
+
 _MATERIALIZE_FIELDS = (
     "comparison_item_id",
     "woo_product_id",
@@ -219,7 +230,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
         script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
     except OSError:
         return html
-    block = f"\n<script data-update-operational-filters>\n{script}\n</script>\n"
+    block = _SUMMARY_GUARD_STYLE + f"\n<script data-update-operational-filters>\n{script}\n</script>\n"
     marker = "</body>"
     return html.replace(marker, block + marker, 1) if marker in html else html + block
 
