@@ -41,8 +41,12 @@
     if (title && clean(title.textContent) !== "Logs da atualização") {
       title.textContent = "Logs da atualização";
     }
-    if (chevron) chevron.textContent = details.open ? "▾" : "▸";
-    summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+    const chevronText = details.open ? "▾" : "▸";
+    const expanded = details.open ? "true" : "false";
+    if (chevron && chevron.textContent !== chevronText) chevron.textContent = chevronText;
+    if (summary.getAttribute("aria-expanded") !== expanded) {
+      summary.setAttribute("aria-expanded", expanded);
+    }
   }
 
   function resolveBatchJobId(batch) {
@@ -134,8 +138,12 @@
     bindTechnicalAccordion();
     startLogPolling();
 
-    const observer = new MutationObserver(() => bindTechnicalAccordion());
-    observer.observe(document.body, {childList: true, subtree: true});
+    document.addEventListener("crapscraper:main-tab-changed", event => {
+      if (String(event?.detail?.key || "") === "atualizacoes") bindTechnicalAccordion();
+    });
+    $("#tab_btn_atualizacoes")?.addEventListener("click", () => {
+      window.setTimeout(bindTechnicalAccordion, 0);
+    });
     window.setInterval(bindTechnicalAccordion, 1200);
   }
 

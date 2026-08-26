@@ -13,11 +13,11 @@ class HistoryStandardizationV2Tests(unittest.TestCase):
             source.rfind("web.render_panel_page = _patched_render_panel_page"),
         )
 
-    def test_history_policy_injects_existing_shared_component(self):
+    def test_history_policy_reuses_existing_shared_component_without_duplicate_script(self):
         source = Path("app/history_standardization_policy.py").read_text(encoding="utf-8")
         self.assertIn("install_operational_history_shared_policy()", source)
-        self.assertIn("operational_history_shared.css", source)
-        self.assertIn("operational_history_shared.js", source)
+        self.assertNotIn('_SHARED_CSS =', source)
+        self.assertNotIn('_SHARED_JS =', source)
         self.assertIn("history_standardization_v2.css", source)
 
     def test_both_histories_have_sort_and_period_filters(self):

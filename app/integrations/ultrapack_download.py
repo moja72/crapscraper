@@ -41,18 +41,66 @@ class UltrapackDownloader:
         self.retries = max(0, int(retries))
         self.retry_delay = max(0.0, float(retry_delay))
         self.max_bytes = int(max_bytes)
+        self.request_trace: list[dict[str, Any]] = []
 
-    def _get(self, url: str, *, stream: bool = False) -> Any:
+    def _record_response(self, stage: str, requested_url: str, response: Any) -> None:
+        history = list(getattr(response, "history", None) or []) + [response]
+        redirects = [
+            {
+                "status": int(getattr(item, "status_code", 0) or 0),
+                "url": self._safe_source_url(str(getattr(item, "url", "") or "")),
+            }
+            for item in history
+        ]
+        cookies = []
+        for cookie in getattr(getattr(self.session, "cookies", None), "__iter__", lambda: [])():
+            cookies.append({
+                "name": str(getattr(cookie, "name", "") or ""),
+                "domain": str(getattr(cookie, "domain", "") or ""),
+                "path": str(getattr(cookie, "path", "") or "/"),
+            })
+        headers = getattr(self.session, "headers", {}) or {}
+        self.request_trace.append({
+            "stage": stage,
+            "requested_url": self._safe_source_url(requested_url),
+            "final_url": self._safe_source_url(str(getattr(response, "url", "") or requested_url)),
+            "status": int(getattr(response, "status_code", 0) or 0),
+            "redirects": redirects,
+            "content_type": str(getattr(response, "headers", {}).get("Content-Type", "") or ""),
+            "content_disposition": bool(
+                str(getattr(response, "headers", {}).get("Content-Disposition", "") or "")
+            ),
+            "cookie_scope": cookies,
+            "authenticated_cookie_present": bool(cookies),
+            "referer": self._safe_source_url(str(headers.get("Referer", "") or "")),
+            "user_agent_present": bool(str(headers.get("User-Agent", "") or "")),
+        })
+        self.request_trace[:] = self.request_trace[-20:]
+
+    def _get(self, url: str, *, stream: bool = False, stage: str = "request") -> Any:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
                 response = self.session.get(url, timeout=self.timeout, stream=stream,
                                             allow_redirects=True)
+                self._record_response(stage, url, response)
                 if int(response.status_code) >= 400:
-                    raise UltrapackDownloadError(f"HTTP {response.status_code}")
+                    error = UltrapackDownloadError(
+                        f"HTTP {response.status_code} em {stage}: {self._safe_source_url(url)}"
+                    )
+                    # 401/403 invalidate the authenticated discovery chain. Retrying
+                    # the same one-time URL cannot recover it; the outer workflow
+                    # must discard the session, reload the product and rediscover it.
+                    if int(response.status_code) in {401, 403}:
+                        raise error from None
+                    raise error
                 return response
             except Exception as error:
                 last = error
+                if isinstance(error, UltrapackDownloadError) and any(
+                    marker in str(error).lower() for marker in ("http 401", "http 403")
+                ):
+                    break
                 if attempt >= self.retries:
                     break
                 time.sleep(self.retry_delay)
@@ -82,7 +130,7 @@ class UltrapackDownloader:
         raise UltrapackDownloadError("Botao real de download nao encontrado no produto autenticado")
 
     def inspect_product(self, product_url: str) -> tuple[str, str]:
-        response = self._get(product_url)
+        response = self._get(product_url, stage="authenticated_product_page")
         html = response.text
         version = ""
         patterns = (
@@ -142,7 +190,7 @@ class UltrapackDownloader:
         download_url, version = self.inspect_product(product_url)
         target_dir = Path(staging_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
-        response = self._get(download_url, stream=True)
+        response = self._get(download_url, stream=True, stage="final_download")
         content_type = str(response.headers.get("Content-Type", "")).lower()
         if "text/html" in content_type:
             raise UltrapackDownloadError("Resposta HTML recebida no lugar do ZIP")

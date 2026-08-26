@@ -10,7 +10,14 @@ def test_process_history_global_observer_is_disabled_by_final_render_policy() ->
 
 def test_processes_header_moves_synchronously_on_dom_ready() -> None:
     script = Path("app/static/processes_header_position.js").read_text(encoding="utf-8")
-    schedule = script.split("function scheduleMove()", 1)[1].split("installCreditFreezeGuard();", 1)[0]
+    schedule = script.split("function scheduleMove()", 1)[1].split('if (document.readyState === "loading")', 1)[0]
     assert "moveProcessesButton();" in schedule
     assert "[60, 180, 450, 900, 1800, 2600]" in schedule
     assert schedule.index("moveProcessesButton();") < schedule.index("setTimeout(moveProcessesButton")
+
+
+def test_technical_log_binding_cannot_self_trigger_a_global_observer_loop() -> None:
+    script = Path("app/static/update_technical_log_fix.js").read_text(encoding="utf-8")
+    assert "new MutationObserver" not in script
+    assert 'chevron.textContent !== chevronText' in script
+    assert 'summary.getAttribute("aria-expanded") !== expanded' in script

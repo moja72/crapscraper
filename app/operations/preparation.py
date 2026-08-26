@@ -134,6 +134,14 @@ class UpdatePreparationService:
         try:
             physical = self.storage.validate_file(path).to_dict() if valid_path else {}
             physical_ok = bool(physical.get("sha256"))
+        except FileNotFoundError:
+            physical_ok = False
+            physical = {
+                "error": (
+                    "Falha ao validar ZIP atual: arquivo remoto de produção não existe: "
+                    f"{path or '[caminho ausente]'}"
+                )
+            }
         except Exception as error:
             physical_ok = False
             physical = {"error": str(error)}
@@ -153,6 +161,15 @@ class UpdatePreparationService:
                 self.logger(" Sessão autenticada")
                 self.logger("🔎 Consultando produto na fonte")
                 source_url, discovered = self.downloader.inspect_product(job.ultrapack_url)
+                trace = list(getattr(self.downloader, "request_trace", None) or [])
+                if trace:
+                    last = trace[-1]
+                    self.logger(
+                        "ℹ Página autenticada HTTP "
+                        f"{last.get('status')}: {last.get('final_url')} · "
+                        f"cookies={len(last.get('cookie_scope') or [])} · "
+                        f"redirects={max(0, len(last.get('redirects') or []) - 1)}"
+                    )
                 effective_source_version = discovered or ""
                 self.logger(f"🔎 Versão registrada na comparação: {approved_source_version}")
                 self.logger(f"🔎 Versão atual encontrada na fonte: {effective_source_version}")
@@ -229,6 +246,15 @@ class UpdatePreparationService:
             local, discovered_version = self.downloader.download(
                 job.ultrapack_url, self.staging_root / job.job_id
             )
+            trace = list(getattr(self.downloader, "request_trace", None) or [])
+            if trace:
+                last = trace[-1]
+                self.logger(
+                    "ℹ Download final HTTP "
+                    f"{last.get('status')}: {last.get('final_url')} · "
+                    f"Content-Type={last.get('content_type') or '-'} · "
+                    f"Content-Disposition={'sim' if last.get('content_disposition') else 'não'}"
+                )
             artifact = local.to_dict()
             downloaded_version = discovered_version or effective_source_version
             if _compare_source_version(downloaded_version, effective_source_version) != 0:

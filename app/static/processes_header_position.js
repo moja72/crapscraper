@@ -4,37 +4,6 @@
   const HEADER_TEXT = "Coletar • Comparar • Atualizar • Adicionar • Loja";
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
 
-  function installCreditFreezeGuard() {
-    if (window.__crapScraperProcessCreditFreezeGuardInstalled) return;
-    window.__crapScraperProcessCreditFreezeGuardInstalled = true;
-
-    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
-    if (!descriptor?.get || !descriptor?.set) return;
-
-    try {
-      Object.defineProperty(Element.prototype, "innerHTML", {
-        configurable: descriptor.configurable,
-        enumerable: descriptor.enumerable,
-        get: descriptor.get,
-        set(value) {
-          const protectedCreditNode =
-            this?.id === "cs_credit_ultrapack" ||
-            this?.id === "cs_credit_plugintheme";
-
-          if (protectedCreditNode) {
-            const next = String(value ?? "");
-            const current = descriptor.get.call(this);
-            if (current === next) return;
-          }
-
-          descriptor.set.call(this, value);
-        }
-      });
-    } catch (_error) {
-      // Falha do guard nunca pode impedir o carregamento do painel.
-    }
-  }
-
   function installStyles() {
     if (document.getElementById("cs-processes-header-position-style")) return;
     const style = document.createElement("style");
@@ -96,8 +65,6 @@
     moveProcessesButton();
     [60, 180, 450, 900, 1800, 2600].forEach(delay => setTimeout(moveProcessesButton, delay));
   }
-
-  installCreditFreezeGuard();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", scheduleMove, {once: true});
