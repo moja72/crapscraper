@@ -24,9 +24,9 @@ _BRAND_TITLE_ROW_RE = re.compile(
 )
 _BRAND_STYLE = """
 <style data-crapscraper-brand-image>
-.page-brand-logo-row{display:flex;align-items:center;min-height:54px}
-.page-brand-logo{display:block;width:auto;height:54px;max-width:min(430px,72vw);object-fit:contain;object-position:left center}
-@media(max-width:700px){.page-brand-logo-row{min-height:44px}.page-brand-logo{height:44px;max-width:72vw}}
+.page-brand-logo-row{display:flex;align-items:center;min-height:83.7px}
+.page-brand-logo{display:block;width:auto;height:83.7px;max-width:min(430px,72vw);object-fit:contain;object-position:left center}
+@media(max-width:700px){.page-brand-logo-row{min-height:68.2px}.page-brand-logo{height:68.2px;max-width:72vw}}
 </style>
 """
 _SUCCESS_RESULTS = frozenset({"completed", "already_current"})
