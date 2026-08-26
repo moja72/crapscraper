@@ -18,6 +18,8 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
             "app/accordion_cleanup_policy.py",
             "app/process_modal_stability_policy.py",
             "app/startup_runtime_gate_policy.py",
+            "app/update_flow_finalization_policy.py",
+            "app/update_error_model.py",
         ):
             source = (ROOT / relative).read_text(encoding="utf-8")
             ast.parse(source, filename=relative)
@@ -68,6 +70,10 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
             process.index("install_update_recovery_finalizer_policy()"),
             process.index("install_server_manager_binding_policy()"),
         )
+        self.assertLess(
+            process.index("install_server_manager_binding_policy()"),
+            process.index("install_update_flow_finalization_policy()"),
+        )
 
     def test_retry_is_blocked_until_runtime_restore_finishes(self) -> None:
         source = (ROOT / "app/startup_runtime_gate_policy.py").read_text(encoding="utf-8")
@@ -75,13 +81,17 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
         self.assertIn("_BLOCKED_POST_EXACT", source)
         self.assertIn("not is_runtime_ready()", source)
 
-    def test_retry_ui_uses_new_route_and_stable_technical_log_toggle(self) -> None:
-        source = (ROOT / "app/static/update_retry_recovery_v2.js").read_text(encoding="utf-8")
-        self.assertIn("/operacoes/simples/retry-update", source)
-        self.assertIn("Não atualizado:", source)
-        self.assertIn('window.addEventListener("click"', source)
-        self.assertIn("event.stopImmediatePropagation()", source)
-        self.assertIn("TECHNICAL_STATE_KEY", source)
+    def test_retry_ui_is_retry_only_and_technical_log_has_single_native_owner(self) -> None:
+        retry = (ROOT / "app/static/update_retry_recovery_v2.js").read_text(encoding="utf-8")
+        technical = (ROOT / "app/static/update_technical_log_fix.js").read_text(encoding="utf-8")
+        self.assertIn("/operacoes/simples/retry-update", retry)
+        self.assertIn("Não atualizado:", retry)
+        self.assertIn('document.addEventListener("click"', retry)
+        self.assertNotIn("TECHNICAL_STATE_KEY", retry)
+        self.assertNotIn("details.open", retry)
+        self.assertIn('details.addEventListener("toggle"', technical)
+        self.assertNotIn('summary.addEventListener("click"', technical)
+        self.assertNotIn("details.open = !details.open", technical)
 
     def test_global_update_mutation_observer_is_replaced(self) -> None:
         source = (ROOT / "app/accordion_cleanup_policy.py").read_text(encoding="utf-8")
