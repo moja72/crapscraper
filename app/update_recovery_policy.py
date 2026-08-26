@@ -9,9 +9,6 @@ from app.update_credit_diagnostics_policy import install_update_credit_diagnosti
 _INSTALLED = False
 _ORIGINAL_RENDER_PANEL_PAGE = web.render_panel_page
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "update_recovery.js"
-_SUMMARY_STABILITY_SCRIPT_PATH = (
-    Path(__file__).resolve().parent / "static" / "update_summary_stability.js"
-)
 
 
 def _script_block(path: Path, attribute: str) -> str:
@@ -26,10 +23,6 @@ def _script_block(path: Path, attribute: str) -> str:
 def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     html = _ORIGINAL_RENDER_PANEL_PAGE(*args, **kwargs)
     block = _script_block(_SCRIPT_PATH, "data-update-recovery-ui")
-    block += _script_block(
-        _SUMMARY_STABILITY_SCRIPT_PATH,
-        "data-update-summary-stability",
-    )
     if not block:
         return html
 
@@ -40,7 +33,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
 
 
 def install_update_recovery_policy() -> None:
-    """Instala recuperação e os contratos finais de diagnóstico da aba Atualizar."""
+    """Instala recuperação e o diagnóstico final da aba Atualizar."""
     global _INSTALLED
     if _INSTALLED:
         return

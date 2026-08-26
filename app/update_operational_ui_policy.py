@@ -24,6 +24,27 @@ _CACHE_LOCK = threading.RLock()
 _PREREQUISITE_REFRESH_LOCK = threading.Lock()
 _PREREQUISITE_TTL_SECONDS = 30.0
 
+# O panel.js legado ainda escreve cards <div> no mesmo #updates_summary durante o
+# polling. A camada canônica usa <button>. Esconder os <div> na resposta inicial
+# elimina o frame intermediário sem criar um segundo resumo nem outro observer.
+_SUMMARY_GUARD_STYLE = """
+<style data-update-summary-single-owner>
+#tab_panel_atualizacoes #updates_summary > div { display:none!important; }
+#tab_panel_atualizacoes #cs_update_operational_summary,
+#tab_panel_atualizacoes #cs_update_summary_canonical { display:none!important; }
+</style>
+"""
+_STAGE1_TOTAL_LINE = (
+    "    return group.states ? jobs.filter(job => group.states.includes(text(job?.state))) : jobs;"
+)
+_STAGE1_TOTAL_REPLACEMENT = """    if (key === "total") {
+      const publicStates = Object.values(UPDATE_GROUPS)
+        .filter(item => Array.isArray(item.states))
+        .flatMap(item => item.states);
+      return jobs.filter(job => publicStates.includes(text(job?.state)));
+    }
+    return group.states ? jobs.filter(job => group.states.includes(text(job?.state))) : jobs;"""
+
 _MATERIALIZE_FIELDS = (
     "comparison_item_id",
     "woo_product_id",
@@ -216,10 +237,12 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     base = _BASE_RENDER or web.render_panel_page
     html = base(*args, **kwargs)
     try:
-        script = _SCRIPT_PATH.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+        script = _SCRIPT_PATH.read_text(encoding="utf-8")
     except OSError:
         return html
-    block = f"\n<script data-update-operational-filters>\n{script}\n</script>\n"
+    script = script.replace(_STAGE1_TOTAL_LINE, _STAGE1_TOTAL_REPLACEMENT, 1)
+    script = script.replace("</script>", "<\\/script>")
+    block = _SUMMARY_GUARD_STYLE + f"\n<script data-update-operational-filters>\n{script}\n</script>\n"
     marker = "</body>"
     return html.replace(marker, block + marker, 1) if marker in html else html + block
 
