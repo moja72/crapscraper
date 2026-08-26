@@ -39,6 +39,17 @@ _PROCESS_HISTORY_START_WITHOUT_OBSERVER = '''  function start() {
     window.setInterval(pollBackendHistory, 2600);
     window.setInterval(() => { ensureCreditsNode(); decorateModal(); }, 1200);
   }'''
+_PROCESS_HISTORY_START_FINAL_SAFE = '''  function start() {
+    installStyles();
+    ensureCreditsNode();
+    decorateModal();
+    // Sem MutationObserver global e sem consulta autenticada no boot.
+    // Créditos/histórico são carregados somente quando Processos é aberto.
+    window.setInterval(pollCredits, 60000);
+    window.setTimeout(pollBackendHistory, 1400);
+    window.setInterval(pollBackendHistory, 2600);
+    window.setInterval(() => { ensureCreditsNode(); decorateModal(); }, 1200);
+  }'''
 _PROCESS_HISTORY_LAZY_START = '''  function processMonitorVisible() {
     const overlay = $("#cs_processes_overlay");
     return !!overlay && !overlay.classList.contains("hidden");
@@ -169,6 +180,7 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     # policies anteriores que também refinam o modal Processos.
     html = html.replace(_PROCESS_HISTORY_START, _PROCESS_HISTORY_LAZY_START)
     html = html.replace(_PROCESS_HISTORY_START_WITHOUT_OBSERVER, _PROCESS_HISTORY_LAZY_START)
+    html = html.replace(_PROCESS_HISTORY_START_FINAL_SAFE, _PROCESS_HISTORY_LAZY_START)
     return html
 
 
