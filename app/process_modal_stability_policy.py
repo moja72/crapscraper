@@ -54,9 +54,6 @@ install_startup_remote_io_guard_policy()
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
 _SCRIPT_PATH = Path(__file__).resolve().parent / "static" / "process_modal_stability.js"
-_TECHNICAL_LOG_SCRIPT_PATH = (
-    Path(__file__).resolve().parent / "static" / "update_technical_log_fix.js"
-)
 _PROCESS_HISTORY_OBSERVER_BOOT = (
     "    decorateModal();\n"
     "    observeUi();\n"
@@ -87,7 +84,6 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
     html = html.replace(_PROCESS_HISTORY_OBSERVER_BOOT, _PROCESS_HISTORY_SAFE_BOOT)
 
     block = _script_block(_SCRIPT_PATH, "data-process-modal-stability")
-    block += _script_block(_TECHNICAL_LOG_SCRIPT_PATH, "data-update-technical-log-fix")
     if not block:
         return html
     return html.replace("</body>", block + "</body>", 1) if "</body>" in html else html + block
