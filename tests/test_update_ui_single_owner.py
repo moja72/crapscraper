@@ -35,6 +35,14 @@ def test_update_summary_has_one_visible_owner() -> None:
     assert 'label: "Aguardando"' not in stage1
 
 
+def test_total_is_the_union_of_the_four_public_groups() -> None:
+    policy = _read(UPDATE_POLICY)
+    assert "_STAGE1_TOTAL_REPLACEMENT" in policy
+    assert "const publicStates = Object.values(UPDATE_GROUPS)" in policy
+    assert "flatMap(item => item.states)" in policy
+    assert "return jobs.filter(job => publicStates.includes(text(job?.state)))" in policy
+
+
 def test_removed_v5_is_not_loaded_anymore() -> None:
     panel = _read(PANEL_POLICY)
     assert "data-operational-ui-card-parity-v5" not in panel
