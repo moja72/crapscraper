@@ -14,6 +14,7 @@ _BLOCKED_POST_PREFIXES = ("/atualizacoes/",)
 _BLOCKED_POST_EXACT = {
     "/operacoes/simples/atualizar",
     "/operacoes/historico/apagar",
+    "/loja/wordpress-manual/control",
 }
 
 _SCRIPT = r'''(() => {
