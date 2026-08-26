@@ -17,6 +17,7 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
             "app/server_manager_binding_policy.py",
             "app/accordion_cleanup_policy.py",
             "app/process_modal_stability_policy.py",
+            "app/startup_runtime_gate_policy.py",
         ):
             source = (ROOT / relative).read_text(encoding="utf-8")
             ast.parse(source, filename=relative)
@@ -67,6 +68,12 @@ class UpdateRecoverabilityContractTests(unittest.TestCase):
             process.index("install_update_recovery_finalizer_policy()"),
             process.index("install_server_manager_binding_policy()"),
         )
+
+    def test_retry_is_blocked_until_runtime_restore_finishes(self) -> None:
+        source = (ROOT / "app/startup_runtime_gate_policy.py").read_text(encoding="utf-8")
+        self.assertIn('"/operacoes/simples/retry-update"', source)
+        self.assertIn("_BLOCKED_POST_EXACT", source)
+        self.assertIn("not is_runtime_ready()", source)
 
     def test_retry_ui_uses_new_route_and_stable_technical_log_toggle(self) -> None:
         source = (ROOT / "app/static/update_retry_recovery_v2.js").read_text(encoding="utf-8")
