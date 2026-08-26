@@ -100,9 +100,18 @@ def _script_block() -> str:
     blocks: list[str] = []
     for attribute, path in _SCRIPT_PATHS:
         try:
-            script = path.read_text(encoding="utf-8").replace("</script>", "<\\/script>")
+            script = path.read_text(encoding="utf-8")
         except OSError:
             continue
+
+        # O backend agora consolida preparação, plano, tentativas anteriores,
+        # execução e diagnósticos. O frontend antigo cortava tudo em 10 linhas,
+        # escondendo justamente a causa inicial do erro. Mostre até 100 linhas no
+        # detalhe; o log técnico completo continua disponível na sanfona abaixo.
+        if path.name == "operational_history_shared.js":
+            script = script.replace("logs.slice(-10)", "logs.slice(-100)")
+
+        script = script.replace("</script>", "<\\/script>")
         blocks.append(f"\n<script {attribute}>\n{script}\n</script>\n")
     return "".join(blocks)
 
@@ -121,10 +130,6 @@ def install_panel_layout_standardization_policy() -> None:
     if _INSTALLED:
         return
 
-    # As listas da fila de Adições são instaladas aqui porque esta policy já é
-    # executada depois da UI operacional e da camada de cache/resiliência. Assim
-    # a seleção da lista ativa pode reaproveitar o mesmo motor sem duplicar
-    # workers, listeners ou polling.
     from app.addition_queue_lists_policy import install_addition_queue_lists_policy
     from app.operation_completion_visibility_policy import install_operation_completion_visibility_policy
     from app.preparation_execution_gate_policy import install_preparation_execution_gate_policy
