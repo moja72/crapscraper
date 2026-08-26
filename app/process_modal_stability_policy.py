@@ -34,6 +34,7 @@ from app.operational_simple_flow_recovery_policy import (
 from app.operational_simple_flow_execution_policy import (
     install_operational_simple_flow_execution_policy,
 )
+from app.update_history_retry_policy import install_update_history_retry_policy
 from app.startup_fast_path_policy import install_startup_fast_path_policy
 
 
@@ -155,8 +156,14 @@ def install_process_modal_stability_policy() -> None:
     # informa exatamente qual predicado falhou em vez da mensagem genérica.
     install_operational_simple_flow_execution_policy()
 
+    # Erros do histórico de atualização reutilizam o mesmo fluxo seguro em uma
+    # nova tentativa e, quando concluem, migram naturalmente para Concluídos.
+    install_update_history_retry_policy()
+
     # Abertura do painel: não releia catálogos/logs de todos os runs antes do
     # socket HTTP existir. A hidratação do contexto ativo ocorre em background.
+    # Instalada por último para também neutralizar probes remotos adicionados por
+    # wrappers visuais anteriores.
     install_startup_fast_path_policy()
 
     _INSTALLED = True
