@@ -4,6 +4,7 @@ import threading
 import traceback
 import uuid
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import suppress
 from datetime import datetime
 from typing import Any
 

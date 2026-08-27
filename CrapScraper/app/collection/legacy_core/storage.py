@@ -2421,6 +2421,17 @@ def normalize_run_queue_rules(rules: Any) -> list[dict[str, Any]]:
         pair_key = (_queue_context_key(source), _queue_context_key(target))
         if pair_key in seen:
             continue
+        adjacency: dict[tuple[str, str, str, str], set[tuple[str, str, str, str]]] = {}
+        for existing in normalized_rules:
+            adjacency.setdefault(_queue_context_key(existing["source"]),set()).add(_queue_context_key(existing["target"]))
+        pending=[pair_key[1]];visited=set();creates_cycle=False
+        while pending:
+            current=pending.pop()
+            if current==pair_key[0]:creates_cycle=True;break
+            if current in visited:continue
+            visited.add(current);pending.extend(adjacency.get(current,set()))
+        if creates_cycle:
+            continue
         seen.add(pair_key)
 
         normalized_rules.append(

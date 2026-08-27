@@ -75,3 +75,13 @@ def test_start_pause_resume_stop_and_scope(tmp_path):
 def test_resume_is_delegated_to_persisted_engine(tmp_path):
     item=service(tmp_path); item.start({"site_key":"ultrapackv2","item_type_key":"plugin","account_key":"coproducaolancamentos","slot_name":"default","mode":"full_sync","resume":True,"options":{}})
     assert item.engine.calls[-1][-1] is True
+
+
+def test_multirun_start_sets_and_starts_only_requested_run(tmp_path):
+    class MultiEngine(FakeEngine):
+        def runs(self):return [{"run_id":"primary"},{"run_id":"secondary"}]
+        def queue_rules(self):return []
+        def set_context(self,value,run_id=None):self.context=Context(**value);self.calls.append(("context",run_id,value));return {}
+        def start(self,mode,options,resume=False,run_id=None):self.calls.append(("start",run_id,mode,options,resume));return {"ok":True}
+    engine=MultiEngine();item=CollectionService(tmp_path,engine=engine,repository=FakeRepository());item.start({"run_id":"secondary","site_key":"plugintheme","item_type_key":"plugin_theme","account_key":"coproducaolancamentos","slot_name":"default","mode":"full_sync","options":{}})
+    assert engine.calls[-2][1]=="secondary" and engine.calls[-1][1]=="secondary"
