@@ -10,7 +10,7 @@ import pytest
 from app.bootstrap import create_application
 from app.configuration import Settings
 from app.core.persistence import JsonStore
-from app.domains import DomainService
+from app.collection import CollectionService
 from app.web.api import ApplicationServices
 from app.web.routes import get_route, post_route
 
@@ -24,25 +24,19 @@ def test_panel_has_five_canonical_tabs() -> None:
     assert html.count("app.js") == 1
 
 
-def test_data_domains_use_real_configured_directory(tmp_path: Path) -> None:
-    (tmp_path / "slots" / "Principal").mkdir(parents=True)
-    (tmp_path / "catalog.csv").write_text("id,name\n1,Produto\n", encoding="utf-8")
-    service = DomainService(tmp_path, JsonStore(tmp_path / "runtime.json"))
-    assert service.collection()["slots"] == ["Principal"]
-    assert service.collection()["catalogs"] == 1
-    assert service.store()["products_sampled"] == 1
+def test_application_uses_canonical_services(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SCRAPER_STORE_E2E_FIXTURES", "1")
+    services = ApplicationServices.build(Settings(tmp_path, tmp_path, "127.0.0.1", 0), JsonStore(tmp_path / "runtime.json"))
+    assert services.collection.__class__.__name__ == "CollectionService"
+    assert services.store.__class__.__name__ == "StoreService"
 
 
-def test_collection_actions_persist_without_rebuilding_state(tmp_path: Path) -> None:
-    service = DomainService(tmp_path, JsonStore(tmp_path / "runtime.json"))
-    service.collection_action("create-slot", {"name": "Novo"})
-    service.collection_action("start", {})
-    assert service.collection()["state"]["status"] == "running"
-    service.collection_action("pause", {})
-    assert service.collection()["state"]["status"] == "paused"
+def test_domain_service_is_no_longer_part_of_application() -> None:
+    assert not (Path(__file__).parents[1] / "app/domains.py").exists()
 
 
-def test_all_domain_routes_return_payload(tmp_path: Path) -> None:
+def test_all_domain_routes_return_payload(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SCRAPER_STORE_E2E_FIXTURES", "1")
     services = ApplicationServices.build(Settings(tmp_path, tmp_path, "127.0.0.1", 0), JsonStore(tmp_path / "runtime.json"))
     for path in ("/api/health", "/api/collect", "/api/compare", "/api/update", "/api/add", "/api/store"):
         assert get_route(services, path)["ok"] is True

@@ -5,9 +5,9 @@ from app.configuration import Settings
 from app.core.persistence import JsonStore
 from app.collection import CollectionService
 from app.comparison import ComparisonService
-from app.domains import DomainService
 from app.updates import UpdateService
 from app.additions import AdditionService
+from app.store import StoreService
 
 
 @dataclass
@@ -16,8 +16,9 @@ class ApplicationServices:
     comparison: ComparisonService
     updates: UpdateService
     additions: AdditionService
-    domains: DomainService
+    store: StoreService
 
     @classmethod
     def build(cls, settings: Settings, runtime: JsonStore) -> "ApplicationServices":
-        return cls(CollectionService(settings.data_dir), ComparisonService(settings.data_dir), UpdateService(settings.data_dir), AdditionService(settings.data_dir), DomainService(settings.data_dir, runtime))
+        updates=UpdateService(settings.data_dir)
+        return cls(CollectionService(settings.data_dir), ComparisonService(settings.data_dir), updates, AdditionService(settings.data_dir), StoreService(settings.data_dir,updates))
