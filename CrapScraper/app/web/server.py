@@ -21,7 +21,7 @@ class Application:
 
         class Handler(BaseHTTPRequestHandler):
             def send_bytes(self, body: bytes, content_type: str, status: int = 200) -> None:
-                self.send_response(status); self.send_header("Content-Type", content_type); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+                self.send_response(status); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); self.send_header("Pragma", "no-cache"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             def send_json(self, value: object, status: int = 200) -> None: self.send_bytes(json.dumps(value, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8", status)
             def do_GET(self) -> None:
                 path = urlparse(self.path).path
