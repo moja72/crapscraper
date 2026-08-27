@@ -37,6 +37,9 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/store/categories": services.store.categories,
         "/api/store/quality": lambda: services.store.quality(query),
         "/api/store/quality/product": lambda: services.store.product(int(query.get("product_id") or 0)),
+        "/api/sync/catalogs": services.sync.catalogs,
+        "/api/sync/search": lambda: services.sync.search(query),
+        "/api/sync/status": lambda: services.sync.status(str(query.get("job_id") or "")),
     }
     if path not in routes: raise KeyError(path)
     return routes[path]()
@@ -68,4 +71,7 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/store/pricing/apply": return services.store.pricing_apply(payload)
     if path == "/api/store/bundles/preview": return services.store.bundle_preview(payload)
     if path == "/api/store/bundles/apply": return services.store.bundle_apply(payload)
+    if path == "/api/sync/resolve": return services.sync.resolve(payload)
+    if path == "/api/sync/materialize": return services.sync.materialize(str(payload.get("resolution_id") or ""))
+    if path == "/api/sync/execute": return services.sync.execute(str(payload.get("resolution_id") or ""))
     raise KeyError(path)

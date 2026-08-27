@@ -88,13 +88,13 @@ class UpdateRepository:
                 job_id = self._job_id(item_id)
                 if db.execute("SELECT 1 FROM update_jobs WHERE comparison_item_id=?", (item_id,)).fetchone():
                     continue
-                kind = source_kind(item)
+                kind = source_kind(item); provider=str(item.get("source_provider_name") or ("PluginTheme" if kind=="plugintheme" else "UltraPackV2"))
                 position += 1; now = utc_now()
                 db.execute("""INSERT INTO update_jobs(job_id,comparison_item_id,woo_product_id,product_name,current_version,
                     source_version,source_kind,source_name,source_url,source_product_id,queue_position,created_at,updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (job_id,item_id,int(item.get("woo_product_id") or item.get("site_id") or 0),
                     str(item.get("site_name") or item.get("source_name") or item_id),str(item.get("site_version") or ""),
-                    str(item.get("source_version") or ""),kind,str(item.get("source_name") or ("PluginTheme" if kind=="plugintheme" else "UltraPackV2")),
+                    str(item.get("source_version") or ""),kind,provider,
                     str(item.get("source_product_url") or item.get("source_official_url") or ""),str(item.get("source_product_id") or ""),position,now,now))
                 created += 1
         return {"created": created, "total": self.count()}

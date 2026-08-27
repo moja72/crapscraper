@@ -29,6 +29,10 @@ class ComparisonService:
     def candidates(self,payload:dict[str,Any])->dict[str,Any]:
         role=str(payload.get("role") or "source");catalog=self.source_id if role=="source" else self.site_id
         return {"ok":True,"items":matching.search_comparison_catalog_products(self.repository.resolve(catalog),role=role,query=str(payload.get("query", "")),limit=50)}
+    def search_catalog(self,catalog_id:str,role:str,query:str,limit:int=30)->dict[str,Any]:
+        catalog=next((x for x in self.repository.catalogs() if x["id"]==catalog_id and x["role"]==role),None)
+        if not catalog:raise ValueError("Catálogo/funcão inválidos para a sincronização")
+        return {"ok":True,"catalog":catalog,"items":matching.search_comparison_catalog_products(self.repository.resolve(catalog_id),role=role,query=query,limit=min(50,max(1,int(limit))))}
     def save_relationship(self,payload:dict[str,Any])->dict[str,Any]:
         saved=decisions.save_relationship(payload.get("site_product_key"),payload.get("source_product_key",""),payload.get("relationship_state"),site_id=payload.get("site_id",""),site_name=payload.get("site_name",""),source_name=payload.get("source_name",""),note=payload.get("note",""),operator="consolidated-ui");self.revision+=1;return {"ok":True,"item":saved,"revision":self.revision}
     def approvals(self)->dict[str,Any]: return {"ok":True,"updates":decisions.list_approved_updates(),"additions":decisions.list_approved_additions()}

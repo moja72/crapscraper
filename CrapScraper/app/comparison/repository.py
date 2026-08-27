@@ -11,7 +11,7 @@ class ComparisonRepository:
         for path in self.data_dir.rglob("*.csv"):
             relative=path.relative_to(self.data_dir).as_posix()
             if relative.startswith("update_queues/"): continue
-            lowered=relative.lower(); role="site" if "plugintema" in lowered or "plugintheme" in lowered else "source"
+            lowered=relative.lower(); role="site" if "plugintema" in lowered and "plugintheme" not in lowered else "source"
             rows.append({"id":relative,"label":relative,"role":role,"size":path.stat().st_size,"updated_at":path.stat().st_mtime})
         return sorted(rows,key=lambda x:x["updated_at"],reverse=True)
     def resolve(self, catalog_id: str) -> Path:

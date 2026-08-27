@@ -5,6 +5,7 @@ import "./compare.js";
 import "./update.js";
 import "./add.js";
 import "./store.js";
+import "./sync.js";
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];let active="collect";
 const toast=m=>{const n=$("#toast");n.textContent=m;n.classList.add("show");setTimeout(()=>n.classList.remove("show"),3200)};
 document.addEventListener("click",e=>{const tab=e.target.closest("[data-tab]")?.dataset.tab;if(!tab)return;active=tab;$$('[data-tab]').forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===tab)));$$('.page').forEach(p=>p.classList.toggle("active",p.dataset.page===tab));document.dispatchEvent(new CustomEvent("app:tab",{detail:tab}))});

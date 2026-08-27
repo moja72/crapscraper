@@ -19,6 +19,9 @@ class AdditionService:
         if len(items)>1:self.repository.patch(items[1]["job_id"],public_state="success",stage="completed")
     def materialize(self):
         with self.lock:return {"ok":True,**self.repository.materialize(decisions.list_approved_additions())}
+    def materialize_manual(self,approval):
+        with self.lock:
+            self.repository.materialize([approval]);job_id=self.repository.job_id(str(approval["comparison_item_id"]));return {"ok":True,"item":self.repository.get(job_id)}
     def list(self,payload=None):
         p=payload or {};self.materialize();return {"ok":True,**self.repository.list(str(p.get("query") or ""),str(p.get("group") or ""),str(p.get("stage") or ""),int(p.get("page") or 1),int(p.get("page_size") or 30)),"batch":self.batch.state(),"database":str(self.repository.path)}
     def job(self,job_id):return {"ok":True,"item":self.repository.get(job_id),"history":self.repository.history(job_id)}

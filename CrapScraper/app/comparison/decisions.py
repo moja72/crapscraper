@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +78,7 @@ def utc_now_iso() -> str:
 
 
 def get_database_path() -> Path:
-    path = Path(settings.COMPARISON_DECISIONS_DB_PATH)
+    path = Path(os.getenv("SCRAPER_COMPARISON_DECISIONS_DB_PATH",str(settings.COMPARISON_DECISIONS_DB_PATH))).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
