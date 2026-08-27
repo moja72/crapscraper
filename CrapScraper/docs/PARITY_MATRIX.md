@@ -47,3 +47,19 @@ Critério: somente recursos alcançáveis pelos entrypoints carregados (`app/web
 4. Fase 11: Addition persistente, modos browser/API, paralelismo e resolução oficial.
 5. Fase 12: central global de processos, histórico, créditos confiáveis e indicadores.
 6. Fase 13: somente recursos adicionais cuja integração histórica seja comprovada.
+
+## Estado após as Fases 8 e 9
+
+| Área | Estado atual | Evidência |
+|---|---|---|
+| Coleta multi-run, fila, opções e contextos | PRESENTE | Manager multi-run, isolamento por `run_id`, locks, fila persistida, configuração avançada e administração de contextos expostos e cobertos por E2E. |
+| Central de catálogos | PRESENTE | Visão administrativa canônica com busca, paginação, metadados, contexto, prévia paginada, carregamento na Coleta e download CSV. Ações destrutivas continuam centralizadas e confirmadas na Coleta, sem duplicação. |
+| Geração PluginTema | PRESENTE | Geração assíncrona local a partir de leitura WooCommerce, com estado/log, filtro de tipos, CSV atômico e zero escrita WooCommerce. |
+| Comparação avançada | PRESENTE | Seleção de página/global filtrada, seleção persistente entre páginas, massa, filtros de candidatos/score, reset, histórico, vínculo/rejeição, diagnóstico, log, duração e cache por assinatura. |
+| Cache do último resultado | PRESENTE (sessão) | O legado comprovado mantinha cache em memória por assinatura dos dois CSVs, não persistência entre processos. O consolidado preserva essa semântica, identifica reutilização e invalida quando tamanho/mtime muda. |
+
+### Decisões de migração da Fase 9
+
+- A administração destrutiva de slots/contextos não foi duplicada na central: continua na aba Coletar usando o mesmo repositório e confirmações já homologadas.
+- O refresh incremental avançado PluginTema baseado em policies não foi copiado. A função utilizável foi restaurada como geração assíncrona canônica, somente leitura no WooCommerce e escrita atômica de um novo CSV local.
+- Não foi criada persistência de payload completo da comparação entre restarts porque o legado carregado usava cache em memória por assinatura; persistir resultados antigos mudaria essa semântica e aumentaria o risco de apresentar dados obsoletos.

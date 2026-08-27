@@ -12,6 +12,9 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/collection/context": lambda: services.collection.context_payload(query),
         "/api/collection/state": lambda: services.collection.state(query),
         "/api/collection/runs": lambda: services.collection.state(query),
+        "/api/catalogs": lambda: services.catalogs.list(query),
+        "/api/catalogs/preview": lambda: services.catalogs.preview(query),
+        "/api/catalogs/generation": services.catalogs.generation_status,
         "/api/compare": services.comparison.catalogs,
         "/api/comparison/catalogs": services.comparison.catalogs,
         "/api/comparison/approvals": services.comparison.approvals,
@@ -48,6 +51,7 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
 
 def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     if path == "/api/collection/context": return services.collection.set_context(payload)
+    if path == "/api/catalogs/generate": return services.catalogs.generate_plugintema(payload)
     if path == "/api/collection/runs/create": return services.collection.create_run(payload)
     if path == "/api/collection/runs/remove": return services.collection.remove_run(payload)
     if path == "/api/collection/queue": return services.collection.save_queue(payload)
@@ -57,6 +61,10 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path in {"/api/collection/pause", "/api/collection/resume", "/api/collection/stop"}: return services.collection.control(path.rsplit("/", 1)[-1],payload)
     if path in {"/api/comparison/run", "/api/comparison/results"}: return services.comparison.run(payload)
     if path == "/api/comparison/decision": return services.comparison.save_decision(payload)
+    if path == "/api/comparison/decisions/bulk": return services.comparison.save_decisions_bulk(payload)
+    if path == "/api/comparison/selection": return services.comparison.selection(payload)
+    if path == "/api/comparison/decision/reset": return services.comparison.reset_decision(payload)
+    if path == "/api/comparison/decision/history": return services.comparison.decision_history(payload)
     if path == "/api/comparison/candidates": return services.comparison.candidates(payload)
     if path == "/api/comparison/relationship": return services.comparison.save_relationship(payload)
     if path == "/api/updates/materialize": return services.updates.materialize()

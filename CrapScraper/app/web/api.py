@@ -9,6 +9,7 @@ from app.updates import UpdateService
 from app.additions import AdditionService
 from app.store import StoreService
 from app.sync import ManualSyncService, E2EExecutionRecorder
+from app.catalogs import CatalogService
 import os
 
 
@@ -20,9 +21,11 @@ class ApplicationServices:
     additions: AdditionService
     store: StoreService
     sync: ManualSyncService
+    catalogs: CatalogService
 
     @classmethod
     def build(cls, settings: Settings, runtime: JsonStore) -> "ApplicationServices":
         updates=UpdateService(settings.data_dir);comparison=ComparisonService(settings.data_dir);additions=AdditionService(settings.data_dir)
         if os.getenv("SCRAPER_SYNC_E2E_FIXTURES","")=="1":updates.executor=E2EExecutionRecorder();additions.executor=E2EExecutionRecorder()
-        return cls(CollectionService(settings.data_dir), comparison, updates, additions, StoreService(settings.data_dir,updates), ManualSyncService(comparison,updates,additions))
+        store=StoreService(settings.data_dir,updates)
+        return cls(CollectionService(settings.data_dir), comparison, updates, additions, store, ManualSyncService(comparison,updates,additions), CatalogService(settings.data_dir,store.gateway))

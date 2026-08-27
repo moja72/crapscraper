@@ -58,3 +58,27 @@ def test_manual_relationship_confirm_and_reject(comparison: ComparisonService):
     assert confirmed["item"]["relationship_state"]=="manual_confirmed"
     rejected=comparison.save_relationship({"site_product_key":row["site_product_key"],"source_product_key":row["source_product_key"],"relationship_state":"manual_rejected"})
     assert rejected["item"]["relationship_state"]=="manual_rejected" and "pending_review" in RELATIONSHIPS
+
+
+def test_advanced_filters_bulk_reset_history_and_cached_operation(comparison: ComparisonService):
+    comparison.catalogs();first=comparison.run({"candidate_count_min":1,"score_min":50,"page_size":1,"force":True})
+    assert first["filters"]["candidate_count_min"]==1 and first["filters"]["score_min"]==50
+    cached=comparison.run({"candidate_count_min":0,"score_max":100,"page_size":1})
+    assert cached["operation"]["cached"] is True and cached["operation"]["duration_seconds"]>=0 and cached["operation"]["log"]
+    selected=comparison.selection({"candidate_count_min":0,"score_max":100})
+    assert selected["total"]==3
+    rows=selected["items"][:2];bulk=comparison.save_decisions_bulk({"items":rows,"decision":"review_later"})
+    assert bulk["total_saved"]==2 and all(decisions.get_decision(row["comparison_item_id"])["decision"]=="review_later" for row in rows)
+    reset=comparison.reset_decision({"comparison_item_id":rows[0]["comparison_item_id"]})
+    assert reset["item"]["decision"]=="pending"
+    history=comparison.decision_history({"comparison_item_id":rows[0]["comparison_item_id"]})
+    assert len(history["items"])==2 and history["items"][0]["operator"]=="consolidated-ui"
+
+
+def test_filtered_selection_reuses_local_comparison_cache(monkeypatch: pytest.MonkeyPatch, comparison: ComparisonService):
+    comparison.catalogs();calls=0;original=__import__("app.comparison.service",fromlist=["matching"]).matching.build_comparison_payload
+    def counted(**kwargs):
+        nonlocal calls;calls+=1;return original(**kwargs)
+    monkeypatch.setattr("app.comparison.service.matching.build_comparison_payload",counted)
+    result=comparison.selection({"page_size":1})
+    assert result["total"]==3 and calls==1

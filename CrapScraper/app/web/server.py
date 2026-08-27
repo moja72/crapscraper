@@ -20,8 +20,8 @@ class Application:
         static = settings.root / "app" / "static"
 
         class Handler(BaseHTTPRequestHandler):
-            def send_bytes(self, body: bytes, content_type: str, status: int = 200) -> None:
-                self.send_response(status); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); self.send_header("Pragma", "no-cache"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            def send_bytes(self, body: bytes, content_type: str, status: int = 200, disposition: str = "") -> None:
+                self.send_response(status); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); self.send_header("Pragma", "no-cache"); self.send_header("Content-Length", str(len(body)));disposition and self.send_header("Content-Disposition",disposition);self.end_headers(); self.wfile.write(body)
             def send_json(self, value: object, status: int = 200) -> None: self.send_bytes(json.dumps(value, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8", status)
             def do_GET(self) -> None:
                 path = urlparse(self.path).path
@@ -32,6 +32,8 @@ class Application:
                         if static.resolve() not in target.parents: raise FileNotFoundError
                         return self.send_bytes(target.read_bytes(), mimetypes.guess_type(target.name)[0] or "application/octet-stream")
                     query={key: values[-1] for key,values in parse_qs(urlparse(self.path).query).items()}
+                    if path == "/api/catalogs/download":
+                        filename,body=services.catalogs.download(str(query.get("catalog_id") or ""));return self.send_bytes(body,"text/csv; charset=utf-8",disposition=f'attachment; filename="{filename}"')
                     return self.send_json(get_route(services, path, query))
                 except (KeyError, FileNotFoundError): self.send_json({"ok": False, "message": "Não encontrado"}, 404)
                 except Exception as error: self.send_json({"ok": False, "message": str(error)}, 500)

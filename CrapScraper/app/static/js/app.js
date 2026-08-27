@@ -1,6 +1,8 @@
 import {get,post} from "./api.js";
 import {polling} from "./polling.js";
 import "./collect.js";
+import "./catalogs.js";
+import "./catalog-generation.js";
 import "./compare.js";
 import "./update.js";
 import "./add.js";
