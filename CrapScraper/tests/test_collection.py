@@ -85,3 +85,22 @@ def test_multirun_start_sets_and_starts_only_requested_run(tmp_path):
         def start(self,mode,options,resume=False,run_id=None):self.calls.append(("start",run_id,mode,options,resume));return {"ok":True}
     engine=MultiEngine();item=CollectionService(tmp_path,engine=engine,repository=FakeRepository());item.start({"run_id":"secondary","site_key":"plugintheme","item_type_key":"plugin_theme","account_key":"coproducaolancamentos","slot_name":"default","mode":"full_sync","options":{}})
     assert engine.calls[-2][1]=="secondary" and engine.calls[-1][1]=="secondary"
+
+
+def test_multirun_controls_and_state_are_isolated_by_run_id(tmp_path):
+    class MultiEngine(FakeEngine):
+        def __init__(self):
+            super().__init__();self.states={"primary":{"status":"Pronto","logs":["A"]},"secondary":{"status":"Pronto","logs":["B"]}}
+        def runs(self):return [{"run_id":key,"status":value["status"]} for key,value in self.states.items()]
+        def set_context(self,value,run_id=None):self.calls.append(("context",run_id,value));return {}
+        def snapshot(self,run_id=None):return dict(self.states[run_id or "primary"])
+        def start(self,mode,options,resume=False,run_id=None):self.states[run_id]["status"]="Rodando";return {"ok":True}
+        def pause(self,run_id=None):self.states[run_id]["status"]="Pausado";return {"ok":True}
+        def stop(self,run_id=None):self.states[run_id]["status"]="Parando";return {"ok":True}
+    engine=MultiEngine();item=CollectionService(tmp_path,engine=engine,repository=FakeRepository())
+    item.start({"run_id":"secondary",**Context(site_key="plugintheme",item_type_key="plugin_theme").to_dict(),"mode":"full_sync","options":{}})
+    assert item.state({"run_id":"secondary"})["state"]["status"]=="Rodando"
+    assert item.state({"run_id":"primary"})["state"]=={"status":"Pronto","logs":["A"]}
+    item.control("pause",{"run_id":"secondary"});assert item.state({"run_id":"secondary"})["state"]["status"]=="Pausado"
+    item.control("stop",{"run_id":"secondary"});assert item.state({"run_id":"secondary"})["state"]["status"]=="Parando"
+    assert item.state({"run_id":"primary"})["state"]=={"status":"Pronto","logs":["A"]}
