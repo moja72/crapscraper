@@ -12,7 +12,19 @@ class Updates:
 def service(tmp_path):return StoreService(tmp_path,Updates(),repository=StoreRepository(tmp_path),gateway=FixtureStoreGateway(),queue=FixtureManualQueue())
 
 def test_summary_products_categories_quality(tmp_path):
-    store=service(tmp_path);summary=store.summary();assert summary["counts"]=={"products":16,"plugins":8,"themes":7,"packs":1,"quality":3};assert len(store.categories()["items"])==3;assert store.quality({})["total"]==3
+    store=service(tmp_path);summary=store.summary();assert summary["counts"]=={"products":16,"plugins":8,"themes":7,"packs":1};assert len(store.categories()["items"])==3;assert store.quality({})["total"]==3
+
+def test_summary_does_not_fetch_variations_per_product(tmp_path):
+    store=service(tmp_path);calls=0;original=store.gateway.variations
+    def counted(product_id):
+        nonlocal calls;calls+=1;return original(product_id)
+    store.gateway.variations=counted;store.summary();assert calls==0
+
+def test_product_details_reuse_variations_for_quality(tmp_path):
+    store=service(tmp_path);calls=0;original=store.gateway.variations
+    def counted(product_id):
+        nonlocal calls;calls+=1;return original(product_id)
+    store.gateway.variations=counted;store.product(101);assert calls==1
 
 def test_product_filters_and_pagination(tmp_path):
     store=service(tmp_path);page=store.list_products({"type":"plugin","page_size":3,"page":2});assert page["total"]==8 and page["page"]==2 and len(page["items"])==3

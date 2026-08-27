@@ -16,8 +16,11 @@ from app.configuration import parse_update_execution_allowed_product_ids
 SETTINGS_FILE: Final[Path] = Path(__file__).resolve()
 APP_DIR: Final[Path] = SETTINGS_FILE.parent
 PROJECT_ROOT: Final[Path] = APP_DIR.parent
+CONSOLIDATED_ROOT: Final[Path] = SETTINGS_FILE.parents[3]
 
-DATA_DIR: Final[Path] = Path(os.getenv("SCRAPER_DATA_DIR", PROJECT_ROOT / "data")).expanduser().resolve()
+DATA_DIR: Final[Path] = Path(
+    os.getenv("SCRAPER_DATA_DIR", CONSOLIDATED_ROOT.parent / "data")
+).expanduser().resolve()
 LOGS_DIR: Final[Path] = Path(os.getenv("SCRAPER_LOGS_DIR", DATA_DIR / "logs")).expanduser().resolve()
 SLOTS_DIR: Final[Path] = DATA_DIR / "slots"
 SLOTS_META_JSON_PATH: Final[Path] = DATA_DIR / "slots_meta.json"

@@ -33,6 +33,8 @@ if errorlevel 1 (
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$url='%CRAPSCRAPER_URL%/api/health'; for($i=0;$i -lt 60;$i++){ try { $r=Invoke-RestMethod -Uri $url -TimeoutSec 1; if($r.ok){exit 0} } catch {}; Start-Sleep -Milliseconds 500 }; exit 1"
 if errorlevel 1 (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$pidFile='%CRAPSCRAPER_PID%'; if(Test-Path -LiteralPath $pidFile){ $serverPid=[int](Get-Content -LiteralPath $pidFile | Select-Object -First 1); $process=Get-Process -Id $serverPid -ErrorAction SilentlyContinue; if($process -and $process.ProcessName -in @('python','pythonw')){Stop-Process -Id $serverPid -Force}; Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue }"
   echo.
   echo [CrapScraper] O servidor nao respondeu a tempo.
   echo Consulte: "%CRAPSCRAPER_RUNTIME%\server.stderr.log"

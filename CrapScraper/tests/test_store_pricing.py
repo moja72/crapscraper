@@ -1,11 +1,16 @@
 import pytest
 from app.store.pricing import StorePricingService
+from app.store.pricing import period
 from app.store.repository import StoreRepository
 from app.store.woocommerce import FixtureStoreGateway
 
 def payload():return {"kinds":["plugin","theme"],"annual_regular":"99","annual_sale":"79","lifetime_regular":"199","lifetime_sale":"149"}
 def test_preview_covers_plugin_theme_annual_lifetime(tmp_path):
     gateway=FixtureStoreGateway();result=StorePricingService(gateway,StoreRepository(tmp_path)).preview(payload(),gateway.products());assert {x["period"] for x in result["changes"]}=={"annual","lifetime"};assert {x["status"] for x in result["changes"]}=={"unchanged"}
+def test_preview_can_be_scoped_to_product_ids(tmp_path):
+    gateway=FixtureStoreGateway();data=payload();data["product_ids"]=[101];result=StorePricingService(gateway,StoreRepository(tmp_path)).preview(data,gateway.products());assert {x["product_id"] for x in result["changes"]}=={101}
+def test_real_store_annual_label_is_supported():
+    assert period({"name":"1 Ano","attributes":[]})=="annual"
 def test_gate_and_confirmation(tmp_path):
     gateway=FixtureStoreGateway();disabled=StorePricingService(gateway,StoreRepository(tmp_path),False)
     with pytest.raises(PermissionError):disabled.apply(payload(),gateway.products())

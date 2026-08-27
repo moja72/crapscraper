@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os,requests
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 def _fold(value):return " ".join(str(value or "").lower().replace("í","i").split())
@@ -11,18 +12,25 @@ def product_kind(product):
 class StoreWooCommerceGateway:
     def __init__(self,session=None):
         site=(os.getenv("SCRAPER_WP_BASE_URL") or os.getenv("SCRAPER_WOOCOMMERCE_URL") or "").rstrip("/");self.base=site+"/wp-json/wc/v3" if site and "/wp-json/" not in site else site;self.auth=(os.getenv("SCRAPER_WC_CONSUMER_KEY") or os.getenv("SCRAPER_WOOCOMMERCE_KEY", ""),os.getenv("SCRAPER_WC_CONSUMER_SECRET") or os.getenv("SCRAPER_WOOCOMMERCE_SECRET", ""));self.session=session or requests.Session();self.timeout=60
-    def _request(self,method,path,**kwargs):
+    def _response(self,method,path,**kwargs):
         if not self.base or not all(self.auth):raise RuntimeError("WooCommerce não configurado")
-        headers={"Accept":"application/json","User-Agent":"CrapScraper-store/1.0",**dict(kwargs.pop("headers",{}) or {})};response=self.session.request(method,self.base+path,auth=self.auth,headers=headers,timeout=self.timeout,**kwargs);response.raise_for_status();return response.json()
+        headers={"Accept":"application/json","User-Agent":"CrapScraper-store/1.0",**dict(kwargs.pop("headers",{}) or {})};response=self.session.request(method,self.base+path,auth=self.auth,headers=headers,timeout=self.timeout,**kwargs);response.raise_for_status();return response
+    def _request(self,method,path,**kwargs):return self._response(method,path,**kwargs).json()
     def products(self,**filters):
-        rows=[];page=1
-        while True:
-            batch=self._request("GET","/products",params={"page":page,"per_page":100,**filters});rows.extend(batch)
-            if len(batch)<100:return rows
-            page+=1
+        first=self._response("GET","/products",params={"page":1,"per_page":100,**filters});rows=list(first.json());pages=int(first.headers.get("X-WP-TotalPages") or 1)
+        if pages<=1:return rows
+        with ThreadPoolExecutor(max_workers=min(8,pages-1)) as executor:
+            batches=executor.map(lambda page:self._request("GET","/products",params={"page":page,"per_page":100,**filters}),range(2,pages+1))
+            for batch in batches:rows.extend(batch)
+        return rows
     def product(self,product_id):return self._request("GET",f"/products/{int(product_id)}")
     def variations(self,product_id):return self._request("GET",f"/products/{int(product_id)}/variations",params={"per_page":100})
-    def categories(self):return self._request("GET","/products/categories",params={"per_page":100})
+    def categories(self):
+        rows=[];page=1
+        while True:
+            batch=self._request("GET","/products/categories",params={"page":page,"per_page":100});rows.extend(batch)
+            if len(batch)<100:return rows
+            page+=1
     def update_variations(self,product_id,updates):return self._request("POST",f"/products/{int(product_id)}/variations/batch",json={"update":updates}).get("update",[])
     def update_product_price(self,product_id,regular,sale):return self._request("PUT",f"/products/{int(product_id)}",json={"regular_price":regular,"sale_price":sale})
 

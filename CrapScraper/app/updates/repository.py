@@ -6,6 +6,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -23,6 +24,20 @@ def source_kind(value: dict[str, Any]) -> str:
     if name in {"plugintheme", "ultrapackv2", "ultrapack"}:
         return "ultrapackv2" if name.startswith("ultra") else "plugintheme"
     raise ValueError(f"Origem da aprovação não reconhecida: {value.get('source_name') or value.get('source_product_url')}")
+
+
+def normalize_woo_product_id(value: Any) -> int:
+    """Accept integral IDs emitted by legacy CSV/SQLite serializers."""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return 0
+    try:
+        number = Decimal(text)
+    except InvalidOperation as error:
+        raise ValueError(f"Woo ID inválido: {value!r}") from error
+    if not number.is_finite() or number != number.to_integral_value() or number < 0:
+        raise ValueError(f"Woo ID inválido: {value!r}")
+    return int(number)
 
 
 class UpdateRepository:
@@ -92,7 +107,7 @@ class UpdateRepository:
                 position += 1; now = utc_now()
                 db.execute("""INSERT INTO update_jobs(job_id,comparison_item_id,woo_product_id,product_name,current_version,
                     source_version,source_kind,source_name,source_url,source_product_id,queue_position,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (job_id,item_id,int(item.get("woo_product_id") or item.get("site_id") or 0),
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (job_id,item_id,normalize_woo_product_id(item.get("woo_product_id") or item.get("site_id") or 0),
                     str(item.get("site_name") or item.get("source_name") or item_id),str(item.get("site_version") or ""),
                     str(item.get("source_version") or ""),kind,provider,
                     str(item.get("source_product_url") or item.get("source_official_url") or ""),str(item.get("source_product_id") or ""),position,now,now))

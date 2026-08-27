@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.collection.service import CollectionService
+from app.collection.legacy_core import settings as legacy_settings
 
 
 @dataclass
@@ -42,6 +43,11 @@ class FakeRepository:
 
 
 def service(tmp_path: Path): return CollectionService(tmp_path,engine=FakeEngine(),repository=FakeRepository())
+
+
+def test_legacy_collection_core_uses_canonical_data_directory():
+    expected = (Path(__file__).resolve().parents[2] / "data").resolve()
+    assert legacy_settings.DATA_DIR == expected
 
 
 def test_context_registry_categories_and_catalog(tmp_path):

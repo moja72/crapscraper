@@ -11,12 +11,12 @@ def money(value,required=True):
     return format(amount.quantize(Decimal("0.01")),"f")
 def period(variation):
     text=" ".join(str(a.get("option") or "").lower() for a in variation.get("attributes",[]) or [])+" "+str(variation.get("name") or "").lower()
-    return "lifetime" if "vital" in text or "lifetime" in text else "annual" if "anual" in text or "annual" in text else ""
+    return "lifetime" if "vital" in text or "lifetime" in text else "annual" if "anual" in text or "annual" in text or "1 ano" in text or "12 meses" in text else ""
 
 class StorePricingService:
     def __init__(self,gateway,repository,write_enabled=False):self.gateway=gateway;self.repository=repository;self.write_enabled=write_enabled
     def preview(self,payload,products):
-        kinds=set(payload.get("kinds") or []);selected=[p for p in products if product_kind(p) in kinds and not is_pack(p)];changes=[]
+        kinds=set(payload.get("kinds") or []);product_ids={int(x) for x in payload.get("product_ids",[]) or []};selected=[p for p in products if product_kind(p) in kinds and not is_pack(p) and (not product_ids or int(p["id"]) in product_ids)];changes=[]
         prices={f"{p}_{k}":money(payload.get(f"{p}_{k}"),k=="regular") for p in ("annual","lifetime") for k in ("regular","sale")}
         for product in selected:
             for variation in self.gateway.variations(product["id"]):
