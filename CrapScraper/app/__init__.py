@@ -1,0 +1,1 @@
+"""CrapScraper consolidado."""
