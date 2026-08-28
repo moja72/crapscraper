@@ -28,6 +28,18 @@ class CollectionRepository:
                 if not item_type.is_dir():continue
                 for account in item_type.iterdir():
                     if not account.is_dir():continue
-                    context={"slot_name":slot_name,"site_key":site.name,"item_type_key":item_type.name,"account_key":account.name};catalog=self.storage.load_catalog_items(context);progress=self.storage.load_progress_data(context);catalog_file=account/"catalog.csv"
-                    rows.append({**context,"items_count":len(catalog),"updated_at":catalog_file.stat().st_mtime if catalog_file.exists() else 0,"status":str(progress.get("status") or progress.get("meta",{}).get("status") or "")})
+                    context={"slot_name":slot_name,"site_key":site.name,"item_type_key":item_type.name,"account_key":account.name};catalog=self.storage.load_catalog_items(context);progress=self.storage.load_progress_data(context);paths=self.storage.build_context_paths(context,ensure=False);catalog_file=paths.output_csv_path
+                    rows.append({**context,"items_count":len(catalog),"updated_at":catalog_file.stat().st_mtime if catalog_file.exists() else 0,"status":str(progress.get("status") or progress.get("meta",{}).get("status") or ""),"catalog_available":catalog_file.is_file(),"state_available":paths.status_txt_path.is_file(),"log_available":paths.last_logs_txt_path.is_file() or paths.runtime_log_path.is_file(),"catalog_id":catalog_file.relative_to(self.storage.get_data_dir()).as_posix() if catalog_file.is_file() else ""})
         return sorted(rows,key=lambda x:(x["site_key"],x["item_type_key"],x["account_key"]))
+
+    def catalog_management(self) -> dict[str, Any]:
+        slots=[];all_contexts=[]
+        for slot in self.slots():
+            rows=self.contexts(str(slot["name"]));all_contexts.extend(rows)
+            slots.append({**slot,"label":"Padrão" if slot["name"]=="default" else slot["name"],"items_count":sum(int(row["items_count"]) for row in rows),"contexts_count":len(rows),"updated_at":max((float(row["updated_at"]) for row in rows),default=0)})
+        return {"slots":slots,"contexts":all_contexts}
+
+    def context_file(self, context: dict[str, str], kind: str) -> str:
+        if kind == "state": return self.storage.load_status_text(context)
+        if kind == "log": return self.storage.load_full_logs_text(context)
+        raise ValueError("Tipo de prévia inválido.")

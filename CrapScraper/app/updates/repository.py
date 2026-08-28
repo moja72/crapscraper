@@ -96,14 +96,24 @@ class UpdateRepository:
     def materialize(self, approvals: list[dict[str, Any]]) -> dict[str, int]:
         created = 0
         with self.connection() as db:
+            # Registros antigos sem nenhuma tentativa não representam uma
+            # execução concluída; normaliza-os para aguardarem processamento.
+            db.execute("UPDATE update_jobs SET public_state='ready', stage='prepared', updated_at=? WHERE public_state='success' AND attempts=0", (utc_now(),))
             position = int(db.execute("SELECT COALESCE(MAX(queue_position),0) FROM update_jobs").fetchone()[0])
             for item in approvals:
                 item_id = str(item.get("comparison_item_id") or "").strip()
                 if not item_id: continue
                 job_id = self._job_id(item_id)
-                if db.execute("SELECT 1 FROM update_jobs WHERE comparison_item_id=?", (item_id,)).fetchone():
-                    continue
                 kind = source_kind(item); provider=str(item.get("source_provider_name") or ("PluginTheme" if kind=="plugintheme" else "UltraPackV2"))
+                existing = db.execute("SELECT * FROM update_jobs WHERE comparison_item_id=?", (item_id,)).fetchone()
+                if existing:
+                    # A mesma decisão é idempotente. Uma nova versão aprovada,
+                    # porém, é uma nova unidade operacional e não pode herdar
+                    # success/already_current da versão anterior.
+                    new_target = str(item.get("source_version") or "")
+                    if new_target and new_target != str(existing["source_version"] or "") and existing["public_state"] != "running":
+                        db.execute("UPDATE update_jobs SET source_version=?, current_version=?, source_kind=?, source_name=?, source_url=?, source_product_id=?, public_state='ready', stage='prepared', current_error=NULL, finished_at='', updated_at=? WHERE comparison_item_id=?", (new_target,str(item.get("site_version") or existing["current_version"] or ""),kind,provider,str(item.get("source_product_url") or item.get("source_official_url") or ""),str(item.get("source_product_id") or ""),utc_now(),item_id))
+                    continue
                 position += 1; now = utc_now()
                 db.execute("""INSERT INTO update_jobs(job_id,comparison_item_id,woo_product_id,product_name,current_version,
                     source_version,source_kind,source_name,source_url,source_product_id,queue_position,created_at,updated_at)
@@ -157,7 +167,7 @@ class UpdateRepository:
         if not item: raise KeyError(job_id)
         return item
 
-    def list(self, *, query: str="", group: str="", stage: str="", page: int=1, page_size: int=30) -> dict[str, Any]:
+    def list(self, *, query: str="", group: str="", stage: str="", page: int=1, page_size: int=5) -> dict[str, Any]:
         filters: list[str]=[]; values: list[Any]=[]
         if query:
             filters.append("(product_name LIKE ? OR CAST(woo_product_id AS TEXT) LIKE ? OR source_name LIKE ?)"); values += [f"%{query}%"]*3
@@ -179,8 +189,9 @@ class UpdateRepository:
     def begin_attempt(self, job_id: str) -> dict[str, Any]:
         now=utc_now()
         with self.connection() as db:
-            row=db.execute("SELECT attempts,source_kind,source_version FROM update_jobs WHERE job_id=?",(job_id,)).fetchone()
+            row=db.execute("SELECT attempts,source_kind,source_version,public_state FROM update_jobs WHERE job_id=?",(job_id,)).fetchone()
             if not row: raise KeyError(job_id)
+            if row["public_state"]=="running": raise ValueError("Job já está em execução")
             number=int(row["attempts"])+1; attempt_id=f"{job_id}-a{number}"
             db.execute("UPDATE update_jobs SET public_state='running',stage='validating',attempts=?,started_at=?,finished_at='',current_error=NULL,logs='[]',updated_at=? WHERE job_id=?",(number,now,now,job_id))
             db.execute("INSERT INTO update_attempts(attempt_id,job_id,attempt_number,started_at,source,version) VALUES(?,?,?,?,?,?)",(attempt_id,job_id,number,now,row["source_kind"],row["source_version"]))

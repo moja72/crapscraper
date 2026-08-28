@@ -5244,13 +5244,19 @@ async def process_queue_details(
 
         return counters
     finally:
-        if resolved_context.site_key == "ultrapackv2":
+        if resolved_context.site_key in {"ultrapackv2", "plugintheme"}:
             # Mantém a mesma sessão/cookies para a preparação local de updates no painel.
-            previous = getattr(app, "ultrapack_http_session", None)
+            session_attribute = "ultrapack_http_session" if resolved_context.site_key == "ultrapackv2" else "plugintheme_http_session"
+            previous = getattr(app, session_attribute, None)
             if previous is not None and previous is not shared_detail_http_session:
                 with suppress(Exception):
                     previous.close()
-            setattr(app, "ultrapack_http_session", shared_detail_http_session)
+            setattr(app, session_attribute, shared_detail_http_session)
+            try:
+                from app.updates.source_auth import register_source_session
+                register_source_session(resolved_context.site_key, shared_detail_http_session)
+            except Exception:
+                pass
         else:
             with suppress(Exception):
                 shared_detail_http_session.close()
@@ -5462,12 +5468,15 @@ async def execute_flow_async(
             )
             _log(app, "PluginTheme: catálogo público acessível; login não necessário")
         else:
+            _log(app, "Abrindo navegador Playwright")
             session = await open_authenticated_browser_session(
                 app,
                 control,
                 resolved_context,
                 create_detail_page=False,
             )
+            _log(app, "Navegador Playwright aberto")
+            _log(app, "Iniciando autenticação/navegação")
             operation_page = session.page
             runtime_context = get_adapter(resolved_context).build_runtime_context(
                 resolved_context,
@@ -5494,9 +5503,13 @@ async def execute_flow_async(
             if previous is not None and previous is not http_session:
                 with suppress(Exception):
                     previous.close()
-            setattr(app, "ultrapack_http_session", http_session)
+            setattr(app, session_attribute, http_session)
+            try:
+                from app.updates.source_auth import register_source_session
+                register_source_session(resolved_context.site_key, http_session)
+            except Exception:
+                pass
             if resolved_context.site_key == "plugintheme":
-                setattr(app, "plugintheme_http_session", http_session)
                 _log(
                     app,
                     "🌐 Sessão HTTPS autenticada preparada com os cookies do navegador.",

@@ -24,6 +24,15 @@ def test_panel_has_five_canonical_tabs() -> None:
     assert html.count("app.js") == 1
 
 
+def test_header_credits_use_backend_endpoint_and_keep_processes_button() -> None:
+    root=Path(__file__).parents[1]
+    html=(root/"app/web/templates/panel.html").read_text(encoding="utf-8")
+    script=(root/"app/static/js/app.js").read_text(encoding="utf-8")
+    assert 'id="processes-open"' in html
+    assert 'id="credits-ultrapack"' in html and 'id="credits-plugintheme"' in html
+    assert 'get("/api/credits")' in script and 'polling.register("download-credits"' in script
+
+
 def test_application_uses_canonical_services(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("SCRAPER_STORE_E2E_FIXTURES", "1")
     services = ApplicationServices.build(Settings(tmp_path, tmp_path, "127.0.0.1", 0), JsonStore(tmp_path / "runtime.json"))

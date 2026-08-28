@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 import traceback
 import uuid
@@ -1076,7 +1077,11 @@ class ScraperApp:
 
     def log(self, message: Any) -> str:
         line = f"[{datetime.now().strftime('%H:%M:%S')}] {str(message)}"
-        print(line)
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+            print(line.encode(encoding, errors="backslashreplace").decode(encoding))
         self.state.append_log(line, persist_runtime=True, already_formatted=True)
         return line
 
@@ -1277,6 +1282,13 @@ class ScraperApp:
         if clear_logs:
             self.state.clear_logs()
 
+        self.log("Solicitação de início recebida")
+        self.log(
+            "Contexto validado: "
+            f"{self.context.site_key} / {self.context.item_type_key} / "
+            f"{self.context.account_key} / {self.context.slot_name}"
+        )
+
         self.control.prepare_run(
             run_mode=normalized_run_mode,
             run_payload=normalized_run_payload,
@@ -1320,6 +1332,7 @@ class ScraperApp:
             f"conta={self.context.account_key} | slot={self.context.slot_name}"
         )
 
+        self.log("Criando worker")
         thread = self.control.start_worker_thread(
             target=self._worker_entrypoint,
             name="scraper-worker",
@@ -1332,6 +1345,7 @@ class ScraperApp:
             },
         )
         self._sync_state_with_control()
+        self.log(f"Worker iniciado: {thread.name}")
 
         return {
             "ok": True,
@@ -1371,6 +1385,8 @@ class ScraperApp:
 
         try:
             self._sync_state_with_control()
+            self.log("Preparando engine")
+            self.log("Chamando execute_flow()")
             execute_flow(
                 self,
                 run_options,

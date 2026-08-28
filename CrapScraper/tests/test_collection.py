@@ -40,6 +40,9 @@ class FakeRepository:
     def catalog(self,c): return [{"nome":"A"}]
     def config(self,c): return {"scope_mode":"all"}
     def progress(self,c): return {"can_continue":True}
+    def catalog_management(self):
+        return {"slots": [{"name": "default", "label": "Padrão", "items_count": 1}], "contexts": [{"slot_name": "default", "catalog_available": True}]}
+    def context_file(self,c,kind): return f"conteúdo {kind}"
 
 
 def service(tmp_path: Path): return CollectionService(tmp_path,engine=FakeEngine(),repository=FakeRepository())
@@ -54,6 +57,12 @@ def test_context_registry_categories_and_catalog(tmp_path):
     value=service(tmp_path).context_payload()
     assert {x["key"] for x in value["sites"]} >= {"ultrapackv2","plugintheme"}
     assert value["categories"][0]["nome"]=="Plugins" and value["catalog_count"]==1
+
+
+def test_catalog_management_and_context_preview_delegate_to_repository(tmp_path):
+    item = service(tmp_path)
+    assert item.catalogs()["slots"][0]["label"] == "Padrão"
+    assert item.catalog_file({**Context().to_dict(), "kind": "log"})["content"] == "conteúdo log"
 
 
 def test_slot_lifecycle_and_default_protection(tmp_path):

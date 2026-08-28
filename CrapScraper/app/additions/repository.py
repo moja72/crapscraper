@@ -50,7 +50,7 @@ class AdditionRepository:
         item=self.decode(row)
         if not item:raise KeyError(job_id)
         return item
-    def list(self,query="",group="",stage="",page=1,page_size=30):
+    def list(self,query="",group="",stage="",page=1,page_size=5):
         filters=[];values=[]
         if query:filters.append("(product_name LIKE ? OR source_name LIKE ? OR CAST(woo_product_id AS TEXT) LIKE ?)");values += [f"%{query}%"]*3
         if group:

@@ -13,7 +13,7 @@ from app.collection.legacy_core import settings
 
 DECISION_LABELS = {
     "pending": "Pendente",
-    "approve_update": "Atualizacao aprovada",
+    "approve_update": "Aprovar atualização",
     "ignore": "Ignorado",
     "review_later": "Revisar depois",
     "same_product": "Mesmo produto confirmado",

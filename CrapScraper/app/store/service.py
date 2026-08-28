@@ -49,7 +49,7 @@ class StoreService:
         products=self._products();counts={"products":len(products),"plugins":sum(product_kind(x)=="plugin" for x in products),"themes":sum(product_kind(x)=="theme" for x in products),"packs":sum(is_pack(x) for x in products)}
         return {"ok":True,"counts":counts,"monitor":self.monitor_service.snapshot()}
     def list_products(self,payload):
-        query=str(payload.get("query") or "").casefold();kind=str(payload.get("type") or "");category=str(payload.get("category") or "").casefold();page=max(1,int(payload.get("page") or 1));size=max(1,min(100,int(payload.get("page_size") or 20)));rows=[]
+        query=str(payload.get("query") or "").casefold();kind=str(payload.get("type") or "");category=str(payload.get("category") or "").casefold();page=max(1,int(payload.get("page") or 1));size=max(1,min(100,int(payload.get("page_size") or 5)));rows=[]
         for p in self._products():
             pk=product_kind(p)
             if query and query not in (str(p.get("id"))+" "+str(p.get("name"))).casefold():continue
@@ -62,7 +62,7 @@ class StoreService:
     def categories(self):return {"ok":True,"items":self.gateway.categories()}
     def bundles(self):return {"ok":True,"items":self.bundles_service.list(self._products())}
     def quality(self,payload):
-        query=str(payload.get("query") or "").casefold();code=str(payload.get("code") or "");page=max(1,int(payload.get("page") or 1));size=max(1,min(100,int(payload.get("page_size") or 20)))
+        query=str(payload.get("query") or "").casefold();code=str(payload.get("code") or "");page=max(1,int(payload.get("page") or 1));size=max(1,min(100,int(payload.get("page_size") or 5)))
         if isinstance(self.gateway,FixtureStoreGateway):rows=self._quality();complete=True;error=""
         else:
             products=self._products();base=self.quality_service.inspect(products,check_variations=False);self._start_quality_analysis()

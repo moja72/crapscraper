@@ -8,9 +8,13 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
     query=query or {}
     routes = {
         "/api/health": lambda: {"ok": True},
+        "/api/credits": lambda: services.credits.snapshot(refresh=str(query.get("refresh") or "") in {"1", "true"}),
         "/api/collect": services.collection.context_payload,
         "/api/collection/context": lambda: services.collection.context_payload(query),
         "/api/collection/state": lambda: services.collection.state(query),
+        "/api/collection/logs_full": lambda: services.collection.logs_full(query),
+        "/api/collection/catalogs": services.collection.catalogs,
+        "/api/collection/catalog-file": lambda: services.collection.catalog_file(query),
         "/api/collection/runs": lambda: services.collection.state(query),
         "/api/catalogs": lambda: services.catalogs.list(query),
         "/api/catalogs/preview": lambda: services.catalogs.preview(query),
@@ -24,6 +28,7 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/updates/job": lambda: services.updates.job(str(query.get("job_id") or "")),
         "/api/updates/history": lambda: services.updates.job(str(query.get("job_id") or "")),
         "/api/updates/logs": lambda: services.updates.job(str(query.get("job_id") or "")),
+        "/api/updates/environment": services.updates.environment,
         "/api/add": lambda: services.additions.list(query),
         "/api/additions": lambda: services.additions.list(query),
         "/api/additions/jobs": lambda: services.additions.list(query),
@@ -68,6 +73,8 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/comparison/candidates": return services.comparison.candidates(payload)
     if path == "/api/comparison/relationship": return services.comparison.save_relationship(payload)
     if path == "/api/updates/materialize": return services.updates.materialize()
+    if path == "/api/updates/environment/check": return services.updates.verify_environment()
+    if path == "/api/updates/selection": return services.updates.selection(payload)
     if path == "/api/updates/execute": return services.updates.execute(str(payload.get("job_id") or ""))
     if path == "/api/updates/retry": return services.updates.retry(str(payload.get("job_id") or ""))
     if path == "/api/updates/batch/start": return services.updates.batch_start(list(payload.get("job_ids") or []))

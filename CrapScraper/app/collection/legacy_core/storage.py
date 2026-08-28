@@ -908,11 +908,14 @@ def rename_slot(old_slot_name: str | None, new_slot_name: str | None) -> tuple[b
     elif error_data:
         errors.append(error_data)
 
-    ok_logs, error_logs = _rename_tree_checked(old_logs_slot_dir, new_logs_slot_dir)
-    if ok_logs:
-        logs_renamed = old_logs_slot_dir.exists() is False and new_logs_slot_dir.exists()
-    elif error_logs:
-        errors.append(error_logs)
+    # Um catálogo recém-criado pode ainda não ter produzido logs. A ausência
+    # dessa árvore opcional não deve impedir o rename do catálogo de dados.
+    if old_logs_slot_dir.exists():
+        ok_logs, error_logs = _rename_tree_checked(old_logs_slot_dir, new_logs_slot_dir)
+        if ok_logs:
+            logs_renamed = old_logs_slot_dir.exists() is False and new_logs_slot_dir.exists()
+        elif error_logs:
+            errors.append(error_logs)
 
     if errors:
         if data_renamed and new_data_slot_dir.exists() and not old_data_slot_dir.exists():

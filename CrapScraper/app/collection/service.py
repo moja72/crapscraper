@@ -60,6 +60,13 @@ class CollectionService:
 
     def state(self, payload: dict[str,Any]|None=None) -> dict[str, Any]:
         multi=hasattr(self.engine,"runs");state=self.engine.snapshot(str((payload or {}).get("run_id") or "") or None) if multi else self.engine.snapshot();return {"ok":True,"state":state,"runs":self.engine.runs() if multi else []}
+    def logs_full(self, payload: dict[str,Any]|None=None) -> dict[str, Any]:
+        run_id=str((payload or {}).get("run_id") or "") or None
+        return {"ok":True,"run_id":run_id or "","logs":self.engine.full_logs(run_id)}
+    def catalogs(self) -> dict[str, Any]: return {"ok":True,**self.repository.catalog_management()}
+    def catalog_file(self, payload: dict[str,Any]|None=None) -> dict[str, Any]:
+        payload=payload or {};context={key:str(payload.get(key) or "") for key in ("slot_name","site_key","item_type_key","account_key")};kind=str(payload.get("kind") or "")
+        return {"ok":True,"kind":kind,"context":context,"content":self.repository.context_file(context,kind)}
     def control(self, action: str, payload: dict[str,Any]|None=None) -> dict[str, Any]:
         method=getattr(self.engine,action);return method(str((payload or {}).get("run_id") or "") or None) if hasattr(self.engine,"runs") else method()
     def create_run(self,payload):

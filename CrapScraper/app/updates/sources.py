@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import requests
 
 from app.updates.models import UpdateError
+from app.updates.source_auth import get_source_session, set_source_state
 
 
 @dataclass(frozen=True)
@@ -84,11 +85,19 @@ def _json_env(name: str) -> dict[str,str]:
 class _HttpSource:
     kind=""; display_name=""; header_env=""; cookie_env=""
     def __init__(self, transport: HttpDownloadTransport | None=None): self.transport=transport or HttpDownloadTransport()
+    def _session(self):
+        shared=get_source_session(self.kind)
+        return shared if isinstance(shared, requests.Session) else self.transport.session
     def validate_authentication(self) -> None:
+        if get_source_session(self.kind) is not None:
+            return
         if not (_json_env(self.header_env) or _json_env(self.cookie_env)):
             raise SourceFailure(UpdateError(message=f"Autenticação do {self.display_name} não configurada.",code="authentication_missing",stage="authenticating",source=self.display_name,recoverable=True))
     def _get(self,url: str, **kwargs: Any) -> requests.Response:
-        try:r=self.transport.session.get(url,headers=_json_env(self.header_env),cookies=_json_env(self.cookie_env),timeout=self.transport.timeout,allow_redirects=True,**kwargs)
+        shared=get_source_session(self.kind)
+        headers={} if shared is not None else _json_env(self.header_env)
+        cookies={} if shared is not None else _json_env(self.cookie_env)
+        try:r=self._session().get(url,headers=headers,cookies=cookies,timeout=self.transport.timeout,allow_redirects=True,**kwargs)
         except requests.RequestException as exc:raise SourceFailure(classify_source_error(self.display_name,requested_url=url,technical=str(exc))) from exc
         if r.status_code>=400:raise SourceFailure(classify_source_error(self.display_name,status=r.status_code,body=r.text[:4000],requested_url=url,final_url=r.url,content_type=str(r.headers.get("Content-Type") or "")))
         return r
@@ -111,6 +120,11 @@ class PluginThemeSource(_HttpSource):
         if not ids:raise SourceFailure(classify_source_error(self.display_name,requested_url=url,technical="ID do produto PluginTheme não encontrado."))
         return {"id":ids[-1].group(1),"version":versions[-1].group(1) if versions else str(job["source_version"])}
     def confirm_version(self,job):return self._product(job)["version"]
+    def validate_access(self, job: dict[str, Any]) -> dict[str, str]:
+        self.validate_authentication()
+        product = self._product(job)
+        set_source_state(self.kind, "validated")
+        return {"source_url": str(job["source_url"]), "product_id": product["id"], "version": product["version"]}
     def download(self,job,target):
         product=self._product(job);check=self._get(f"{self.api_base}/downloads/{product['id']}/check-access")
         try:access=check.json()
@@ -123,6 +137,9 @@ class PluginThemeSource(_HttpSource):
         except ValueError:raise SourceFailure(classify_source_error(self.display_name,body=response.text,requested_url=response.url,technical="Metadados de download inválidos."))
         url=str(metadata.get("downloadUrl") or metadata.get("url") or "")
         if not url:raise SourceFailure(classify_source_error(self.display_name,body=json.dumps(metadata),requested_url=response.url,technical="PluginTheme não retornou URL de download."))
+        shared=get_source_session(self.kind)
+        if shared is not None:
+            return HttpDownloadTransport(session=shared,timeout=self.transport.timeout).download(url=url,target=target,source=self.display_name)
         return self.transport.download(url=url,target=target,source=self.display_name,headers=_json_env(self.header_env),cookies=_json_env(self.cookie_env))
 
 
@@ -134,9 +151,19 @@ class UltraPackSource(_HttpSource):
         parts=urlsplit(url);query=[(k,v) for k,v in parse_qsl(parts.query,keep_blank_values=True) if k!="f"]+[("f",unescape(token.group(1)).strip())]
         plain=re.sub(r"<[^>]+>"," ",html);match=re.search(r"(?:versão|versao|version)\s*[:\-]?\s*v?([0-9]+(?:\.[0-9A-Za-z_-]+)+)",plain,re.I)
         return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),"")),match.group(1) if match else str(job["source_version"])
+    def validate_access(self, job: dict[str, Any]) -> dict[str, str]:
+        """Preflight somente leitura: autenticação, produto e link de download."""
+        self.validate_authentication()
+        url, version = self._inspect(job)
+        set_source_state(self.kind, "validated")
+        return {"source_url": str(job["source_url"]), "download_url": url, "version": version}
     def confirm_version(self,job):return self._inspect(job)[1]
     def download(self,job,target):
-        url,_version=self._inspect(job);return self.transport.download(url=url,target=target,source=self.display_name,headers=_json_env(self.header_env),cookies=_json_env(self.cookie_env))
+        url,_version=self._inspect(job)
+        shared=get_source_session(self.kind)
+        if shared is not None:
+            return HttpDownloadTransport(session=shared,timeout=self.transport.timeout).download(url=url,target=target,source=self.display_name)
+        return self.transport.download(url=url,target=target,source=self.display_name,headers=_json_env(self.header_env),cookies=_json_env(self.cookie_env))
 
 
 class SourceRegistry:
