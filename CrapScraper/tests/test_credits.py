@@ -5,6 +5,7 @@ import time
 import weakref
 
 from app import credits
+from app.updates import source_auth
 
 
 class Response:
@@ -90,6 +91,43 @@ def test_refresh_changes_value_and_persists_by_site_and_account(tmp_path) -> Non
     reloaded = credits.CreditService(tmp_path, provider=lambda *_: (_ for _ in ()).throw(AssertionError("não consultar")))
     assert reloaded.cached("ultrapackv2", "account-a")["credits"] == 35
     assert reloaded.cached("plugintheme", "account-a")["credits"] == 12
+
+
+def test_blank_panel_account_uses_configured_source_account(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(source_auth, "_active_accounts", {})
+    monkeypatch.setenv("SCRAPER_PLUGINTHEME_COPRODUCAOLANCAMENTOS_EMAIL", "configured@example.test")
+    monkeypatch.setenv("SCRAPER_PLUGINTHEME_COPRODUCAOLANCAMENTOS_PASSWORD", "secret")
+    seen = []
+    service = credits.CreditService(
+        tmp_path,
+        provider=lambda site, account: seen.append((site, account)) or success(site, account, 12),
+    )
+
+    result = service.refresh("plugintheme")
+
+    assert result["account_key"] == "coproducaolancamentos"
+    assert seen == [("plugintheme", "coproducaolancamentos")]
+
+
+def test_blank_panel_account_uses_registry_default_with_persistent_profile(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(source_auth, "_active_accounts", {})
+    for name in (
+        "SCRAPER_PLUGINTHEME_COPRODUCAOLANCAMENTOS_EMAIL",
+        "SCRAPER_PLUGINTHEME_COPRODUCAOLANCAMENTOS_PASSWORD",
+        "SCRAPER_PLUGINTHEME_BERNARDES1992_EMAIL",
+        "SCRAPER_PLUGINTHEME_BERNARDES1992_PASSWORD",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    seen = []
+    service = credits.CreditService(
+        tmp_path,
+        provider=lambda site, account: seen.append((site, account)) or success(site, account, 12),
+    )
+
+    result = service.refresh("plugintheme")
+
+    assert result["account_key"] == "coproducaolancamentos"
+    assert seen == [("plugintheme", "coproducaolancamentos")]
 
 
 def test_failed_refresh_preserves_last_confirmed_as_stale(tmp_path) -> None:

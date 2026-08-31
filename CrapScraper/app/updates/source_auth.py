@@ -31,6 +31,14 @@ def _configured_account(source_kind: str) -> str:
     return ""
 
 
+def _default_account() -> str:
+    # O cadastro de contas da coleta é a fonte canônica também para os fluxos
+    # que ainda não publicaram uma sessão em memória (painel recém-aberto).
+    from app.collection.legacy_core import settings
+
+    return str(settings.DEFAULT_ACCOUNT_KEY or "").strip().lower()
+
+
 def _run(coroutine: Any) -> Any:
     try:
         asyncio.get_running_loop()
@@ -69,7 +77,7 @@ async def _browser_session(
         None,
         None,
         site_key=site_key,
-        item_type_key="plugin",
+        item_type_key="plugin_theme" if site_key == "plugintheme" else "plugin",
         account_key=account_key,
         slot_name="default",
         # Consultas disparadas pelo backend nunca abrem uma janela nem aguardam
@@ -126,7 +134,7 @@ def ensure_source_session(
     # publicada pelo fluxo de Coletar/renovacao explicita.
     if source == "plugintheme" and not allow_profile_probe:
         return None
-    account = account or _configured_account(source)
+    account = account or get_source_account(source)
     if not account:
         return None
     created = _run(_browser_session(source, str(product_url or ""), account))
@@ -137,7 +145,7 @@ def ensure_source_session(
 def register_source_session(source_kind: str, session: Any, account_key: str = "") -> None:
     if source_kind and session is not None:
         source = _source_key(source_kind)
-        account = _account_key(account_key) or _configured_account(source) or "default"
+        account = _account_key(account_key) or get_source_account(source)
         key = (source, account)
         with _lock:
             # Publica uma cópia independente da sessão do job. Assim o
@@ -161,7 +169,11 @@ def register_source_session(source_kind: str, session: Any, account_key: str = "
 def get_source_account(source_kind: str) -> str:
     source = _source_key(source_kind)
     with _lock:
-        return _active_accounts.get(source, "")
+        active = _active_accounts.get(source, "")
+    # O painel de créditos pode ser aberto antes de qualquer coleta publicar
+    # uma sessão. Nesse caso a conta vazia deve apontar para a conta realmente
+    # configurada, e nunca para a chave artificial ``default``.
+    return active or _configured_account(source) or _default_account()
 
 
 def get_source_session(source_kind: str, account_key: str = "") -> Any | None:

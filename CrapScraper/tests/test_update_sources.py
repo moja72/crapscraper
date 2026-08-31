@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 import requests
 from app.updates.sources import classify_source_error, PluginThemeSource, UltraPackSource
+from app.updates import source_auth
 from app.updates.source_auth import register_source_session, clear_source_session, get_source_session
 
 
@@ -35,6 +38,39 @@ def test_source_sessions_are_isolated_by_account():
     finally:
         clear_source_session("ultrapackv2",account_key="account-a")
         clear_source_session("ultrapackv2",account_key="account-b")
+
+
+def test_plugintheme_browser_auth_uses_supported_item_type(monkeypatch):
+    captured = {}
+
+    class Context:
+        async def cookies(self):
+            return []
+
+    class Browser:
+        data = SimpleNamespace(user_agent="test")
+        browser_context = Context()
+
+        async def goto(self, url):
+            captured["goto"] = url
+
+    async def open_session(*_args, **kwargs):
+        captured.update(kwargs)
+        return Browser()
+
+    async def close_session(_browser):
+        captured["closed"] = True
+
+    monkeypatch.setattr("app.collection.legacy_core.browser.open_authenticated_browser_session", open_session)
+    monkeypatch.setattr("app.collection.legacy_core.browser.close_browser_session", close_session)
+
+    session = source_auth._run(source_auth._browser_session(
+        "plugintheme", "https://plugintheme.net/product/demo", "coproducaolancamentos"
+    ))
+
+    assert isinstance(session, requests.Session)
+    assert captured["item_type_key"] == "plugin_theme"
+    assert captured["closed"] is True
 
 def test_explicit_credit_response_is_normalized_per_source():
     error=classify_source_error("PluginTheme",status=403,body='{"credits":0}')
