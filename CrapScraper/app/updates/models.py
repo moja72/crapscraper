@@ -33,6 +33,7 @@ class UpdateError:
     job_id: str = ""
     timestamp: str = field(default_factory=utc_now)
     recoverable: bool = True
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
