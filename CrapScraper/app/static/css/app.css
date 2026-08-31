@@ -107,3 +107,6 @@ main{padding-top:16px;padding-bottom:16px}
 [hidden]{display:none!important}
 /* Mascote legado, sem recorte nem logo textual. */
 .mascot-crop img{width:100%;height:100%;object-fit:contain;transform:none}
+.plugintheme-session-copy{display:grid;gap:3px;min-width:0}.plugintheme-session-copy p{margin:0}.plugintheme-status{min-height:42px;max-width:780px;overflow-wrap:anywhere;color:var(--muted);font-size:12px;line-height:1.45}.plugintheme-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;flex-wrap:wrap}.plugintheme-actions button:disabled{cursor:wait;opacity:.65}
+@media(max-width:760px){.plugintheme-actions{width:100%;justify-content:stretch}.plugintheme-actions button{flex:1;min-width:0;white-space:normal}.plugintheme-status{min-height:58px}}
+@media(max-width:720px){.header-operations{align-items:center;flex-wrap:wrap}.download-credits{display:grid;grid-template-columns:1fr;width:100%;flex:1 0 100%}.credit-source{min-width:0;width:100%}.credit-status{width:100%}}

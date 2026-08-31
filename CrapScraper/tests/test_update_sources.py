@@ -72,6 +72,26 @@ def test_plugintheme_browser_auth_uses_supported_item_type(monkeypatch):
     assert captured["item_type_key"] == "plugin_theme"
     assert captured["closed"] is True
 
+
+def test_http_session_keeps_only_the_selected_provider_cookies():
+    class Context:
+        async def cookies(self):
+            return [
+                {"name": "ultra", "value": "u", "domain": ".ultrapackv2.com", "path": "/"},
+                {"name": "plugin", "value": "p", "domain": ".plugintheme.net", "path": "/"},
+            ]
+    class Page:
+        async def evaluate(self, _script): return []
+    browser = SimpleNamespace(browser_context=Context(), page=Page(), data=SimpleNamespace(user_agent="test"))
+
+    session, evidence = source_auth._run(source_auth._http_session_from_browser(
+        browser, "https://www.ultrapackv2.com/minha-conta/", "ultrapackv2"
+    ))
+
+    assert session.cookies.get("ultra", domain=".ultrapackv2.com") == "u"
+    assert not any(cookie.name == "plugin" for cookie in session.cookies)
+    assert evidence["cookie_count"] == 1
+
 def test_explicit_credit_response_is_normalized_per_source():
     error=classify_source_error("PluginTheme",status=403,body='{"credits":0}')
     assert error.code=="insufficient_credits" and "PluginTheme" in error.message and "UltraPack" not in error.message

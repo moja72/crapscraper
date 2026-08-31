@@ -5,12 +5,30 @@ from typing import Any
 import asyncio
 import os
 import requests
+from urllib.parse import urlsplit
+
+from app.plugintheme_profile import (
+    ACCOUNT_URL,
+    complete_manual_renewal,
+    find_access_token,
+    profile_diagnostic,
+    renewal_pending,
+    storage_state_path,
+    stored_state,
+)
 
 _lock = RLock()
 _sessions: dict[tuple[str, str], Any] = {}
 _origins: dict[tuple[str, str], Any] = {}
 _states: dict[tuple[str, str], str] = {}
+_diagnostics: dict[tuple[str, str], dict[str, Any]] = {}
 _active_accounts: dict[str, str] = {}
+
+
+class PluginThemeAuthenticationError(RuntimeError):
+    def __init__(self, message: str, diagnostic: dict[str, Any]):
+        super().__init__(message)
+        self.diagnostic = diagnostic
 
 
 def _source_key(source_kind: str) -> str:
@@ -22,6 +40,14 @@ def _account_key(account_key: str) -> str:
 
 
 def _configured_account(source_kind: str) -> str:
+    from app.collection.legacy_core import settings
+
+    for account in ("coproducaolancamentos", "bernardes1992"):
+        try:
+            if settings.is_account_configured(account, source_kind):
+                return account
+        except (KeyError, ValueError):
+            continue
     prefix = "SCRAPER_PLUGINTHEME" if source_kind == "plugintheme" else "SCRAPER_ULTRAPACKV2"
     for account in ("COPRODUCAOLANCAMENTOS", "BERNARDES1992"):
         if os.getenv(f"{prefix}_{account}_EMAIL", "").strip() and os.getenv(
@@ -60,6 +86,149 @@ def _run(coroutine: Any) -> Any:
     return result[0]
 
 
+def _safe_url(value: str) -> str:
+    parsed = urlsplit(str(value or ""))
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.scheme and parsed.netloc else str(value or "")
+
+
+async def _http_session_from_browser(
+    browser: Any,
+    referer: str,
+    site_key: str = "plugintheme",
+) -> tuple[requests.Session, dict[str, Any]]:
+    cookies = list(await browser.browser_context.cookies())
+    provider_domain = "plugintheme.net" if site_key == "plugintheme" else "ultrapackv2.com"
+    provider_cookies = [
+        cookie for cookie in cookies
+        if str(cookie.get("domain") or "").lstrip(".").lower().endswith(provider_domain)
+    ]
+    storage_rows: list[dict[str, Any]] = []
+    try:
+        storage_rows = list(await browser.page.evaluate(
+            """() => {
+              const rows = [];
+              for (const [scope, store] of [['localStorage', window.localStorage], ['sessionStorage', window.sessionStorage]]) {
+                for (let i = 0; i < store.length; i += 1) {
+                  const key = store.key(i);
+                  rows.push({scope, key, value: store.getItem(key) || ''});
+                }
+              }
+              return rows;
+            }"""
+        ) or [])
+    except Exception:
+        storage_rows = []
+    created = requests.Session()
+    parsed_referer = urlsplit(referer)
+    created.headers.update({
+        "User-Agent": str(getattr(browser.data, "user_agent", "") or "CrapScraper-update/1.0"),
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": referer,
+    })
+    if parsed_referer.scheme and parsed_referer.netloc:
+        created.headers["Origin"] = f"{parsed_referer.scheme}://{parsed_referer.netloc}"
+    for cookie in provider_cookies:
+        name, value = str(cookie.get("name") or ""), str(cookie.get("value") or "")
+        if not name or not value:
+            continue
+        try:
+            created.cookies.set(
+                name, value, domain=str(cookie.get("domain") or "") or None,
+                path=str(cookie.get("path") or "/") or "/",
+            )
+        except Exception:
+            created.cookies.set(name, value)
+    token = ""
+    for row in storage_rows:
+        if isinstance(row, dict):
+            token = find_access_token(row.get("value"))
+            if token:
+                break
+    if token:
+        created.headers["Authorization"] = f"Bearer {token}"
+    evidence = {
+        "cookie_count": len(provider_cookies),
+        "httponly_cookie_count": sum(1 for cookie in provider_cookies if cookie.get("httpOnly")),
+        "storage_entry_count": len(storage_rows),
+        "access_token_present": bool(token),
+    }
+    return created, evidence
+
+
+async def _validated_plugintheme_session(account_key: str) -> tuple[requests.Session, dict[str, Any]]:
+    """Open the persistent profile and prove access to the protected account page."""
+    from app.collection.legacy_core.browser import (
+        AuthenticationState,
+        close_browser_session,
+        create_browser_session,
+        determine_authentication_state,
+    )
+
+    diagnostic = profile_diagnostic(account_key)
+    browser = None
+    try:
+        browser = await create_browser_session(
+            None,
+            site_key="plugintheme",
+            item_type_key="plugin_theme",
+            account_key=account_key,
+            slot_name="default",
+            headless=True,
+            create_detail_page=False,
+        )
+        persisted = {} if renewal_pending(account_key) else stored_state(account_key)
+        persisted_cookies = [
+            cookie for cookie in persisted.get("cookies", [])
+            if isinstance(cookie, dict)
+            and str(cookie.get("domain") or "").lstrip(".").lower().endswith("plugintheme.net")
+        ]
+        if persisted_cookies:
+            await browser.browser_context.add_cookies(persisted_cookies)
+            diagnostic["storage_state_loaded"] = True
+        await browser.goto(ACCOUNT_URL)
+        current_url = _safe_url(str(getattr(browser.page, "url", "") or ""))
+        authentication = await determine_authentication_state(browser.page)
+        http, evidence = await _http_session_from_browser(browser, ACCOUNT_URL)
+        login_redirect = "/auth/login" in current_url.lower()
+        diagnostic.update({
+            **evidence,
+            "current_url": current_url,
+            "login_redirect": login_redirect,
+            "authenticated_indicator": authentication is AuthenticationState.AUTHENTICATED,
+            "authenticated": authentication is AuthenticationState.AUTHENTICATED and not login_redirect,
+        })
+        if not diagnostic["authenticated"]:
+            http.close()
+            raise PluginThemeAuthenticationError(
+                "Sessão PluginTheme inválida: a área protegida redirecionou para o login.",
+                diagnostic,
+            )
+        state_path = storage_state_path(account_key)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        await browser.browser_context.storage_state(path=str(state_path))
+        complete_manual_renewal(account_key)
+        diagnostic.update({"storage_state_exists": True, "storage_state_saved": True})
+        return http, diagnostic
+    except PluginThemeAuthenticationError:
+        raise
+    except Exception as error:
+        diagnostic.update({"authenticated": False, "probe_error": type(error).__name__})
+        message = str(error).lower()
+        if any(term in message for term in ("profile", "singleton", "in use", "processsingleton")):
+            raise PluginThemeAuthenticationError(
+                "O perfil PluginTheme está aberto. Feche a janela de renovação e verifique novamente.",
+                diagnostic,
+            ) from error
+        raise PluginThemeAuthenticationError(
+            f"Não foi possível validar funcionalmente a sessão PluginTheme ({type(error).__name__}).",
+            diagnostic,
+        ) from error
+    finally:
+        if browser is not None:
+            await close_browser_session(browser)
+
+
 async def _browser_session(
     source_kind: str,
     product_url: str,
@@ -90,23 +259,7 @@ async def _browser_session(
     try:
         if product_url:
             await browser.goto(product_url)
-        created = requests.Session()
-        created.headers.update({
-            "User-Agent": str(getattr(browser.data, "user_agent", "") or "CrapScraper-update/1.0"),
-            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": product_url,
-        })
-        for cookie in await browser.browser_context.cookies():
-            name, value = str(cookie.get("name") or ""), str(cookie.get("value") or "")
-            if not name or not value:
-                continue
-            try:
-                created.cookies.set(
-                    name, value, domain=str(cookie.get("domain") or "") or None,
-                    path=str(cookie.get("path") or "/") or "/",
-                )
-            except Exception:
-                created.cookies.set(name, value)
+        created, _evidence = await _http_session_from_browser(browser, product_url, site_key)
         return created
     finally:
         await close_browser_session(browser)
@@ -137,9 +290,21 @@ def ensure_source_session(
     account = account or get_source_account(source)
     if not account:
         return None
-    created = _run(_browser_session(source, str(product_url or ""), account))
+    if source == "plugintheme":
+        try:
+            created, diagnostic = _run(_validated_plugintheme_session(account))
+        except PluginThemeAuthenticationError as error:
+            with _lock:
+                _active_accounts[source] = account
+                _states[(source, account)] = "expired"
+                _diagnostics[(source, account)] = dict(error.diagnostic)
+            raise
+    else:
+        created = _run(_browser_session(source, str(product_url or ""), account))
+        diagnostic = {"authenticated": True, "current_url": _safe_url(product_url)}
     register_source_session(source, created, account)
-    set_source_state(source, "configured", account)
+    set_source_diagnostic(source, diagnostic, account)
+    set_source_state(source, "validated", account)
     return get_source_session(source, account)
 
 def register_source_session(source_kind: str, session: Any, account_key: str = "") -> None:
@@ -158,7 +323,19 @@ def register_source_session(source_kind: str, session: Any, account_key: str = "
                     shared.cookies.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
             _sessions[key] = shared
             _origins[key] = session
-            _states[key] = "configured"
+            _states[key] = "validated"
+            if source == "plugintheme" and isinstance(shared, requests.Session):
+                provider_cookies = [
+                    cookie for cookie in shared.cookies
+                    if str(getattr(cookie, "domain", "") or "").lstrip(".").lower().endswith("plugintheme.net")
+                ]
+                _diagnostics[key] = {
+                    **profile_diagnostic(account),
+                    "authenticated": True,
+                    "authenticated_indicator": True,
+                    "login_redirect": False,
+                    "cookie_count": len(provider_cookies),
+                }
             _active_accounts[source] = account
         try:
             from app.credits import invalidate_credit_cache
@@ -198,6 +375,7 @@ def clear_source_session(source_kind: str, session: Any | None = None, account_k
             _sessions.pop(key, None)
             _origins.pop(key, None)
             _states.pop(key, None)
+            _diagnostics.pop(key, None)
             removed_accounts.append(key[1])
         active = _active_accounts.get(source)
         if active in removed_accounts:
@@ -221,8 +399,23 @@ def set_source_state(source_kind: str, state: str, account_key: str = "") -> Non
     account = _account_key(account_key)
     with _lock:
         account = account or _active_accounts.get(source, "")
-        if (source, account) in _sessions:
+        if account:
             _states[(source, account)] = state
+
+
+def set_source_diagnostic(source_kind: str, diagnostic: dict[str, Any], account_key: str = "") -> None:
+    source = _source_key(source_kind)
+    account = _account_key(account_key) or get_source_account(source)
+    if account:
+        with _lock:
+            _diagnostics[(source, account)] = dict(diagnostic)
+
+
+def get_source_diagnostic(source_kind: str, account_key: str = "") -> dict[str, Any]:
+    source = _source_key(source_kind)
+    account = _account_key(account_key) or get_source_account(source)
+    with _lock:
+        return dict(_diagnostics.get((source, account), {}))
 
 def source_state(source_kind: str, account_key: str = "") -> str:
     source = _source_key(source_kind)

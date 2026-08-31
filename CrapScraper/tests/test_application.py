@@ -31,6 +31,7 @@ def test_header_credits_use_backend_endpoint_and_keep_processes_button() -> None
     assert 'id="processes-open"' in html
     assert 'id="credits-ultrapack"' in html and 'id="credits-plugintheme"' in html
     assert 'data-credit-refresh="ultrapackv2"' in html and 'data-credit-refresh="plugintheme"' in html
+    assert 'plugintheme-update.js' in (root / "app" / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert 'refreshCredit(site,{force:true})' in script
     assert 'polling.register("download-credits"' not in script
 

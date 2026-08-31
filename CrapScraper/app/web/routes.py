@@ -80,6 +80,7 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/comparison/relationship": return services.comparison.save_relationship(payload)
     if path == "/api/updates/materialize": return services.updates.materialize()
     if path == "/api/updates/environment/check": return services.updates.verify_environment()
+    if path == "/api/updates/plugintheme/renew": return services.updates.renew_plugintheme(payload)
     if path == "/api/updates/selection": return services.updates.selection(payload)
     if path == "/api/updates/execute": return services.updates.execute(str(payload.get("job_id") or ""))
     if path == "/api/updates/retry": return services.updates.retry(str(payload.get("job_id") or ""))

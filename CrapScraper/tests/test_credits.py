@@ -9,9 +9,10 @@ from app.updates import source_auth
 
 
 class Response:
-    def __init__(self, text: str, *, url: str = "https://example.test/account", status: int = 200, payload=None):
+    def __init__(self, text: str, *, url: str = "https://example.test/account", status: int = 200, payload=None, content_type: str = "application/json"):
         self.text, self.url, self.status_code, self._payload = text, url, status, payload
         self.ok = status < 400
+        self.headers = {"Content-Type": content_type}
 
     def json(self):
         if self._payload is None:
@@ -42,6 +43,22 @@ def test_credit_parser_preserves_real_zero() -> None:
     assert credits.extract_credit_numbers({"downloadLimit": 40, "remainingDownloads": 0}) == {"limit": 40, "remaining": 0, "used": 40}
     assert credits.extract_credit_numbers({"remainingCredits": 0}) == {"remaining": 0}
     assert credits.extract_credit_numbers("Saldo: 18 créditos") == {"remaining": 18}
+    assert credits.extract_credit_numbers({"plan": {"dailyDownloadLimit": 50}}) == {"limit": 50}
+
+
+def test_credit_parser_does_not_treat_unscoped_membership_fields_as_quota() -> None:
+    assert credits.extract_credit_numbers({"remaining": 18, "used": 2, "plan": "premium"}) is None
+    assert credits.extract_credit_numbers({"downloadQuota": {"remaining": 18, "used": 2}}) == {
+        "remaining": 18,
+        "used": 2,
+    }
+
+
+def test_response_structure_exposes_only_keys_and_never_secret_values() -> None:
+    secret = "secret-cookie-token-value"
+    evidence = credits._response_structure(Response("", payload={"data": {"accessToken": secret, "canDownload": True}}))
+    assert "data.accessToken" in evidence and "data.canDownload" in evidence
+    assert secret not in evidence
 
 
 def test_ultrapack_uses_real_authenticated_dashboard_fields(monkeypatch) -> None:
@@ -56,9 +73,105 @@ def test_ultrapack_uses_real_authenticated_dashboard_fields(monkeypatch) -> None
 def test_plugintheme_uses_structured_check_access(monkeypatch) -> None:
     product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
     access = Response("", payload={"data": {"downloadLimit": 50, "remainingDownloads": 7}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([product, access]))
+    empty = Response("", payload={"data": {"active": True}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, access]))
     result = credits._provider_payload("plugintheme", "coproducaolancamentos")
     assert result["ok"] is True and result["credits"] == 7 and result["source"] == "api:check-access"
+    assert result["authenticated"] is True
+
+
+def test_plugintheme_prefers_structured_account_quota(monkeypatch) -> None:
+    account = Response("", payload={"data": {"dailyDownloadLimit": 25, "downloadsUsed": 4}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([account]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is True and result["credits"] == 21
+    assert result["source"] == "api:users/me"
+
+
+def test_plugintheme_uses_membership_quota_when_user_has_no_quota(monkeypatch) -> None:
+    user = Response("", payload={"data": {"active": True}})
+    membership = Response("", payload={"data": {"downloadLimit": 50, "downloadsUsed": 3}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([user, membership]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is True and result["credits"] == 47
+    assert result["source"] == "api:membership/my"
+
+
+def test_plugintheme_401_is_expired(monkeypatch) -> None:
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([Response("", status=401)]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["status"] == "expired"
+    assert result["authenticated"] is False
+
+
+def test_plugintheme_account_403_is_not_automatically_expired(monkeypatch) -> None:
+    forbidden = Response("", status=403)
+    membership = Response("", payload={"data": {"downloadLimit": 15, "downloadsUsed": 2}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([forbidden, membership]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is True and result["credits"] == 13
+    assert result["authenticated"] is True and result["source"] == "api:membership/my"
+
+
+def test_plugintheme_extracts_product_id_from_nextjs_escaped_payload() -> None:
+    html = r'self.__next_f.push([1,"product\":{\"id\":\"2776b685-51d2-4d2e-be10-a56008e6b369\",\"slug\":\"demo\"}"])'
+    assert credits._plugintheme_product_id(html) == "2776b685-51d2-4d2e-be10-a56008e6b369"
+
+
+def test_plugintheme_product_id_prefers_product_over_other_nextjs_ids() -> None:
+    html = r'"category":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},"product":{"id":"2776b685-51d2-4d2e-be10-a56008e6b369","slug":"demo"}'
+    assert credits._plugintheme_product_id(html) == "2776b685-51d2-4d2e-be10-a56008e6b369"
+
+
+def test_plugintheme_product_id_absent_is_safe() -> None:
+    assert credits._plugintheme_product_id('<script>{"slug":"demo"}</script>') == ""
+
+
+def test_valid_plugintheme_session_without_balance_is_collection_error(monkeypatch) -> None:
+    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
+    access = Response("", payload={"data": {"allowed": True}})
+    empty = Response("", payload={"data": {"active": True}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, access]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is False and result["authenticated"] is True
+    assert "autentica" in result["message"].lower() and "saldo" in result["message"].lower()
+
+
+def test_plugintheme_reports_real_plan_limit_without_inventing_remaining(monkeypatch) -> None:
+    user = Response("", payload={"premiumPlan": "premium"})
+    membership = Response("", payload=[{"plan": {"dailyDownloadLimit": 50}}])
+    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
+    access = Response("", payload={"canDownload": True, "accessType": "membership"})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([user, membership, product, access]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["authenticated"] is True and result["credits"] is None
+    assert result["limit"] == 50 and result["used"] is None
+    assert result["source"] == "api:membership/my"
+    assert "consumo/restante" in result["message"]
+
+
+def test_plugintheme_check_access_403_keeps_authentication_valid(monkeypatch) -> None:
+    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
+    empty = Response("", payload={"data": {"active": True}})
+    forbidden = Response("", status=403)
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, forbidden]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is False and result["status"] == "credit_unavailable"
+    assert result["authenticated"] is True and result["credits"] is None
 
 
 def test_expired_session_is_diagnostic_not_zero(monkeypatch) -> None:
@@ -66,6 +179,7 @@ def test_expired_session_is_diagnostic_not_zero(monkeypatch) -> None:
     monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([login]))
     result = credits._provider_payload("ultrapackv2", "account-a")
     assert result["ok"] is False and result["status"] == "expired" and result["credits"] is None
+    assert result["authenticated"] is False
     assert "expirada" in result["message"].lower()
 
 
@@ -143,6 +257,7 @@ def test_failed_refresh_preserves_last_confirmed_as_stale(tmp_path) -> None:
     stale = service.refresh("plugintheme", "account-a")
     assert stale["credits"] == 22 and stale["stale"] is True and stale["ok"] is False
     assert stale["last_confirmed_at"] == "2026-08-31T03:42:00+00:00"
+    assert "expirada" in stale["last_error"].lower()
 
 
 def test_concurrent_clicks_coalesce_one_provider_query(tmp_path) -> None:

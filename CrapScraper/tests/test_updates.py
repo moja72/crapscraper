@@ -83,3 +83,71 @@ def test_verify_prerequisites_runs_real_woo_storage_and_source_checks(tmp_path, 
     assert checks["woocommerce"]["value"]=="VALIDADO"
     assert checks["storage"]["value"]=="VALIDADO"
     assert checks["source"]["value"]=="VALIDADA" and source.calls==["preflight"]
+
+
+def test_verify_prerequisites_always_validates_plugintheme_and_credits(tmp_path, monkeypatch):
+    class Woo(FakeWoo):
+        def check_connection(self): return {"ok": True}
+    class Installer(FakeInstaller):
+        def check(self): return {"ok": True, "message": "storage testado"}
+    class Credits:
+        def __init__(self): self.calls = []
+        def refresh(self, site, account):
+            self.calls.append((site, account))
+            return {"ok": True, "authenticated": True, "credits": 12, "status": "success", "source": "api:quota", "logs": ["Saldo localizado: 12."]}
+        def cached(self, _site, _account):
+            return {"ok": True, "authenticated": True, "credits": 12, "status": "success", "source": "api:quota", "logs": ["Saldo localizado: 12."]}
+    monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [])
+    monkeypatch.setattr("app.updates.service.get_source_account", lambda _site: "account-a")
+    monkeypatch.setattr("app.updates.service.profile_diagnostic", lambda _account: {"configured": True, "profile_exists": True, "cookie_count": 7})
+    repository = UpdateRepository(tmp_path)
+    executor = UpdateExecutor(repository, woo=Woo(), installer=Installer(), enabled=True, allowed_product_ids=frozenset())
+    credit_service = Credits()
+    service = UpdateService(tmp_path, repository=repository, executor=executor, credits=credit_service)
+
+    payload = service.verify_environment()
+    checks = {item["key"]: item for item in payload["checks"]}
+
+    assert credit_service.calls == [("plugintheme", "account-a")]
+    assert checks["source"]["value"] == "VALIDADA"
+    assert payload["plugintheme"]["status"] == "VALIDADA"
+    assert payload["plugintheme"]["credits"] == 12
+    assert payload["plugintheme"]["cookie_count"] == 7
+
+
+def test_valid_session_without_credit_keeps_source_validated(tmp_path, monkeypatch):
+    class Credits:
+        def refresh(self, _site, _account):
+            return {"ok": False, "authenticated": True, "credits": None, "status": "credit_unavailable", "message": "Saldo não localizado.", "logs": []}
+        def cached(self, _site, _account):
+            return {"ok": False, "authenticated": True, "credits": None, "status": "credit_unavailable", "message": "Saldo não localizado.", "logs": []}
+    monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [])
+    monkeypatch.setattr("app.updates.service.get_source_account", lambda _site: "account-a")
+    monkeypatch.setattr("app.updates.service.profile_diagnostic", lambda _account: {"configured": True, "profile_exists": True, "cookie_count": 2})
+    service = UpdateService(tmp_path, credits=Credits())
+
+    payload = service.verify_environment()
+
+    assert payload["plugintheme"]["authenticated"] is True
+    assert payload["plugintheme"]["credits"] is None
+    assert payload["plugintheme"]["credit_status"] == "credit_unavailable"
+    assert next(item for item in payload["checks"] if item["key"] == "source")["value"] == "VALIDADA"
+
+
+def test_invalid_plugintheme_session_reports_configured_but_not_validated(tmp_path, monkeypatch):
+    class Credits:
+        def refresh(self, _site, _account):
+            return {"ok": False, "authenticated": False, "credits": None, "status": "expired", "message": "Sessão expirada.", "logs": []}
+        def cached(self, _site, _account):
+            return {"ok": False, "authenticated": False, "credits": None, "status": "expired", "message": "Sessão expirada.", "logs": []}
+    monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [])
+    monkeypatch.setattr("app.updates.service.get_source_account", lambda _site: "account-a")
+    monkeypatch.setattr("app.updates.service.profile_diagnostic", lambda _account: {"configured": True, "profile_exists": True, "cookie_count": 7})
+    service = UpdateService(tmp_path, credits=Credits())
+
+    payload = service.verify_environment()
+    source = next(item for item in payload["checks"] if item["key"] == "source")
+
+    assert source["value"] == "CONFIGURADA / SESSÃO NÃO VALIDADA"
+    assert payload["plugintheme"]["authenticated"] is False
+    assert payload["plugintheme"]["cookie_count"] == 7
