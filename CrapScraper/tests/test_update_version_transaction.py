@@ -130,6 +130,8 @@ def test_executor_eventual_read_succeeds_without_rollback(tmp_path):
     result=executor.execute(job["job_id"])
     assert result["ok"] and woo.value=="2.0" and target.read_bytes()!=original
     assert woo.set_calls==["2.0"] and repo.get(job["job_id"])["stage"]=="completed"
+    event=repo.history_event(result["attempt_id"])
+    assert event and event["woo_product_id"]==101 and event["new_version"]=="2.0"
 
 
 def test_real_non_persistence_rolls_back_zip_and_version_with_evidence(tmp_path):
@@ -141,6 +143,7 @@ def test_real_non_persistence_rolls_back_zip_and_version_with_evidence(tmp_path)
     assert result["error"]["code"]=="woocommerce_version_diverged"
     assert result["error"]["details"]["rollback"]["zip"]["confirmed"] is True
     assert "Esperado: 2.0" in result["error"]["message"] and "Encontrado: 1.0" in result["error"]["message"]
+    assert repo.history_event(result["attempt_id"]) is None
 
 
 def test_retry_creates_second_successful_attempt_and_keeps_first(tmp_path):
@@ -151,6 +154,8 @@ def test_retry_creates_second_successful_attempt_and_keeps_first(tmp_path):
     history=repo.history(job["job_id"])
     assert [(item["attempt_number"],item["result"]) for item in history]==[(2,"success"),(1,"error")]
     assert repo.get(job["job_id"])["stage"]=="completed" and woo.target_writes==2
+    assert repo.history_event(history[0]["attempt_id"]) is not None
+    assert repo.history_event(history[1]["attempt_id"]) is None
 
 
 def test_batch_keeps_running_after_middle_failure():

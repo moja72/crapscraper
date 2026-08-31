@@ -18,6 +18,10 @@ class UpdateService:
         self.repository=repository or UpdateRepository(data_dir);self.executor=executor or UpdateExecutor(self.repository);self.batch=UpdateBatchService(self.executor);self.lock=threading.RLock();self.environment_validation:dict[str,Any]={}
         if os.getenv("SCRAPER_UPDATE_IMPORT_LEGACY","1").strip().lower() not in {"0","false","no","off"}: self.repository.migrate_legacy_runtime(data_dir/"update_runtime.json")
         self.materialize()
+        self.repository.backfill_history_events()
+        history=getattr(self.executor,"history",None)
+        if history is not None and getattr(history.client,"configured",False):
+            threading.Thread(target=history.sync_pending,name="update-history-outbox",daemon=True).start()
     def materialize(self)->dict[str,Any]:
         with self.lock:return {"ok":True,**self.repository.materialize(decisions.list_approved_updates())}
     def materialize_manual(self,approval:dict[str,Any])->dict[str,Any]:

@@ -2,13 +2,13 @@
 /**
  * Plugin Name: CrapScraper Manual Update
  * Description: Fila atualizações seguras de Plugin, Tema e Template para o CrapScraper local.
- * Version: 2.4.0
+ * Version: 2.5.0
  */
 defined('ABSPATH') || exit;
 
 final class CrapScraper_Manual_Update {
     const NONCE_ACTION = 'crapscraper_manual_update';
-    const DB_VERSION = '2.4.0';
+    const DB_VERSION = '2.5.0';
 
     public static function init() {
         self::ensure_table();
@@ -47,6 +47,7 @@ final class CrapScraper_Manual_Update {
         dbDelta("CREATE TABLE $table (
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             request_id varchar(64) NOT NULL,
+            operation_id varchar(64) NULL,
             product_id bigint(20) unsigned NOT NULL,
             requested_by bigint(20) unsigned NOT NULL,
             status varchar(32) NOT NULL DEFAULT 'pending',
@@ -54,7 +55,7 @@ final class CrapScraper_Manual_Update {
             previous_version varchar(64) NOT NULL DEFAULT '', new_version varchar(64) NOT NULL DEFAULT '',
             message text NOT NULL, requested_at datetime NOT NULL, updated_at datetime NOT NULL,
             completed_at datetime NULL,
-            PRIMARY KEY (id), UNIQUE KEY request_id (request_id), KEY status (status), KEY product_id (product_id)
+            PRIMARY KEY (id), UNIQUE KEY request_id (request_id), UNIQUE KEY operation_id (operation_id), KEY status (status), KEY product_id (product_id)
         ) $charset;");
         update_option('crapscraper_manual_db_version', self::DB_VERSION, false);
     }
@@ -165,7 +166,7 @@ final class CrapScraper_Manual_Update {
         $product_id = absint(isset($_POST['product_id']) ? $_POST['product_id'] : 0);
         self::require_admin_request($product_id);
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT status, source, previous_version, new_version, message, requested_at, updated_at, completed_at FROM " . self::table() . " WHERE product_id=%d ORDER BY id DESC LIMIT 3",
+            "SELECT status, source, previous_version, new_version, message, requested_at, updated_at, completed_at FROM " . self::table() . " WHERE product_id=%d AND status='completed' ORDER BY completed_at DESC, id DESC LIMIT 3",
             $product_id
         ), ARRAY_A);
         $history = array();
@@ -197,7 +198,7 @@ final class CrapScraper_Manual_Update {
         if (!ctype_digit((string)$timestamp) || abs(time()-(int)$timestamp)>300 || !$nonce) return false;
         $nonce_key = 'crapscraper_nonce_' . hash('sha256', $nonce);
         if (get_transient($nonce_key)) return false;
-        $subject = $request->get_param('request_id') ?: 'poll';
+        $subject = $request->get_param('operation_id') ?: ($request->get_param('request_id') ?: 'poll');
         $message = implode("\n", array($timestamp, $nonce, $request->get_method(), $request->get_route(), $subject));
         $valid = hash_equals(hash_hmac('sha256', $message, $secret), (string)$signature);
         if ($valid) set_transient($nonce_key, 1, 5 * MINUTE_IN_SECONDS);
@@ -209,6 +210,10 @@ final class CrapScraper_Manual_Update {
             'callback'=>array(__CLASS__,'rest_pending'), 'permission_callback'=>array(__CLASS__,'rest_permission')));
         register_rest_route('crapscraper/v1', '/manual-updates/(?P<request_id>[a-zA-Z0-9-]+)/status', array('methods'=>'POST',
             'callback'=>array(__CLASS__,'rest_update_status'), 'permission_callback'=>array(__CLASS__,'rest_permission')));
+        register_rest_route('crapscraper/v1', '/update-history', array('methods'=>'POST',
+            'callback'=>array(__CLASS__,'rest_record_history'), 'permission_callback'=>array(__CLASS__,'rest_permission')));
+        register_rest_route('crapscraper/v1', '/update-history/(?P<operation_id>[a-zA-Z0-9-]+)', array('methods'=>'GET',
+            'callback'=>array(__CLASS__,'rest_get_history'), 'permission_callback'=>array(__CLASS__,'rest_permission')));
     }
 
     private static function no_cache_response($data) {
@@ -224,7 +229,7 @@ final class CrapScraper_Manual_Update {
     }
 
     public static function rest_no_cache($served, $result, $request, $server) {
-        if (0 === strpos($request->get_route(), '/crapscraper/v1/manual-updates/')) {
+        if (0 === strpos($request->get_route(), '/crapscraper/v1/')) {
             nocache_headers();
             header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
             header('CDN-Cache-Control: no-store', true);
@@ -256,6 +261,69 @@ final class CrapScraper_Manual_Update {
             'updated_at'=>current_time('mysql',true),'completed_at'=>$terminal?current_time('mysql',true):null),
             array('request_id'=>$request['request_id']));
         return self::no_cache_response(array('ok'=>true));
+    }
+
+    private static function history_product_id($raw_product_id) {
+        $product_id = absint($raw_product_id);
+        if ('product_variation' === get_post_type($product_id)) $product_id = absint(wp_get_post_parent_id($product_id));
+        return 'product' === get_post_type($product_id) ? $product_id : 0;
+    }
+
+    private static function history_event($row) {
+        if (!$row) return null;
+        return array(
+            'operation_id'=>sanitize_text_field($row['operation_id'] ?: $row['request_id']),
+            'job_id'=>sanitize_text_field($row['job_id']),
+            'woo_product_id'=>absint($row['product_id']),
+            'source'=>sanitize_text_field($row['source']),
+            'previous_version'=>sanitize_text_field($row['previous_version']),
+            'new_version'=>sanitize_text_field($row['new_version']),
+            'status'=>sanitize_key($row['status']),
+            'completed_at'=>sanitize_text_field($row['completed_at']),
+        );
+    }
+
+    public static function rest_record_history($request) {
+        global $wpdb; $table=self::table();
+        $operation_id=sanitize_text_field($request->get_param('operation_id'));
+        $job_id=sanitize_text_field($request->get_param('job_id'));
+        $product_id=self::history_product_id($request->get_param('woo_product_id'));
+        $source=sanitize_text_field($request->get_param('source'));
+        $previous=sanitize_text_field($request->get_param('previous_version'));
+        $new=sanitize_text_field($request->get_param('new_version'));
+        if (!$operation_id || !$job_id || !$product_id || !$source || !$new || 'completed' !== sanitize_key($request->get_param('status')))
+            return new WP_Error('invalid_history_event','Evento de atualização incompleto ou inválido.',array('status'=>400));
+        $existing=$wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE operation_id=%s",$operation_id),ARRAY_A);
+        if ($existing) {
+            $same=absint($existing['product_id'])===$product_id && $existing['job_id']===$job_id && $existing['source']===$source && $existing['previous_version']===$previous && $existing['new_version']===$new && 'completed'===$existing['status'];
+            if (!$same) return new WP_Error('history_conflict','operation_id já existe com dados diferentes.',array('status'=>409));
+            return self::no_cache_response(array('ok'=>true,'duplicate'=>true,'event'=>self::history_event($existing)));
+        }
+        $completed_raw=sanitize_text_field($request->get_param('completed_at'));
+        $completed_stamp=$completed_raw ? strtotime($completed_raw) : false;
+        $completed_at=$completed_stamp ? gmdate('Y-m-d H:i:s',$completed_stamp) : current_time('mysql',true);
+        $manual=$wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE product_id=%d AND job_id=%s AND status!='completed' ORDER BY id DESC LIMIT 1",$product_id,$job_id),ARRAY_A);
+        $values=array('operation_id'=>$operation_id,'status'=>'completed','job_id'=>$job_id,'source'=>$source,
+            'previous_version'=>$previous,'new_version'=>$new,'message'=>'Atualização concluída pelo CrapScraper.',
+            'updated_at'=>$completed_at,'completed_at'=>$completed_at);
+        if ($manual) {
+            $saved=$wpdb->update($table,$values,array('id'=>absint($manual['id'])));
+        } else {
+            $values=array_merge($values,array('request_id'=>$operation_id,'product_id'=>$product_id,'requested_by'=>0,'requested_at'=>$completed_at));
+            $saved=$wpdb->insert($table,$values);
+        }
+        if (false === $saved) return new WP_Error('history_not_persisted','Não foi possível persistir o histórico.',array('status'=>500));
+        $stored=$wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE operation_id=%s",$operation_id),ARRAY_A);
+        if (!$stored) return new WP_Error('history_not_confirmed','A gravação não foi confirmada por leitura.',array('status'=>500));
+        return self::no_cache_response(array('ok'=>true,'duplicate'=>false,'event'=>self::history_event($stored)));
+    }
+
+    public static function rest_get_history($request) {
+        global $wpdb;
+        $operation_id=sanitize_text_field($request['operation_id']);
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE operation_id=%s",$operation_id),ARRAY_A);
+        if (!$row) return new WP_Error('history_not_found','Evento de atualização não encontrado.',array('status'=>404));
+        return self::no_cache_response(array('ok'=>true,'event'=>self::history_event($row)));
     }
 }
 CrapScraper_Manual_Update::init();

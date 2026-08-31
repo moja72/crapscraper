@@ -11,6 +11,7 @@ from typing import Any
 from app.configuration import parse_update_execution_allowed_product_ids
 from app.updates.adapters import Installer, VersionPersistenceError, WooCommerceGateway, WooCommerceRequestError, WooGateway, build_installer, normalize_version, product_version, version_metadata
 from app.updates.logging import safe_message
+from app.updates.history import UpdateHistorySynchronizer
 from app.updates.models import UpdateError
 from app.updates.repository import UpdateRepository
 from app.updates.sources import SourceFailure, SourceRegistry
@@ -29,8 +30,9 @@ class UpdateExecutor:
     """Único caminho de execução, usado tanto por jobs individuais quanto por lotes/retries."""
     def __init__(self, repository: UpdateRepository, *, sources: SourceRegistry|None=None, woo: WooGateway|None=None,
                  installer: Installer|None=None, staging_root: Path|None=None, enabled: bool|None=None,
-                 allowed_product_ids: frozenset[int]|None=None):
+                 allowed_product_ids: frozenset[int]|None=None, history: UpdateHistorySynchronizer|None=None):
         self.repository=repository;self.sources=sources or SourceRegistry();self.woo=woo or WooCommerceGateway();self.installer=installer or build_installer()
+        self.history=history or UpdateHistorySynchronizer(repository)
         self.staging_root=staging_root or repository.path.parent/"update_staging"
         self.enabled=env_enabled("SCRAPER_UPDATE_EXECUTION_ENABLED") if enabled is None else enabled
         self.allowed_product_ids=parse_update_execution_allowed_product_ids(os.getenv("SCRAPER_UPDATE_EXECUTION_ALLOWED_PRODUCT_IDS")) if allowed_product_ids is None else allowed_product_ids
@@ -102,15 +104,15 @@ class UpdateExecutor:
             if confirmed!=job["source_version"]: raise ValueError(f"Versão da fonte divergiu da aprovação: {confirmed} != {job['source_version']}")
             progress("downloading",f"Baixando versão {confirmed} exclusivamente do {source.display_name}.")
             artifact=source.download(job,attempt_dir/"artifact.zip");artifact_sha=artifact.sha256
-            try:
-                from app.credits import invalidate_credit_cache
-                invalidate_credit_cache(source.kind)
-            except ImportError:
-                pass
             if not artifact.path.is_file() or artifact.path.stat().st_size <= 0:
                 raise RuntimeError("Artefato de atualização ausente ou vazio")
             if not zipfile.is_zipfile(artifact.path):
                 raise RuntimeError("Artefato de atualização não é um ZIP válido")
+            try:
+                from app.credits import refresh_credits_after_download
+                refresh_credits_after_download(source.kind)
+            except ImportError:
+                pass
             progress("staging",f"Download concluído e ZIP validado: {artifact.path.name} ({artifact.size} bytes, SHA-256 {artifact.sha256[:12]}…).")
             backup=self.installer.backup(job,attempt_dir)
             if isinstance(backup,(str,Path)) and Path(backup).is_file():backup_sha=hashlib.sha256(Path(backup).read_bytes()).hexdigest()
@@ -130,8 +132,19 @@ class UpdateExecutor:
                 combined={"write":version_evidence.get("write",{}),"confirmation":version_evidence.get("confirmation",{}),"failure":version_evidence.get("failure",{})}
                 raise VersionPersistenceError(str(version_error),combined) from version_error
             if not self.installer.validate(job,artifact.sha256):raise RuntimeError("Validação final do SHA-256 do destino falhou")
-            progress("completed","Atualização concluída e validada.");self.repository.finish(job_id,attempt_id,success=True,stage="completed",sha256=artifact_sha)
-            return {"ok":True,"job_id":job_id,"attempt_id":attempt_id,"sha256":artifact_sha}
+            progress("completed","Atualização concluída e validada.")
+            self.repository.finish(job_id,attempt_id,success=True,stage="completed",sha256=artifact_sha,history_event={
+                "operation_id":attempt_id,"woo_product_id":int(job["woo_product_id"]),"source":source.display_name,
+                "previous_version":original_version,"new_version":confirmed,
+            })
+            sync=self.history.sync_event(attempt_id)
+            if sync.get("confirmed"):
+                self.repository.append_log(job_id,attempt_id,f"Histórico WordPress confirmado: Woo #{job['woo_product_id']}; operation_id={attempt_id}.")
+            elif sync.get("status")=="not_configured":
+                self.repository.append_log(job_id,attempt_id,f"Histórico WordPress pendente: integração não configurada; operation_id={attempt_id}.")
+            else:
+                self.repository.append_log(job_id,attempt_id,f"Histórico WordPress não confirmado; nova sincronização poderá reutilizar operation_id={attempt_id}.")
+            return {"ok":True,"job_id":job_id,"attempt_id":attempt_id,"sha256":artifact_sha,"history_confirmed":bool(sync.get("confirmed"))}
         except Exception as exc:
             if isinstance(exc,SourceFailure): error=exc.error
             elif isinstance(exc,VersionPersistenceError):

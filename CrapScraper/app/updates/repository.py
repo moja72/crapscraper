@@ -85,8 +85,19 @@ class UpdateRepository:
               error TEXT, logs TEXT NOT NULL DEFAULT '[]', artifact_sha256 TEXT NOT NULL DEFAULT '',
               FOREIGN KEY(job_id) REFERENCES update_jobs(job_id), UNIQUE(job_id, attempt_number)
             );
+            CREATE TABLE IF NOT EXISTS update_history_outbox(
+              operation_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL UNIQUE,
+              job_id TEXT NOT NULL, woo_product_id INTEGER NOT NULL,
+              source TEXT NOT NULL, previous_version TEXT NOT NULL, new_version TEXT NOT NULL,
+              completed_at TEXT NOT NULL, sync_status TEXT NOT NULL DEFAULT 'pending',
+              sync_attempts INTEGER NOT NULL DEFAULT 0, sync_error TEXT NOT NULL DEFAULT '',
+              confirmed_at TEXT NOT NULL DEFAULT '',
+              FOREIGN KEY(job_id) REFERENCES update_jobs(job_id),
+              FOREIGN KEY(attempt_id) REFERENCES update_attempts(attempt_id)
+            );
             CREATE INDEX IF NOT EXISTS idx_update_jobs_state ON update_jobs(public_state);
             CREATE INDEX IF NOT EXISTS idx_update_attempts_job ON update_attempts(job_id, attempt_number DESC);
+            CREATE INDEX IF NOT EXISTS idx_update_history_sync ON update_history_outbox(sync_status, completed_at);
             """)
 
     @staticmethod
@@ -206,11 +217,72 @@ class UpdateRepository:
             db.execute("UPDATE update_jobs SET stage=?,logs=?,updated_at=? WHERE job_id=?",(stage,json.dumps(logs,ensure_ascii=False),now,job_id))
             db.execute("UPDATE update_attempts SET logs=?,stages=? WHERE attempt_id=?",(json.dumps(alogs,ensure_ascii=False),json.dumps(stages),attempt_id))
 
-    def finish(self, job_id: str, attempt_id: str, *, success: bool, stage: str, error: dict[str,Any]|None=None, sha256: str="") -> None:
+    def finish(self, job_id: str, attempt_id: str, *, success: bool, stage: str, error: dict[str,Any]|None=None, sha256: str="", history_event: dict[str,Any]|None=None) -> None:
         now=utc_now(); state="success" if success else "error"; result="success" if success else "error"
         with self.connection() as db:
             db.execute("UPDATE update_jobs SET public_state=?,stage=?,finished_at=?,current_error=?,updated_at=? WHERE job_id=?",(state,stage,now,json.dumps(error,ensure_ascii=False) if error else None,now,job_id))
             db.execute("UPDATE update_attempts SET finished_at=?,result=?,error=?,artifact_sha256=? WHERE attempt_id=?",(now,result,json.dumps(error,ensure_ascii=False) if error else None,sha256,attempt_id))
+            if success and stage == "completed" and history_event:
+                db.execute("""INSERT OR IGNORE INTO update_history_outbox(
+                    operation_id,attempt_id,job_id,woo_product_id,source,previous_version,new_version,completed_at
+                    ) VALUES(?,?,?,?,?,?,?,?)""",(
+                    str(history_event.get("operation_id") or attempt_id),attempt_id,job_id,
+                    normalize_woo_product_id(history_event.get("woo_product_id")),str(history_event.get("source") or ""),
+                    str(history_event.get("previous_version") or ""),str(history_event.get("new_version") or ""),
+                    str(history_event.get("completed_at") or now),
+                ))
+
+    def append_log(self, job_id: str, attempt_id: str, message: str) -> None:
+        with self.connection() as db:
+            job=db.execute("SELECT logs FROM update_jobs WHERE job_id=?",(job_id,)).fetchone()
+            attempt=db.execute("SELECT logs FROM update_attempts WHERE attempt_id=?",(attempt_id,)).fetchone()
+            if not job or not attempt:return
+            logs=json.loads(job["logs"] or "[]");logs.append(str(message))
+            attempt_logs=json.loads(attempt["logs"] or "[]");attempt_logs.append(str(message))
+            db.execute("UPDATE update_jobs SET logs=?,updated_at=? WHERE job_id=?",(json.dumps(logs,ensure_ascii=False),utc_now(),job_id))
+            db.execute("UPDATE update_attempts SET logs=? WHERE attempt_id=?",(json.dumps(attempt_logs,ensure_ascii=False),attempt_id))
+
+    @staticmethod
+    def _history_event(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        return dict(row) if row is not None else None
+
+    def history_event(self, operation_id: str) -> dict[str, Any] | None:
+        with self.connection() as db:
+            row=db.execute("SELECT * FROM update_history_outbox WHERE operation_id=?",(operation_id,)).fetchone()
+        return self._history_event(row)
+
+    def pending_history_events(self, limit: int=20) -> list[dict[str, Any]]:
+        with self.connection() as db:
+            rows=db.execute("SELECT * FROM update_history_outbox WHERE sync_status!='confirmed' ORDER BY completed_at ASC LIMIT ?",(max(1,min(100,int(limit))),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_history_sync(self, operation_id: str, *, confirmed: bool, error: str="") -> None:
+        with self.connection() as db:
+            db.execute("""UPDATE update_history_outbox SET sync_status=?,sync_attempts=sync_attempts+1,
+                sync_error=?,confirmed_at=? WHERE operation_id=?""",(
+                "confirmed" if confirmed else "error",str(error or "")[:1000],utc_now() if confirmed else "",operation_id,
+            ))
+
+    def backfill_history_events(self) -> int:
+        """Materializa sucessos antigos reais; already_current e rollback não entram."""
+        created=0
+        with self.connection() as db:
+            rows=db.execute("""SELECT a.*,j.woo_product_id,j.current_version,j.source_name
+                FROM update_attempts a JOIN update_jobs j ON j.job_id=a.job_id
+                WHERE a.result='success' ORDER BY a.started_at""").fetchall()
+            for row in rows:
+                try:stages=json.loads(row["stages"] or "[]")
+                except (TypeError,json.JSONDecodeError):stages=[]
+                if not any(str(item.get("stage") or "") == "completed" for item in stages if isinstance(item,dict)):
+                    continue
+                cursor=db.execute("""INSERT OR IGNORE INTO update_history_outbox(
+                    operation_id,attempt_id,job_id,woo_product_id,source,previous_version,new_version,completed_at
+                    ) VALUES(?,?,?,?,?,?,?,?)""",(
+                    row["attempt_id"],row["attempt_id"],row["job_id"],row["woo_product_id"],
+                    row["source_name"] or row["source"],row["current_version"],row["version"],row["finished_at"],
+                ))
+                created += max(0,int(cursor.rowcount or 0))
+        return created
 
     def history(self, job_id: str) -> list[dict[str, Any]]:
         with self.connection() as db: rows=db.execute("SELECT * FROM update_attempts WHERE job_id=? ORDER BY attempt_number DESC",(job_id,)).fetchall()

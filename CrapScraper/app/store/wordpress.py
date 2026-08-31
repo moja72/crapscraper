@@ -6,6 +6,8 @@ class WordPressManualQueueClient:
     """Implementa exatamente o contrato HMAC do plugin crapscraper-manual-update."""
     pending_route="/crapscraper/v1/manual-updates/pending"
     status_route="/crapscraper/v1/manual-updates/{request_id}/status"
+    history_route="/crapscraper/v1/update-history"
+    history_confirm_route="/crapscraper/v1/update-history/{operation_id}"
     terminal_states=frozenset({"up_to_date","no_match","source_not_found","source_version_missing","relationship_required","comparison_stale","completed","error","blocked","rolled_back","rollback_required"})
     def __init__(self,base_url=None,secret=None,transport=None):self.base_url=(base_url or os.getenv("SCRAPER_WP_BASE_URL","")).rstrip("/");self.secret=secret or os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET","");self.transport=transport or self._transport
     @property
@@ -21,6 +23,14 @@ class WordPressManualQueueClient:
         return value
     def pending(self):return list(self._request("GET",self.pending_route,"poll").get("requests",[]))
     def report(self,request_id,**payload):return self._request("POST",self.status_route.format(request_id=request_id),request_id,payload)
+    def send_history(self, event):
+        operation_id=str(event.get("operation_id") or "")
+        if not operation_id:raise ValueError("operation_id obrigatório")
+        return self._request("POST",self.history_route,operation_id,event)
+    def confirm_history(self, operation_id):
+        operation_id=str(operation_id or "")
+        if not operation_id:raise ValueError("operation_id obrigatório")
+        return self._request("GET",self.history_confirm_route.format(operation_id=operation_id),operation_id)
 
 class FixtureManualQueue:
     configured=True
