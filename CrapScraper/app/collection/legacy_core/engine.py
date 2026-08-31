@@ -5254,7 +5254,11 @@ async def process_queue_details(
             setattr(app, session_attribute, shared_detail_http_session)
             try:
                 from app.updates.source_auth import register_source_session
-                register_source_session(resolved_context.site_key, shared_detail_http_session)
+                register_source_session(
+                    resolved_context.site_key,
+                    shared_detail_http_session,
+                    resolved_context.account_key,
+                )
             except Exception:
                 pass
         else:
@@ -5506,7 +5510,11 @@ async def execute_flow_async(
             setattr(app, session_attribute, http_session)
             try:
                 from app.updates.source_auth import register_source_session
-                register_source_session(resolved_context.site_key, http_session)
+                register_source_session(
+                    resolved_context.site_key,
+                    http_session,
+                    resolved_context.account_key,
+                )
             except Exception:
                 pass
             if resolved_context.site_key == "plugintheme":

@@ -1,6 +1,40 @@
 import requests
 from app.updates.sources import classify_source_error, PluginThemeSource, UltraPackSource
-from app.updates.source_auth import register_source_session, clear_source_session
+from app.updates.source_auth import register_source_session, clear_source_session, get_source_session
+
+
+def test_ultrapack_preflight_authenticates_on_demand_without_collection(monkeypatch):
+    calls=[]
+    session=requests.Session()
+    monkeypatch.setattr(
+        "app.updates.sources.ensure_source_session",
+        lambda kind, url: calls.append((kind,url)) or register_source_session(kind,session),
+    )
+    source=UltraPackSource()
+    monkeypatch.setattr(source,"_inspect",lambda job:(job["source_url"]+"?f=token","2.0"))
+    job={"source_url":"https://www.ultrapackv2.com/item/demo/","source_version":"2.0"}
+    try:
+        result=source.validate_access(job)
+        assert calls==[("ultrapackv2",job["source_url"])]
+        assert result["version"]=="2.0" and "?f=token" in result["download_url"]
+    finally:
+        clear_source_session("ultrapackv2",session)
+
+
+def test_source_sessions_are_isolated_by_account():
+    first=requests.Session();first.headers["X-Account"]="a"
+    second=requests.Session();second.headers["X-Account"]="b"
+    register_source_session("ultrapackv2",first,"account-a")
+    register_source_session("ultrapackv2",second,"account-b")
+    try:
+        assert get_source_session("ultrapackv2","account-a").headers["X-Account"]=="a"
+        assert get_source_session("ultrapackv2","account-b").headers["X-Account"]=="b"
+        clear_source_session("ultrapackv2",account_key="account-a")
+        assert get_source_session("ultrapackv2","account-a") is None
+        assert get_source_session("ultrapackv2","account-b") is not None
+    finally:
+        clear_source_session("ultrapackv2",account_key="account-a")
+        clear_source_session("ultrapackv2",account_key="account-b")
 
 def test_explicit_credit_response_is_normalized_per_source():
     error=classify_source_error("PluginTheme",status=403,body='{"credits":0}')

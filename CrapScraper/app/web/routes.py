@@ -8,7 +8,13 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
     query=query or {}
     routes = {
         "/api/health": lambda: {"ok": True},
-        "/api/credits": lambda: services.credits.snapshot(refresh=str(query.get("refresh") or "") in {"1", "true"}),
+        "/api/credits": lambda: services.credits.get(
+            str(query.get("site_key") or ""),
+            str(query.get("account_key") or ""),
+            refresh=str(query.get("refresh") or "") in {"1", "true"},
+        ) if query.get("site_key") else services.credits.snapshot(
+            refresh=str(query.get("refresh") or "") in {"1", "true"}
+        ),
         "/api/collect": services.collection.context_payload,
         "/api/collection/context": lambda: services.collection.context_payload(query),
         "/api/collection/state": lambda: services.collection.state(query),

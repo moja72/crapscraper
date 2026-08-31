@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import requests
 
 from app.updates.models import UpdateError
-from app.updates.source_auth import get_source_session, set_source_state
+from app.updates.source_auth import ensure_source_session, get_source_session, set_source_state
 
 
 @dataclass(frozen=True)
@@ -121,6 +121,7 @@ class PluginThemeSource(_HttpSource):
         return {"id":ids[-1].group(1),"version":versions[-1].group(1) if versions else str(job["source_version"])}
     def confirm_version(self,job):return self._product(job)["version"]
     def validate_access(self, job: dict[str, Any]) -> dict[str, str]:
+        ensure_source_session(self.kind, str(job.get("source_url") or ""))
         self.validate_authentication()
         product = self._product(job)
         set_source_state(self.kind, "validated")
@@ -153,6 +154,7 @@ class UltraPackSource(_HttpSource):
         return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),"")),match.group(1) if match else str(job["source_version"])
     def validate_access(self, job: dict[str, Any]) -> dict[str, str]:
         """Preflight somente leitura: autenticação, produto e link de download."""
+        ensure_source_session(self.kind, str(job.get("source_url") or ""))
         self.validate_authentication()
         url, version = self._inspect(job)
         set_source_state(self.kind, "validated")

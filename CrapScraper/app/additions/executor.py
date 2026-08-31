@@ -42,6 +42,11 @@ class AdditionExecutor:
                 if digest!=job["artifact_sha256"] or not zipfile.is_zipfile(artifact):artifact=None
             if artifact is None:
                 progress("downloading",f"Baixando exclusivamente do {source.display_name}.");target=self.staging_root/job_id/"artifact.zip";download=source.download(job,target);artifact=download.path;job=self.repository.patch(job_id,source_download_url=download.final_url,artifact_path=str(artifact),artifact_sha256=download.sha256)
+                try:
+                    from app.credits import refresh_credits_after_download
+                    refresh_credits_after_download(source.kind)
+                except ImportError:
+                    pass
             progress("validating_zip",f"ZIP íntegro e SHA-256 confirmado: {job['artifact_sha256'][:12]}…")
             if not valid_content(job):
                 progress("generating_description","Gerando breve descrição, conteúdo, categorias e tags no ChatGPT.");generated=self.content.generate(job);job=self.repository.patch(job_id,product_name=generated.get("product_name") or job["product_name"],short_description=generated["short_description"],content=generated["content"],categories=generated["categories"],tags=generated["tags"])

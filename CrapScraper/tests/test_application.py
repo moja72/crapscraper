@@ -30,7 +30,9 @@ def test_header_credits_use_backend_endpoint_and_keep_processes_button() -> None
     script=(root/"app/static/js/app.js").read_text(encoding="utf-8")
     assert 'id="processes-open"' in html
     assert 'id="credits-ultrapack"' in html and 'id="credits-plugintheme"' in html
-    assert 'get("/api/credits")' in script and 'polling.register("download-credits"' in script
+    assert 'data-credit-refresh="ultrapackv2"' in html and 'data-credit-refresh="plugintheme"' in html
+    assert 'refreshCredit(site,{force:true})' in script
+    assert 'polling.register("download-credits"' not in script
 
 
 def test_application_uses_canonical_services(tmp_path: Path, monkeypatch) -> None:

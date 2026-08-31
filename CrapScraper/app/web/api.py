@@ -30,4 +30,4 @@ class ApplicationServices:
         updates=UpdateService(settings.data_dir);comparison=ComparisonService(settings.data_dir);additions=AdditionService(settings.data_dir)
         if os.getenv("SCRAPER_SYNC_E2E_FIXTURES","")=="1":updates.executor=E2EExecutionRecorder();additions.executor=E2EExecutionRecorder()
         store=StoreService(settings.data_dir,updates)
-        return cls(CollectionService(settings.data_dir), comparison, updates, additions, store, ManualSyncService(comparison,updates,additions), CatalogService(settings.data_dir,store.gateway), CreditService())
+        return cls(CollectionService(settings.data_dir), comparison, updates, additions, store, ManualSyncService(comparison,updates,additions), CatalogService(settings.data_dir,store.gateway), CreditService(settings.data_dir))
