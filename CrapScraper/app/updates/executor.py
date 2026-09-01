@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from app.configuration import parse_update_execution_allowed_product_ids
-from app.updates.adapters import Installer, VersionPersistenceError, WooCommerceGateway, WooCommerceRequestError, WooGateway, build_installer, normalize_version, product_version, version_metadata
-from app.updates.logging import safe_message
+from app.updates.adapters import Installer, VersionPersistenceError, WooCommerceConnectivityError, WooCommerceGateway, WooCommerceRequestError, WooGateway, build_installer, normalize_version, product_version, version_metadata
+from app.updates.logging import safe_message, safe_text
 from app.updates.history import UpdateHistorySynchronizer
 from app.updates.models import UpdateError
 from app.updates.repository import UpdateRepository
@@ -154,7 +154,10 @@ class UpdateExecutor:
             elif isinstance(exc,WooCommerceRequestError):
                 layer="WooCommerce/WordPress" if exc.content_type.lower().startswith("application/json") else "servidor/proxy anterior ao WooCommerce"
                 error=UpdateError(message=str(exc),technical_message=f"HTTP {exc.status}; método={exc.method}; endpoint={exc.endpoint}; código_rest={exc.code or 'não informado'}; content_type={exc.content_type or 'não informado'}; server={exc.server or 'não informado'}; redirects={exc.redirects or []}; URL_final={exc.final_url or 'não informado'}",code="woocommerce_http_error",stage=stage,source="WooCommerce",http_status=exc.status,final_url=exc.final_url,content_type=exc.content_type,diagnosis=f"Resposta 4xx/5xx gerada por {layer}; a aplicação não recebeu JSON REST válido.",recoverable=exc.status in {408,409,429,500,502,503,504})
-            else: error=UpdateError(message=safe_message(exc),technical_message=repr(exc),code="execution_failed",stage=stage,source=job.get("source_name",job.get("source_kind","")),recoverable=not isinstance(exc,(PermissionError,ValueError)))
+            elif isinstance(exc,WooCommerceConnectivityError):
+                details={"stage":stage,"host":exc.host,"error_type":exc.error_type,"attempts":exc.attempts,"method":exc.method,"endpoint":exc.endpoint,"original_exception":exc.original_exception}
+                error=UpdateError(message="Falha de conexão com WooCommerce.",technical_message=json.dumps(details,ensure_ascii=False,sort_keys=True),code=exc.error_type,stage=stage,source="WooCommerce",diagnosis=exc.diagnosis,recoverable=True,details=details)
+            else: error=UpdateError(message=safe_message(exc),technical_message=safe_text(repr(exc),limit=2000),code="execution_failed",stage=stage,source=job.get("source_name",job.get("source_kind","")),recoverable=not isinstance(exc,(PermissionError,ValueError)))
             error.job_id=job_id;error.attempt_id=attempt_id
             if critical and backup is not None:
                 progress("rolling_back","Falha após alteração crítica; iniciando rollback validado.")

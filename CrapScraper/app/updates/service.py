@@ -7,8 +7,10 @@ from typing import Any
 
 from app.comparison import decisions
 from app.plugintheme_profile import open_manual_session, profile_diagnostic
+from app.updates.adapters import WooCommerceConnectivityError
 from app.updates.batch import UpdateBatchService
 from app.updates.executor import UpdateExecutor
+from app.updates.logging import safe_message
 from app.updates.repository import UpdateRepository
 from app.updates.source_auth import (
     clear_source_session,
@@ -95,6 +97,7 @@ class UpdateService:
             "credits": cached.get("credits"),
             "credit_limit": cached.get("limit"),
             "credit_used": cached.get("used"),
+            "credit_total_downloads": cached.get("total_downloads"),
             "credit_status": cached.get("status", "unavailable"),
             "credit_stale": bool(cached.get("stale")),
             "credit_updated_at": cached.get("last_confirmed_at") or cached.get("updated_at"),
@@ -132,14 +135,25 @@ class UpdateService:
         validation: dict[str, Any] = {}
         try:
             result = self.executor.woo.check_connection()
-            validation["woocommerce"] = {"ok": bool(result.get("ok")), "message": "Leitura autenticada do WooCommerce confirmada."}
+            attempts = int(result.get("attempts") or 1)
+            recovered = bool(result.get("recovered"))
+            message = "Leitura autenticada do WooCommerce confirmada."
+            if recovered:
+                message += f" Conectividade recuperada após {attempts} tentativas limitadas."
+            validation["woocommerce"] = {"ok": bool(result.get("ok")), "message": message, "details": result}
+        except WooCommerceConnectivityError as error:
+            validation["woocommerce"] = {
+                "ok": False,
+                "message": error.diagnosis,
+                "details": {"host": error.host, "error_type": error.error_type, "attempts": error.attempts},
+            }
         except Exception as error:
-            validation["woocommerce"] = {"ok": False, "message": str(error)}
+            validation["woocommerce"] = {"ok": False, "message": safe_message(error)}
         try:
             result = self.executor.installer.check()
             validation["storage"] = {"ok": bool(result.get("ok")), "message": str(result.get("message") or "")}
         except Exception as error:
-            validation["storage"] = {"ok": False, "message": str(error)}
+            validation["storage"] = {"ok": False, "message": safe_message(error)}
 
         source_results: list[dict[str, Any]] = []
         plugin_account = get_source_account("plugintheme")
@@ -150,7 +164,7 @@ class UpdateService:
             try:
                 plugin_result = self.credits.refresh("plugintheme", plugin_account)
             except Exception as error:
-                plugin_result = {"ok": False, "authenticated": False, "status": "invalid", "message": str(error), "logs": []}
+                plugin_result = {"ok": False, "authenticated": False, "status": "invalid", "message": safe_message(error), "logs": []}
         authenticated = bool(plugin_result.get("authenticated"))
         if authenticated:
             set_source_state("plugintheme", "validated", plugin_account)
@@ -182,7 +196,7 @@ class UpdateService:
                 set_source_state(kind, "validated")
                 source_results.append({"source": kind, "ok": True, "version": details.get("version"), "message": "Acesso autenticado confirmado."})
             except Exception as error:
-                message = str(error)
+                message = safe_message(error)
                 code = str(getattr(getattr(error, "error", None), "code", "") or "")
                 missing = code == "authentication_missing" or "não configurada" in message.lower()
                 expired = not missing and any(term in message.lower() for term in ("login", "expir", "401", "403"))
@@ -214,13 +228,23 @@ class UpdateService:
     def job(self, job_id: str) -> dict[str, Any]:
         return {"ok": True, "item": self.repository.get(job_id), "history": self.repository.history(job_id)}
 
+    def _require_execution_environment(self) -> None:
+        for key, label in (("woocommerce", "WooCommerce"), ("storage", "armazenamento")):
+            result = self.environment_validation.get(key)
+            if result and result.get("ok") is False:
+                detail = safe_message(RuntimeError(str(result.get("message") or "não validado")))
+                raise RuntimeError(f"Pré-requisito {label} indisponível: {detail}")
+
     def execute(self, job_id: str) -> dict[str, Any]:
+        self._require_execution_environment()
         return self.executor.execute(job_id)
 
     def retry(self, job_id: str) -> dict[str, Any]:
+        self._require_execution_environment()
         return self.executor.execute(job_id)
 
     def batch_start(self, job_ids: list[str] | None = None) -> dict[str, Any]:
+        self._require_execution_environment()
         ids = job_ids or [item["job_id"] for item in self.repository.list(group="prepared", page_size=100)["items"]]
         return {"ok": True, "batch": self.batch.start(ids)}
 

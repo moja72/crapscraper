@@ -67,12 +67,18 @@ def test_storage_token_parser_accepts_json_and_never_needs_cookie_javascript() -
 
 
 class FakePage:
-    def __init__(self, url: str, storage: list[dict] | None = None):
+    def __init__(self, url: str, storage: list[dict] | None = None, subscription_ready: bool = False):
         self.url = url
         self.storage = storage or []
+        self.subscription_ready = subscription_ready
 
     async def evaluate(self, _script):
         return self.storage
+
+    async def wait_for_function(self, _script, *, timeout):
+        if not self.subscription_ready:
+            raise TimeoutError(f"subscription not ready after {timeout}")
+        return True
 
 
 class FakeContext:
@@ -91,8 +97,8 @@ class FakeContext:
 
 
 class FakeBrowser:
-    def __init__(self, url: str, cookies: list[dict], storage: list[dict] | None = None):
-        self.page = FakePage(url, storage)
+    def __init__(self, url: str, cookies: list[dict], storage: list[dict] | None = None, *, subscription_ready: bool = False):
+        self.page = FakePage(url, storage, subscription_ready)
         self.browser_context = FakeContext(cookies)
         self.data = SimpleNamespace(user_agent="test-agent")
 
@@ -140,6 +146,21 @@ def test_functional_validation_loads_httponly_cookie_and_storage_token(tmp_path,
     assert diagnostic["cookie_count"] == 1 and diagnostic["httponly_cookie_count"] == 1
     assert diagnostic["storage_entry_count"] == 1 and diagnostic["storage_state_saved"] is True
     assert browser.browser_context.saved_path.endswith("storage_state.json") and closed == [True]
+
+
+def test_subscription_indicator_waits_for_spa_auth_refresh(tmp_path, monkeypatch) -> None:
+    browser = FakeBrowser(
+        "https://plugintheme.net/pt-BR/account/subscription",
+        [{"name": "session", "value": "private", "domain": ".plugintheme.net", "path": "/"}],
+        subscription_ready=True,
+    )
+    _install_browser(monkeypatch, tmp_path, browser, AuthenticationState.UNKNOWN)
+
+    _session, diagnostic = source_auth._run(source_auth._validated_plugintheme_session("account-a"))
+
+    assert diagnostic["subscription_indicator"] is True
+    assert diagnostic["authenticated_indicator"] is False
+    assert diagnostic["authenticated"] is True
 
 
 def test_functional_validation_restores_session_cookie_from_storage_state(tmp_path, monkeypatch) -> None:

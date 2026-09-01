@@ -31,10 +31,9 @@ SITE_LABELS = {"ultrapackv2": "UltraPackV2", "plugintheme": "PluginTheme"}
 ULTRAPACK_DASHBOARD_URL = "https://www.ultrapackv2.com/minha-conta/painel/"
 PLUGINTHEME_PRODUCT_URL = "https://plugintheme.net/product/memberpress-downloads"
 PLUGINTHEME_ACCESS_URL = "https://api.plugintheme.net/api/downloads/{download_id}/check-access"
-PLUGINTHEME_ACCOUNT_ENDPOINTS = (
-    ("https://api.plugintheme.net/api/users/me", "api:users/me"),
-    ("https://api.plugintheme.net/api/membership/my", "api:membership/my"),
-)
+PLUGINTHEME_SUBSCRIPTION_URL = "https://plugintheme.net/pt-BR/account/subscription"
+PLUGINTHEME_DOWNLOAD_STATS_URL = "https://api.plugintheme.net/api/membership/download-stats"
+PLUGINTHEME_CREDIT_SOURCE = "account/subscription:api:membership/download-stats"
 
 
 def _utc_now() -> str:
@@ -207,6 +206,37 @@ def _plugintheme_product_id(html: str) -> str:
     return ""
 
 
+def _plugintheme_subscription_numbers(value: Any) -> dict[str, int] | None:
+    """Read only fields explicitly returned by the subscription page API.
+
+    ``remaining`` is mandatory and is never derived from limit/usage.  The
+    other values are retained solely when the provider returned them.
+    """
+    if not isinstance(value, Mapping):
+        return None
+    downloads = value.get("downloads")
+    membership = value.get("membership")
+    if not isinstance(downloads, Mapping):
+        return None
+    remaining = _nonnegative_int(downloads.get("remaining"))
+    if remaining is None:
+        return None
+    result = {"remaining": remaining}
+    if isinstance(membership, Mapping):
+        limit = _nonnegative_int(membership.get("dailyLimit"))
+        if limit is not None:
+            if remaining > limit:
+                return None
+            result["limit"] = limit
+    used = _nonnegative_int(downloads.get("today"))
+    if used is not None:
+        result["used"] = used
+    total = _nonnegative_int(downloads.get("total"))
+    if total is not None:
+        result["total_downloads"] = total
+    return result
+
+
 def _class_number(html: str, class_name: str) -> int | None:
     match = re.search(
         rf'<(?P<tag>[a-z0-9]+)[^>]*class=["\'][^"\']*\b{re.escape(class_name)}\b[^"\']*["\'][^>]*>(?P<body>.*?)</(?P=tag)>',
@@ -249,6 +279,7 @@ def _failure(
     limit: int | None = None,
     used: int | None = None,
     source: str = "",
+    technical_logs: list[str] | None = None,
 ) -> dict[str, Any]:
     if status in {"expired", "not_authenticated"}:
         authenticated = False
@@ -256,9 +287,7 @@ def _failure(
     elif authenticated is None:
         authenticated = source_state(site_key, account_key) == "validated"
     if site_key == "plugintheme" and authenticated and status in {"unavailable", "invalid", "credit_unavailable"}:
-        message = "Autenticação confirmada, mas não foi possível localizar o saldo na página da conta."
-        if limit is not None:
-            message += f" Limite diário do plano: {limit}; o provedor não expôs o consumo/restante."
+        message = "Autenticação confirmada, mas não foi possível localizar o saldo explícito na área de assinatura."
     payload = {
         "ok": False,
         "site_key": site_key,
@@ -273,6 +302,7 @@ def _failure(
         "limit": limit,
         "used": used,
         "source": source,
+        "technical_logs": list(technical_logs or []),
     }
     if site_key == "plugintheme":
         payload["session"] = get_source_diagnostic(site_key, account_key)
@@ -282,7 +312,7 @@ def _failure(
 def _provider_payload(site_key: str, account_key: str) -> dict[str, Any]:
     label = SITE_LABELS[site_key]
     logs = [f"Consultando créditos do {label}..."]
-    product_url = ULTRAPACK_DASHBOARD_URL if site_key == "ultrapackv2" else PLUGINTHEME_PRODUCT_URL
+    product_url = ULTRAPACK_DASHBOARD_URL if site_key == "ultrapackv2" else PLUGINTHEME_SUBSCRIPTION_URL
     try:
         session = _session(site_key, account_key, product_url)
     except Exception as error:
@@ -321,81 +351,87 @@ def _provider_payload(site_key: str, account_key: str) -> dict[str, Any]:
             numbers = {"limit": limit, "used": used, "remaining": max(0, limit - used)}
             origin = "painel:.limite-diario-topline+.baixados-hoje-topline"
         else:
+            technical_logs: list[str] = []
             numbers = None
-            origin = ""
-            observed_limit: int | None = None
-            observed_used: int | None = None
-            observed_source = ""
-            for endpoint, endpoint_source in PLUGINTHEME_ACCOUNT_ENDPOINTS:
-                account_response = session.get(endpoint, timeout=20, allow_redirects=True)
-                logs.append(f"{endpoint_source} respondeu HTTP {account_response.status_code}.")
-                logs.append(f"{endpoint_source}: {_response_structure(account_response)}.")
-                if _login_response(account_response) or account_response.status_code == 401:
-                    return _failure(site_key, account_key, "expired", "Sessão expirada.", logs)
-                if account_response.ok:
-                    candidate = _response_numbers(account_response)
-                    if candidate and candidate.get("limit") is not None and observed_limit is None:
-                        observed_limit = int(candidate["limit"])
-                        observed_used = candidate.get("used")
-                        observed_source = endpoint_source
-                    if candidate and candidate.get("remaining") is not None:
-                        numbers, origin = candidate, endpoint_source
-                        logs.append(f"Saldo localizado na resposta estruturada {endpoint_source}.")
-                        break
-            if numbers is not None:
-                credits = int(numbers["remaining"])
-                updated_at = _utc_now()
-                set_source_state(site_key, "validated", account_key)
-                return {
-                    "ok": True,
-                    "site_key": site_key,
-                    "account_key": account_key,
-                    "credits": credits,
-                    "remaining": credits,
-                    "limit": numbers.get("limit"),
-                    "used": numbers.get("used"),
-                    "authenticated": True,
-                    "status": "success",
-                    "message": "Saldo consultado com sucesso.",
-                    "source": origin,
-                    "updated_at": updated_at,
-                    "last_confirmed_at": updated_at,
-                    "last_error": "",
-                    "stale": False,
-                    "logs": logs + [f"Saldo localizado: {credits}."],
-                }
-            response = session.get(PLUGINTHEME_PRODUCT_URL, timeout=20, allow_redirects=True)
-            if _login_response(response):
-                return _failure(site_key, account_key, "expired", "Sessão expirada.", logs)
-            if not response.ok:
-                return _failure(site_key, account_key, f"http_{response.status_code}", "A página autenticada não respondeu corretamente.", logs)
-            product_id = _plugintheme_product_id(response.text)
-            if not product_id:
-                return _failure(site_key, account_key, "unavailable", "Identificador estruturado do download não encontrado.", logs, limit=observed_limit, used=observed_used, source=observed_source)
-            access = session.get(PLUGINTHEME_ACCESS_URL.format(download_id=product_id), timeout=20, allow_redirects=True)
-            logs.append(f"api:check-access respondeu HTTP {access.status_code}.")
-            logs.append(f"api:check-access: {_response_structure(access)}.")
-            if _login_response(access) or access.status_code == 401:
-                return _failure(site_key, account_key, "expired", "Sessão expirada.", logs)
-            if access.status_code == 403:
+            subscription_authenticated = False
+            failure_message = "Saldo explícito não encontrado na API da assinatura."
+            for query_attempt in (1, 2):
+                subscription = session.get(PLUGINTHEME_SUBSCRIPTION_URL, timeout=20, allow_redirects=True)
+                technical_logs.append(
+                    f"tentativa {query_attempt}: account/subscription respondeu HTTP {subscription.status_code}; "
+                    f"{_response_structure(subscription)}."
+                )
+                subscription_authenticated = not _login_response(subscription) and subscription.status_code != 401
+                if subscription_authenticated and subscription.ok:
+                    if "Área de assinatura autenticada confirmada." not in logs:
+                        logs.append("Área de assinatura autenticada confirmada.")
+                    stats = session.get(
+                        PLUGINTHEME_DOWNLOAD_STATS_URL,
+                        timeout=20,
+                        allow_redirects=True,
+                        headers={"Referer": PLUGINTHEME_SUBSCRIPTION_URL},
+                    )
+                    technical_logs.append(
+                        f"tentativa {query_attempt}: api:membership/download-stats respondeu HTTP {stats.status_code}; "
+                        f"{_response_structure(stats)}."
+                    )
+                    if stats.ok and not _login_response(stats):
+                        try:
+                            stats_payload = stats.json()
+                        except ValueError:
+                            stats_payload = None
+                        numbers = _plugintheme_subscription_numbers(stats_payload)
+                        if numbers is not None:
+                            break
+                        failure_message = "Saldo explícito não encontrado na API da assinatura."
+                    else:
+                        failure_message = "A API da assinatura não confirmou o saldo."
+                else:
+                    failure_message = "A área de assinatura não respondeu como página autenticada."
+                if query_attempt == 1:
+                    logs.append("Atualizando a sessão HTTP a partir do perfil PluginTheme validado.")
+                    try:
+                        clear_source_session(site_key, session, account_key)
+                        renewed = _session(site_key, account_key, PLUGINTHEME_SUBSCRIPTION_URL)
+                    except Exception as error:
+                        LOGGER.warning(
+                            "Falha renovando sessão HTTP de créditos %s/%s: %s",
+                            site_key,
+                            account_key,
+                            type(error).__name__,
+                        )
+                        return _failure(
+                            site_key,
+                            account_key,
+                            "expired",
+                            "Não foi possível renovar funcionalmente a sessão PluginTheme.",
+                            logs,
+                            technical_logs=technical_logs,
+                        )
+                    if renewed is None:
+                        return _failure(
+                            site_key,
+                            account_key,
+                            "expired",
+                            "Não foi possível renovar funcionalmente a sessão PluginTheme.",
+                            logs,
+                            technical_logs=technical_logs,
+                        )
+                    session = renewed
+                    technical_logs.append("Sessão HTTP republicada a partir do perfil persistente validado.")
+            if numbers is None:
                 return _failure(
                     site_key,
                     account_key,
-                    "credit_unavailable",
-                    "A sessão está autenticada, mas o endpoint não confirmou saldo para este produto.",
+                    "credit_unavailable" if subscription_authenticated else "expired",
+                    failure_message,
                     logs,
-                    limit=observed_limit,
-                    used=observed_used,
-                    source=observed_source,
+                    authenticated=subscription_authenticated,
+                    source=PLUGINTHEME_CREDIT_SOURCE,
+                    technical_logs=technical_logs,
                 )
-            if not access.ok:
-                return _failure(site_key, account_key, f"http_{access.status_code}", "O endpoint de saldo não respondeu corretamente.", logs)
-            numbers = _response_numbers(access)
-            if not numbers or numbers.get("remaining") is None:
-                if numbers and numbers.get("limit") is not None and observed_limit is None:
-                    observed_limit, observed_used, observed_source = int(numbers["limit"]), numbers.get("used"), "api:check-access"
-                return _failure(site_key, account_key, "credit_unavailable", "Saldo não encontrado na resposta autenticada.", logs, limit=observed_limit, used=observed_used, source=observed_source)
-            origin = "api:check-access"
+            origin = PLUGINTHEME_CREDIT_SOURCE
+            logs.append("Saldo confirmado na área de assinatura do PluginTheme.")
         credits = int(numbers["remaining"])
         updated_at = _utc_now()
         return {
@@ -406,6 +442,7 @@ def _provider_payload(site_key: str, account_key: str) -> dict[str, Any]:
             "remaining": credits,
             "limit": numbers.get("limit"),
             "used": numbers.get("used"),
+            "total_downloads": numbers.get("total_downloads"),
             "authenticated": True,
             "status": "success",
             "message": "Saldo consultado com sucesso.",
@@ -415,6 +452,7 @@ def _provider_payload(site_key: str, account_key: str) -> dict[str, Any]:
             "last_error": "",
             "stale": False,
             "logs": logs + [f"Saldo localizado: {credits}."],
+            "technical_logs": technical_logs if site_key == "plugintheme" else [],
         }
     except requests.Timeout:
         LOGGER.warning("Timeout consultando créditos %s/%s", site_key, account_key)
@@ -536,10 +574,12 @@ class CreditService:
                         "status": failure.get("status", "unavailable"),
                         "message": failure.get("message", "Não foi possível atualizar os créditos."),
                         "logs": failure.get("logs", []),
+                        "technical_logs": failure.get("technical_logs", []),
                         "failed_at": failure.get("updated_at", _utc_now()),
                         "stale": True,
                         "authenticated": bool(failure.get("authenticated")),
                         "last_error": failure.get("message", "Não foi possível atualizar os créditos."),
+                        "source": failure.get("source") or candidate.get("source", ""),
                     })
                 self._cache[key] = candidate
                 self._save()

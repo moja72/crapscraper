@@ -70,35 +70,74 @@ def test_ultrapack_uses_real_authenticated_dashboard_fields(monkeypatch) -> None
     assert result["source"].startswith("painel:")
 
 
-def test_plugintheme_uses_structured_check_access(monkeypatch) -> None:
-    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
-    access = Response("", payload={"data": {"downloadLimit": 50, "remainingDownloads": 7}})
-    empty = Response("", payload={"data": {"active": True}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, access]))
+def test_plugintheme_uses_explicit_subscription_remaining(monkeypatch) -> None:
+    subscription = Response("Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html")
+    stats = Response("", payload={
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": 13, "remaining": 37, "total": 188},
+    })
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([subscription, stats]))
+
     result = credits._provider_payload("plugintheme", "coproducaolancamentos")
-    assert result["ok"] is True and result["credits"] == 7 and result["source"] == "api:check-access"
+
+    assert result["ok"] is True and result["authenticated"] is True
+    assert (result["credits"], result["remaining"], result["limit"], result["used"]) == (37, 37, 50, 13)
+    assert result["total_downloads"] == 188
+    assert result["source"] == credits.PLUGINTHEME_CREDIT_SOURCE
+    assert "Saldo confirmado na área de assinatura" in " ".join(result["logs"])
+
+
+def test_plugintheme_does_not_calculate_remaining_from_limit_and_usage(monkeypatch) -> None:
+    subscription = Response("Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html")
+    stats = Response("", payload={
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": 13, "total": 188},
+    })
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([subscription, stats]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["ok"] is False and result["authenticated"] is True
+    assert result["status"] == "credit_unavailable" and result["credits"] is None
+
+
+def test_plugintheme_can_download_is_not_a_credit_balance(monkeypatch) -> None:
+    subscription = Response("Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html")
+    stats = Response("", payload={"canDownload": True, "membership": {"dailyLimit": 50}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([subscription, stats]))
+
+    result = credits._provider_payload("plugintheme", "account-a")
+
+    assert result["status"] == "credit_unavailable" and result["credits"] is None
     assert result["authenticated"] is True
 
 
-def test_plugintheme_prefers_structured_account_quota(monkeypatch) -> None:
-    account = Response("", payload={"data": {"dailyDownloadLimit": 25, "downloadsUsed": 4}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([account]))
+def test_plugintheme_republishes_stale_http_session_once(monkeypatch) -> None:
+    subscription = lambda: Response(
+        "Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html"
+    )
+    stale_stats = Response("", payload={
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": None, "remaining": None, "total": None},
+    })
+    fresh_stats = Response("", payload={
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": 0, "remaining": 50, "total": 188},
+    })
+    sessions = iter((Session([subscription(), stale_stats]), Session([subscription(), fresh_stats])))
+    calls = []
+    monkeypatch.setattr(
+        credits,
+        "_session",
+        lambda _site, _account, _url: calls.append((_site, _account, _url)) or next(sessions),
+    )
 
     result = credits._provider_payload("plugintheme", "account-a")
 
-    assert result["ok"] is True and result["credits"] == 21
-    assert result["source"] == "api:users/me"
-
-
-def test_plugintheme_uses_membership_quota_when_user_has_no_quota(monkeypatch) -> None:
-    user = Response("", payload={"data": {"active": True}})
-    membership = Response("", payload={"data": {"downloadLimit": 50, "downloadsUsed": 3}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([user, membership]))
-
-    result = credits._provider_payload("plugintheme", "account-a")
-
-    assert result["ok"] is True and result["credits"] == 47
-    assert result["source"] == "api:membership/my"
+    assert result["ok"] is True and result["credits"] == 50
+    assert len(calls) == 2
+    assert "Atualizando a sessão HTTP" in " ".join(result["logs"])
+    assert "republicada" in " ".join(result["technical_logs"])
 
 
 def test_plugintheme_401_is_expired(monkeypatch) -> None:
@@ -110,15 +149,15 @@ def test_plugintheme_401_is_expired(monkeypatch) -> None:
     assert result["authenticated"] is False
 
 
-def test_plugintheme_account_403_is_not_automatically_expired(monkeypatch) -> None:
+def test_plugintheme_stats_403_is_not_automatically_expired(monkeypatch) -> None:
+    subscription = Response("Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html")
     forbidden = Response("", status=403)
-    membership = Response("", payload={"data": {"downloadLimit": 15, "downloadsUsed": 2}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([forbidden, membership]))
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([subscription, forbidden]))
 
     result = credits._provider_payload("plugintheme", "account-a")
 
-    assert result["ok"] is True and result["credits"] == 13
-    assert result["authenticated"] is True and result["source"] == "api:membership/my"
+    assert result["ok"] is False and result["status"] == "credit_unavailable"
+    assert result["authenticated"] is True
 
 
 def test_plugintheme_extracts_product_id_from_nextjs_escaped_payload() -> None:
@@ -136,10 +175,9 @@ def test_plugintheme_product_id_absent_is_safe() -> None:
 
 
 def test_valid_plugintheme_session_without_balance_is_collection_error(monkeypatch) -> None:
-    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
-    access = Response("", payload={"data": {"allowed": True}})
-    empty = Response("", payload={"data": {"active": True}})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, access]))
+    subscription = Response("Planos Ativos", url=credits.PLUGINTHEME_SUBSCRIPTION_URL, content_type="text/html")
+    stats = Response("", payload={"downloads": {"today": 0}})
+    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([subscription, stats]))
 
     result = credits._provider_payload("plugintheme", "account-a")
 
@@ -147,31 +185,15 @@ def test_valid_plugintheme_session_without_balance_is_collection_error(monkeypat
     assert "autentica" in result["message"].lower() and "saldo" in result["message"].lower()
 
 
-def test_plugintheme_reports_real_plan_limit_without_inventing_remaining(monkeypatch) -> None:
-    user = Response("", payload={"premiumPlan": "premium"})
-    membership = Response("", payload=[{"plan": {"dailyDownloadLimit": 50}}])
-    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
-    access = Response("", payload={"canDownload": True, "accessType": "membership"})
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([user, membership, product, access]))
-
-    result = credits._provider_payload("plugintheme", "account-a")
-
-    assert result["authenticated"] is True and result["credits"] is None
-    assert result["limit"] == 50 and result["used"] is None
-    assert result["source"] == "api:membership/my"
-    assert "consumo/restante" in result["message"]
-
-
-def test_plugintheme_check_access_403_keeps_authentication_valid(monkeypatch) -> None:
-    product = Response('prefix "id":"12345678-1234-1234-1234-123456789012" suffix')
-    empty = Response("", payload={"data": {"active": True}})
-    forbidden = Response("", status=403)
-    monkeypatch.setattr(credits, "_session", lambda _site, _account, _url: Session([empty, empty, product, forbidden]))
-
-    result = credits._provider_payload("plugintheme", "account-a")
-
-    assert result["ok"] is False and result["status"] == "credit_unavailable"
-    assert result["authenticated"] is True and result["credits"] is None
+def test_plugintheme_subscription_parser_requires_provider_remaining() -> None:
+    assert credits._plugintheme_subscription_numbers({
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": 13, "remaining": 37},
+    }) == {"remaining": 37, "limit": 50, "used": 13}
+    assert credits._plugintheme_subscription_numbers({
+        "membership": {"dailyLimit": 50},
+        "downloads": {"today": 13},
+    }) is None
 
 
 def test_expired_session_is_diagnostic_not_zero(monkeypatch) -> None:
@@ -251,13 +273,14 @@ def test_failed_refresh_preserves_last_confirmed_as_stale(tmp_path) -> None:
         calls += 1
         if calls == 1:
             return success(site, account, 22)
-        return {"ok": False, "status": "expired", "message": "Sessão expirada.", "logs": ["Sessão expirada."], "updated_at": "2026-08-31T04:00:00+00:00"}
+        return {"ok": False, "status": "expired", "message": "Sessão expirada.", "logs": ["Sessão expirada."], "technical_logs": ["HTTP 401 sem valores privados."], "updated_at": "2026-08-31T04:00:00+00:00"}
     service = credits.CreditService(tmp_path, provider=provider)
     assert service.refresh("plugintheme", "account-a")["credits"] == 22
     stale = service.refresh("plugintheme", "account-a")
     assert stale["credits"] == 22 and stale["stale"] is True and stale["ok"] is False
     assert stale["last_confirmed_at"] == "2026-08-31T03:42:00+00:00"
     assert "expirada" in stale["last_error"].lower()
+    assert stale["technical_logs"] == ["HTTP 401 sem valores privados."]
 
 
 def test_concurrent_clicks_coalesce_one_provider_query(tmp_path) -> None:

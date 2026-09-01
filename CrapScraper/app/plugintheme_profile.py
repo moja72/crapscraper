@@ -16,6 +16,7 @@ from typing import Any, Mapping
 
 
 ACCOUNT_URL = "https://plugintheme.net/pt-BR/account"
+SUBSCRIPTION_URL = "https://plugintheme.net/pt-BR/account/subscription"
 LOGIN_URL = "https://plugintheme.net/pt-BR/auth/login"
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{40,}$")
 
@@ -232,7 +233,7 @@ def find_access_token(value: Any) -> str:
 
 
 __all__ = [
-    "ACCOUNT_URL", "LOGIN_URL", "complete_manual_renewal", "configured", "find_access_token",
+    "ACCOUNT_URL", "SUBSCRIPTION_URL", "LOGIN_URL", "complete_manual_renewal", "configured", "find_access_token",
     "open_manual_session", "profile_diagnostic", "profile_path", "renewal_pending",
     "storage_state_path", "stored_state",
 ]

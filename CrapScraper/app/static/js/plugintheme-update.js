@@ -22,6 +22,7 @@ function ensureUi(){
 
 function render(data){
   const ui=ensureUi(),plugin=data?.plugintheme||{};if(!ui)return;
+  document.dispatchEvent(new CustomEvent("updates:environment",{detail:data}));
   $("#update-environment-summary").textContent=data.attention_count?`${data.attention_count} requisito(s) exigem atenção`:"Todos os requisitos validados";
   $("#update-environment-chips").innerHTML=(data.checks||[]).map(item=>`<article class="environment-chip" data-state="${escapeHtml(item.state)}" title="${escapeHtml(item.detail||"")}"><div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.value)}</span></div><button class="help-tip" type="button" data-tooltip="${escapeHtml(item.detail||"Diagnóstico de configuração.")}" aria-label="Ajuda sobre ${escapeHtml(item.label)}">?</button></article>`).join("");
   const httpOnly=plugin.httponly_cookie_count?` (${plugin.httponly_cookie_count} HttpOnly)`:"";
@@ -33,7 +34,14 @@ function render(data){
   diagnostics.push(plugin.profile_exists?"Perfil carregado.":"Perfil não encontrado.");
   if(plugin.authenticated)diagnostics.push("Sessão autenticada confirmada.");
   else if(plugin.login_redirect)diagnostics.push("A área protegida redirecionou para o login.");
-  if(plugin.credit_limit!==null&&plugin.credit_limit!==undefined)diagnostics.push(`Limite diário do plano: ${Number(plugin.credit_limit)}; saldo restante não exposto pelo provedor.`);
+  if(known){
+    diagnostics.push(plugin.credit_stale?"Último saldo confirmado na área de assinatura do PluginTheme.":"Saldo confirmado na área de assinatura do PluginTheme.");
+    const quota=[];
+    if(plugin.credit_limit!==null&&plugin.credit_limit!==undefined)quota.push(`limite diário ${Number(plugin.credit_limit)}`);
+    if(plugin.credit_used!==null&&plugin.credit_used!==undefined)quota.push(`usados hoje ${Number(plugin.credit_used)}`);
+    quota.push(`restantes ${Number(plugin.credits)}`);
+    diagnostics.push(`${plugin.credit_stale?"Última cota confirmada":"Cota do provedor"}: ${quota.join(", ")}.`);
+  }
   if(plugin.current_url)diagnostics.push(`URL final: ${plugin.current_url}.`);
   if(plugin.last_error&&!plugin.authenticated)diagnostics.push(`Motivo: ${plugin.last_error}`);
   for(const line of plugin.logs||[])if(line&&!diagnostics.includes(line))diagnostics.push(line);

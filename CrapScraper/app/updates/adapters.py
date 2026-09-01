@@ -14,6 +14,8 @@ from typing import Any, Protocol
 import requests
 from urllib.parse import urlparse
 
+from app.updates.logging import safe_text, safe_url
+
 
 class WooCommerceRequestError(RuntimeError):
     """Falha HTTP sanitizada; nunca carrega Authorization ou credenciais."""
@@ -23,6 +25,54 @@ class WooCommerceRequestError(RuntimeError):
         if code: detail+=f" ({code})"
         if response_message: detail+=f": {response_message}"
         super().__init__(detail)
+
+
+class WooCommerceConnectivityError(RuntimeError):
+    """Bounded, sanitized connectivity failure raised by the canonical gateway."""
+
+    def __init__(
+        self,
+        *,
+        method: str,
+        endpoint: str,
+        host: str,
+        error_type: str,
+        attempts: int,
+        original_exception: BaseException,
+    ) -> None:
+        self.method = method.upper()
+        self.endpoint = endpoint
+        self.host = host
+        self.error_type = error_type
+        self.attempts = attempts
+        self.original_exception = safe_text(repr(original_exception), limit=1600)
+        self.diagnosis = (
+            f"Não foi possível resolver {host}."
+            if error_type == "dns_resolution"
+            else f"Não foi possível conectar a {host}."
+        )
+        super().__init__("Falha de conexão com WooCommerce.")
+
+
+def _connection_error_type(error: BaseException) -> str:
+    evidence = f"{type(error).__name__}: {error}".lower()
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        evidence += f" {type(item).__name__}: {item}".lower()
+        for nested in (getattr(item, "__cause__", None), getattr(item, "__context__", None), getattr(item, "reason", None)):
+            if isinstance(nested, BaseException):
+                pending.append(nested)
+        pending.extend(argument for argument in getattr(item, "args", ()) if isinstance(argument, BaseException))
+    if any(marker in evidence for marker in ("nameresolutionerror", "getaddrinfo failed", "failed to resolve", "name resolution")):
+        return "dns_resolution"
+    if isinstance(error, (requests.ConnectTimeout, requests.ReadTimeout, requests.Timeout)):
+        return "timeout"
+    return "connection"
 
 
 class WooGateway(Protocol):
@@ -69,12 +119,12 @@ class VersionPersistenceError(RuntimeError):
 
 
 class WooCommerceGateway:
-    def __init__(self, *, confirmation_delays: tuple[float,...]=(0.0,0.15,0.35), sleeper: Any=time.sleep):
+    def __init__(self, *, confirmation_delays: tuple[float,...]=(0.0,0.15,0.35), network_delays: tuple[float,...]=(0.0,0.2,0.6), sleeper: Any=time.sleep):
         # Compartilha a configuração canônica usada por Loja/Adicionar, mantendo
         # os nomes antigos como fallback para instalações já existentes.
         base=(os.getenv("SCRAPER_WP_BASE_URL") or os.getenv("SCRAPER_WOOCOMMERCE_URL") or "").rstrip("/")
         self.base=base+"/wp-json/wc/v3" if base and "/wp-json/" not in base else base
-        self.auth=(os.getenv("SCRAPER_WC_CONSUMER_KEY") or os.getenv("SCRAPER_WOOCOMMERCE_KEY", ""),os.getenv("SCRAPER_WC_CONSUMER_SECRET") or os.getenv("SCRAPER_WOOCOMMERCE_SECRET", ""));self.timeout=45;self.session=requests.Session();self.confirmation_delays=confirmation_delays;self.sleeper=sleeper
+        self.auth=(os.getenv("SCRAPER_WC_CONSUMER_KEY") or os.getenv("SCRAPER_WOOCOMMERCE_KEY", ""),os.getenv("SCRAPER_WC_CONSUMER_SECRET") or os.getenv("SCRAPER_WOOCOMMERCE_SECRET", ""));self.timeout=45;self.session=requests.Session();self.confirmation_delays=confirmation_delays;self.network_delays=network_delays or (0.0,);self.sleeper=sleeper;self.last_request_diagnostic:dict[str,Any]={}
     def _request_response(self, method: str, path: str, **kwargs: Any) -> tuple[Any,Any]:
         if not self.base or not all(self.auth):
             missing=[]
@@ -84,7 +134,22 @@ class WooCommerceGateway:
             raise RuntimeError("Credenciais WooCommerce não configuradas (ausente: " + ", ".join(missing) + ")")
         endpoint=self.base+path
         headers={"Accept":"application/json","User-Agent":"CrapScraper-update/1.0",**dict(kwargs.pop("headers",{}) or {})}
-        response=self.session.request(method,endpoint,auth=self.auth,headers=headers,timeout=self.timeout,allow_redirects=True,**kwargs)
+        method=method.upper();host=str(urlparse(self.base).hostname or "")
+        response=None
+        for attempt,delay in enumerate(self.network_delays,1):
+            if delay>0:self.sleeper(delay)
+            try:
+                response=self.session.request(method,endpoint,auth=self.auth,headers=headers,timeout=self.timeout,allow_redirects=True,**kwargs)
+                self.last_request_diagnostic={"method":method,"endpoint":path,"host":host,"attempts":attempt,"recovered":attempt>1,"error_type":""}
+                break
+            except requests.RequestException as error:
+                error_type=_connection_error_type(error)
+                retryable=error_type=="dns_resolution" or (method in {"GET","HEAD","OPTIONS"} and error_type in {"connection","timeout"})
+                if retryable and attempt < len(self.network_delays):
+                    continue
+                self.last_request_diagnostic={"method":method,"endpoint":path,"host":host,"attempts":attempt,"recovered":False,"error_type":error_type}
+                raise WooCommerceConnectivityError(method=method,endpoint=path,host=host,error_type=error_type,attempts=attempt,original_exception=error) from error
+        assert response is not None
         if response.status_code>=400:
             code=""; response_message=""
             try:
@@ -94,9 +159,9 @@ class WooCommerceGateway:
                     response_message=str(payload.get("message") or "")
             except (ValueError,requests.exceptions.JSONDecodeError):
                 response_message="Resposta não-JSON (HTML ou proxy)"
-            redirects=[{"status":h.status_code,"location":h.headers.get("Location"),"host":h.url.split("/",3)[2] if "/" in h.url else ""} for h in getattr(response,"history",[]) ]
+            redirects=[{"status":h.status_code,"location":safe_url(h.headers.get("Location")),"host":urlparse(h.url).hostname or ""} for h in getattr(response,"history",[]) ]
             response_headers=getattr(response,"headers",{}) or {}
-            raise WooCommerceRequestError(method=method,endpoint=path,status=response.status_code,code=code,response_message=response_message,final_url=response.url,content_type=str(response_headers.get("Content-Type") or ""),server=str(response_headers.get("Server") or ""),redirects=redirects)
+            raise WooCommerceRequestError(method=method,endpoint=path,status=response.status_code,code=code,response_message=safe_text(response_message),final_url=safe_url(response.url),content_type=str(response_headers.get("Content-Type") or ""),server=str(response_headers.get("Server") or ""),redirects=redirects)
         if response.status_code==204 or not getattr(response,"content",getattr(response,"text",b"")):
             return response,None
         try:payload=response.json()
@@ -110,7 +175,7 @@ class WooCommerceGateway:
         return self._request("GET",f"/products/{product_id}",params={"context":"edit","_crapscraper_fresh":uuid.uuid4().hex},headers={"Cache-Control":"no-cache"})
     def check_connection(self) -> dict[str, Any]:
         payload=self._request("GET","/products",params={"per_page":1,"page":1})
-        return {"ok":isinstance(payload,list),"readable":isinstance(payload,list)}
+        return {"ok":isinstance(payload,list),"readable":isinstance(payload,list),**self.last_request_diagnostic,"trust_env":bool(self.session.trust_env)}
     @staticmethod
     def _response_cache(response: Any) -> dict[str,Any]:
         headers=getattr(response,"headers",{}) or {}

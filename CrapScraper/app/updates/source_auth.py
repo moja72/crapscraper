@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from app.plugintheme_profile import (
     ACCOUNT_URL,
+    SUBSCRIPTION_URL,
     complete_manual_renewal,
     find_access_token,
     profile_diagnostic,
@@ -186,17 +187,37 @@ async def _validated_plugintheme_session(account_key: str) -> tuple[requests.Ses
         if persisted_cookies:
             await browser.browser_context.add_cookies(persisted_cookies)
             diagnostic["storage_state_loaded"] = True
-        await browser.goto(ACCOUNT_URL)
+        await browser.goto(SUBSCRIPTION_URL)
+        subscription_indicator = False
+        wait_for_function = getattr(browser.page, "wait_for_function", None)
+        if callable(wait_for_function):
+            try:
+                await wait_for_function(
+                    """() => {
+                      const path = String(location.pathname || '').toLowerCase();
+                      const text = String(document.body?.innerText || '');
+                      return path.includes('/account/subscription')
+                        && /(planos ativos|active plans)/i.test(text)
+                        && /(restantes|remaining)/i.test(text);
+                    }""",
+                    timeout=10_000,
+                )
+                subscription_indicator = True
+            except Exception:
+                subscription_indicator = False
         current_url = _safe_url(str(getattr(browser.page, "url", "") or ""))
         authentication = await determine_authentication_state(browser.page)
-        http, evidence = await _http_session_from_browser(browser, ACCOUNT_URL)
+        http, evidence = await _http_session_from_browser(browser, SUBSCRIPTION_URL)
         login_redirect = "/auth/login" in current_url.lower()
         diagnostic.update({
             **evidence,
             "current_url": current_url,
             "login_redirect": login_redirect,
             "authenticated_indicator": authentication is AuthenticationState.AUTHENTICATED,
-            "authenticated": authentication is AuthenticationState.AUTHENTICATED and not login_redirect,
+            "subscription_indicator": subscription_indicator,
+            "authenticated": (
+                authentication is AuthenticationState.AUTHENTICATED or subscription_indicator
+            ) and not login_redirect,
         })
         if not diagnostic["authenticated"]:
             http.close()
