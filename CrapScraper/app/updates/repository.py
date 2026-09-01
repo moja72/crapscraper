@@ -178,7 +178,8 @@ class UpdateRepository:
         if not item: raise KeyError(job_id)
         return item
 
-    def list(self, *, query: str="", group: str="", stage: str="", page: int=1, page_size: int=5) -> dict[str, Any]:
+    def list(self, *, query: str="", group: str="", stage: str="", page: int=1, page_size: int=5,
+             sort_by: str="date", sort_order: str="desc") -> dict[str, Any]:
         filters: list[str]=[]; values: list[Any]=[]
         if query:
             filters.append("(product_name LIKE ? OR CAST(woo_product_id AS TEXT) LIKE ? OR source_name LIKE ?)"); values += [f"%{query}%"]*3
@@ -189,13 +190,40 @@ class UpdateRepository:
         if stage: filters.append("stage=?"); values.append(stage)
         where = " WHERE "+" AND ".join(filters) if filters else ""
         page=max(1,int(page)); page_size=max(1,min(100,int(page_size)))
+        sort_columns={"date":"created_at","name":"product_name"}
+        if sort_by not in sort_columns:raise ValueError("Campo de ordenacao invalido")
+        if sort_order not in {"asc","desc"}:raise ValueError("Direcao de ordenacao invalida")
+        column=sort_columns[sort_by];direction=sort_order.upper()
+        order=f"{column} COLLATE NOCASE {direction}, queue_position {direction}, job_id {direction}"
         with self.connection() as db:
             total=int(db.execute("SELECT COUNT(*) FROM update_jobs"+where,values).fetchone()[0])
-            rows=db.execute("SELECT * FROM update_jobs"+where+" ORDER BY queue_position,created_at LIMIT ? OFFSET ?", values+[page_size,(page-1)*page_size]).fetchall()
+            rows=db.execute("SELECT * FROM update_jobs"+where+f" ORDER BY {order} LIMIT ? OFFSET ?", values+[page_size,(page-1)*page_size]).fetchall()
             counts={"total":int(db.execute("SELECT COUNT(*) FROM update_jobs").fetchone()[0])}
             for key,state in (("prepared","ready"),("running","running"),("success","success"),("error","error")):
                 counts[key]=int(db.execute("SELECT COUNT(*) FROM update_jobs WHERE public_state=?",(state,)).fetchone()[0])
-        return {"items":[self._decode(r) for r in rows],"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size),"counts":counts}
+        return {"items":[self._decode(r) for r in rows],"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size),"counts":counts,"sort_by":sort_by,"sort_order":sort_order}
+
+    def latest_attempt(self, job_id: str) -> dict[str, Any] | None:
+        with self.connection() as db:
+            row=db.execute("SELECT * FROM update_attempts WHERE job_id=? ORDER BY attempt_number DESC LIMIT 1",(job_id,)).fetchone()
+        if not row:return None
+        item=dict(row)
+        for key,default in (("stages",[]),("logs",[]),("error",None)):
+            item[key]=json.loads(item[key] or json.dumps(default))
+        return item
+
+    def reconcile_success(self, job_id: str, message: str) -> dict[str, Any]:
+        """Corrige somente o estado administrativo; a tentativa original e seu resultado permanecem intactos."""
+        now=utc_now()
+        with self.connection() as db:
+            row=db.execute("SELECT public_state,logs FROM update_jobs WHERE job_id=?",(job_id,)).fetchone()
+            if not row:raise KeyError(job_id)
+            if row["public_state"]!="success":
+                if row["public_state"]!="error":raise ValueError("Somente jobs em erro podem ser reconciliados")
+                logs=json.loads(row["logs"] or "[]")
+                if message not in logs:logs.append(message)
+                db.execute("UPDATE update_jobs SET public_state='success',stage='completed',finished_at=?,current_error=NULL,logs=?,updated_at=? WHERE job_id=?",(now,json.dumps(logs,ensure_ascii=False),now,job_id))
+        return self.get(job_id)
 
     def begin_attempt(self, job_id: str) -> dict[str, Any]:
         now=utc_now()

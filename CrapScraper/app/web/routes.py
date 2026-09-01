@@ -43,14 +43,18 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/additions/logs": lambda: services.additions.job(str(query.get("job_id") or "")),
         "/api/store": services.store.summary,
         "/api/store/summary": services.store.summary,
+        "/api/store/environment": services.store.environment,
         "/api/store/products": lambda: services.store.list_products(query),
         "/api/store/product": lambda: services.store.product(int(query.get("product_id") or 0)),
         "/api/store/monitor": services.store.monitor,
         "/api/store/monitor/history": services.store.monitor,
         "/api/store/monitor/logs": services.store.monitor,
         "/api/store/bundles": services.store.bundles,
+        "/api/store/plans": services.store.plans,
+        "/api/store/pricing/catalog": services.store.pricing_catalog,
         "/api/store/categories": services.store.categories,
         "/api/store/quality": lambda: services.store.quality(query),
+        "/api/store/quality/products": lambda: services.store.quality_products(query),
         "/api/store/quality/product": lambda: services.store.product(int(query.get("product_id") or 0)),
         "/api/sync/catalogs": services.sync.catalogs,
         "/api/sync/search": lambda: services.sync.search(query),
@@ -80,6 +84,7 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/comparison/relationship": return services.comparison.save_relationship(payload)
     if path == "/api/updates/materialize": return services.updates.materialize()
     if path == "/api/updates/environment/check": return services.updates.verify_environment()
+    if path == "/api/updates/reconcile": return services.updates.reconcile_errors()
     if path == "/api/updates/plugintheme/renew": return services.updates.renew_plugintheme(payload)
     if path == "/api/updates/selection": return services.updates.selection(payload)
     if path == "/api/updates/execute": return services.updates.execute(str(payload.get("job_id") or ""))
@@ -92,6 +97,7 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/additions/batch/start": return services.additions.batch_start(list(payload.get("job_ids") or []))
     if path in {"/api/additions/batch/pause","/api/additions/batch/resume","/api/additions/batch/cancel"}: return services.additions.batch_control(path.rsplit("/",1)[-1])
     if path == "/api/store/monitor/run": return services.store.monitor_run()
+    if path == "/api/store/environment/check": return services.store.environment(check=True)
     if path in {"/api/store/monitor/enable","/api/store/monitor/disable"}: return services.store.monitor_enable(path.endswith("enable"))
     if path == "/api/store/monitor": return services.store.monitor_enable(bool(payload.get("enabled")))
     if path == "/api/store/pricing/preview": return services.store.pricing_preview(payload)

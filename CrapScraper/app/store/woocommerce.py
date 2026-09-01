@@ -5,9 +5,14 @@ from typing import Any
 
 def _fold(value):return " ".join(str(value or "").lower().replace("í","i").split())
 def is_pack(product):return str(product.get("type","")).lower()=="bundle" or any(_fold(x.get("name")) in {"pack","packs","pacote","pacotes"} for x in product.get("categories",[]) or [])
+def is_plan(product):
+    categories={_fold(x.get("name")) for x in product.get("categories",[]) or []}
+    markers={"plano","planos","assinatura","assinaturas","subscription","subscriptions","membership","memberships"}
+    product_type=_fold(product.get("type"))
+    return not is_pack(product) and (bool(categories & markers) or "subscription" in product_type)
 def product_kind(product):
     text=" ".join(_fold(x.get("name")) for x in product.get("categories",[]) or [])
-    return "theme" if "tema" in text or "theme" in text else "plugin" if "plugin" in text else "pack" if is_pack(product) else "other"
+    return "pack" if is_pack(product) else "plan" if is_plan(product) else "theme" if "tema" in text or "theme" in text else "plugin" if "plugin" in text else "other"
 
 class StoreWooCommerceGateway:
     def __init__(self,session=None):

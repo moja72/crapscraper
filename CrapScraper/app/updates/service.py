@@ -7,7 +7,7 @@ from typing import Any
 
 from app.comparison import decisions
 from app.plugintheme_profile import open_manual_session, profile_diagnostic
-from app.updates.adapters import WooCommerceConnectivityError
+from app.updates.adapters import WooCommerceConnectivityError, normalize_version, version_metadata
 from app.updates.batch import UpdateBatchService
 from app.updates.executor import UpdateExecutor
 from app.updates.logging import safe_message
@@ -26,6 +26,22 @@ class UpdateExecutionBlocked(RuntimeError):
     def __init__(self, blockers: list[dict[str, str]]):
         self.blockers = blockers
         super().__init__("; ".join(item["message"] for item in blockers))
+
+
+UPDATE_PROGRESS_STAGES = (
+    ("prepared", "Aguardando execucao"),
+    ("validating", "Validando WooCommerce"),
+    ("authenticating", "Validando autenticacao da fonte"),
+    ("downloading", "Baixando arquivo"),
+    ("staging", "Validando ZIP"),
+    ("backing_up", "Criando backup"),
+    ("installing", "Instalando nova versao"),
+    ("verifying_artifact", "Validando arquivo instalado"),
+    ("updating_woocommerce", "Atualizando pt_versao"),
+    ("completed", "Atualizacao concluida"),
+)
+UPDATE_PROGRESS_INDEX = {stage: index for index, (stage, _label) in enumerate(UPDATE_PROGRESS_STAGES)}
+UPDATE_PROGRESS_LABELS = dict(UPDATE_PROGRESS_STAGES)
 
 
 class UpdateService:
@@ -70,6 +86,8 @@ class UpdateService:
             stage=str(payload.get("stage") or ""),
             page=int(payload.get("page") or 1),
             page_size=int(payload.get("page_size") or 5),
+            sort_by=str(payload.get("sort_by") or "date"),
+            sort_order=str(payload.get("sort_order") or "desc"),
         )
         result["items"] = [self._with_execution(item) for item in result["items"]]
         return {"ok": True, **result, "batch": self.batch.state(), "database": str(self.repository.path)}
@@ -149,7 +167,61 @@ class UpdateService:
     def _with_execution(self, job: dict[str, Any]) -> dict[str, Any]:
         item = dict(job)
         item["execution"] = self._execution(item)
+        item["progress"] = self._progress(item)
         return item
+
+    @staticmethod
+    def _progress(job: dict[str, Any]) -> dict[str, Any]:
+        stage=str(job.get("stage") or "prepared")
+        state=str(job.get("state") or "ready")
+        total=len(UPDATE_PROGRESS_STAGES)-1
+        if state=="success":step=total
+        else:step=UPDATE_PROGRESS_INDEX.get(stage, max(0, total-1 if state=="error" else 0))
+        if stage in {"rolling_back","rolled_back","rollback_required"}:
+            label={"rolling_back":"Executando rollback","rolled_back":"Rollback concluido","rollback_required":"Rollback requer intervencao"}[stage]
+        elif stage=="already_current":label="Destino ja estava atualizado"
+        else:label=UPDATE_PROGRESS_LABELS.get(stage, stage.replace("_"," ").strip().capitalize() or "Aguardando")
+        return {
+            "active": state=="running",
+            "complete": state=="success",
+            "failed": state=="error",
+            "stage": stage,
+            "label": label,
+            "step": step,
+            "total": total,
+            "logs": [str(line) for line in list(job.get("logs") or [])[-6:]],
+            "updated_at": str(job.get("updated_at") or ""),
+        }
+
+    def reconcile_job(self, job_id: str) -> dict[str, Any]:
+        job=self.repository.get(job_id)
+        if job["state"]=="success":return {"ok":True,"reconciled":False,"reason":"already_success","item":self._with_execution(job)}
+        if job["state"]!="error":return {"ok":True,"reconciled":False,"reason":"not_error","item":self._with_execution(job)}
+        attempt=self.repository.latest_attempt(job_id)
+        artifact_sha=str((attempt or {}).get("artifact_sha256") or "")
+        if not artifact_sha:return {"ok":True,"reconciled":False,"reason":"artifact_hash_missing","item":self._with_execution(job)}
+        reader=getattr(self.executor.woo,"get_product_fresh",None) or self.executor.woo.get_product
+        product=reader(int(job["woo_product_id"]));metadata=version_metadata(product)
+        expected=normalize_version(job["source_version"])
+        if metadata["status"]!="single" or normalize_version(metadata.get("value"))!=expected:
+            return {"ok":True,"reconciled":False,"reason":"version_mismatch","expected":expected,"observed":metadata.get("value") if metadata["status"]=="single" else metadata["status"],"item":self._with_execution(job)}
+        prepare=getattr(self.executor.woo,"prepare_job",None)
+        if callable(prepare):prepare(job)
+        if not self.executor.installer.validate(job,artifact_sha):
+            return {"ok":True,"reconciled":False,"reason":"artifact_hash_mismatch","expected_sha256":artifact_sha,"item":self._with_execution(job)}
+        message=f"Estado reconciliado: versao alvo {expected} e ZIP SHA-256 {artifact_sha[:12]}... confirmados."
+        item=self.repository.reconcile_success(job_id,message)
+        return {"ok":True,"reconciled":True,"reason":"target_confirmed","item":self._with_execution(item)}
+
+    def reconcile_errors(self) -> dict[str, Any]:
+        first=self.repository.list(group="error",page=1,page_size=100,sort_by="date",sort_order="desc")
+        jobs=list(first["items"])
+        for page in range(2,first["pages"]+1):jobs.extend(self.repository.list(group="error",page=page,page_size=100,sort_by="date",sort_order="desc")["items"])
+        results=[]
+        for job in jobs:
+            try:results.append({"job_id":job["job_id"],**self.reconcile_job(job["job_id"])})
+            except Exception as error:results.append({"job_id":job["job_id"],"ok":False,"reconciled":False,"reason":"verification_failed","message":safe_message(error)})
+        return {"ok":all(item.get("ok") for item in results),"checked":len(results),"reconciled":sum(bool(item.get("reconciled")) for item in results),"results":results}
 
     def _plugintheme_environment(self) -> dict[str, Any]:
         account = get_source_account("plugintheme")
@@ -295,7 +367,10 @@ class UpdateService:
         validation["required_sources"] = sorted(required_sources)
         validation["source"] = self._source_summary(source_by_kind, required_sources)
         self.environment_validation = validation
-        return self.environment()
+        result=self.environment()
+        if validation.get("woocommerce",{}).get("ok") and validation.get("storage",{}).get("ok"):
+            result["reconciliation"]=self.reconcile_errors()
+        return result
 
     def renew_plugintheme(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         account = str((payload or {}).get("account_key") or get_source_account("plugintheme"))
@@ -309,7 +384,7 @@ class UpdateService:
         return result
 
     def selection(self, payload: dict[str, Any]) -> dict[str, Any]:
-        base = {"query": str(payload.get("query") or ""), "group": str(payload.get("group") or ""), "stage": str(payload.get("stage") or "")}
+        base = {"query": str(payload.get("query") or ""), "group": str(payload.get("group") or ""), "stage": str(payload.get("stage") or ""), "sort_by":str(payload.get("sort_by") or "date"),"sort_order":str(payload.get("sort_order") or "desc")}
         first = self.repository.list(**base, page=1, page_size=100)
         items = list(first["items"])
         for page in range(2, first["pages"] + 1):
