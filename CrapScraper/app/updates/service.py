@@ -22,6 +22,12 @@ from app.updates.source_auth import (
 )
 
 
+class UpdateExecutionBlocked(RuntimeError):
+    def __init__(self, blockers: list[dict[str, str]]):
+        self.blockers = blockers
+        super().__init__("; ".join(item["message"] for item in blockers))
+
+
 class UpdateService:
     def __init__(
         self,
@@ -65,7 +71,85 @@ class UpdateService:
             page=int(payload.get("page") or 1),
             page_size=int(payload.get("page_size") or 5),
         )
+        result["items"] = [self._with_execution(item) for item in result["items"]]
         return {"ok": True, **result, "batch": self.batch.state(), "database": str(self.repository.path)}
+
+    @staticmethod
+    def _source_label(kind: str) -> str:
+        return {"ultrapackv2": "UltraPackV2", "plugintheme": "PluginTheme"}.get(kind, kind or "desconhecida")
+
+    @staticmethod
+    def _source_summary(sources: dict[str, dict[str, Any]], required: set[str]) -> dict[str, Any]:
+        relevant = required or set(sources)
+        results = [sources[kind] for kind in sorted(relevant) if kind in sources]
+        missing = sorted(relevant - set(sources))
+        ok = bool(relevant) and not missing and all(bool(item.get("ok")) for item in results)
+        messages = [f"{item['source']}: {item.get('message') or 'sem diagnóstico'}" for item in results]
+        messages.extend(f"{kind}: validação não executada" for kind in missing)
+        failure = next((item for item in results if not item.get("ok")), None)
+        return {
+            "ok": ok,
+            "status": "validated" if ok else str((failure or {}).get("status") or "not_validated"),
+            "message": "; ".join(messages) or "Nenhuma fonte necessária foi validada.",
+        }
+
+    def _execution(self, job: dict[str, Any]) -> dict[str, Any]:
+        blockers: list[dict[str, str]] = []
+        state = str(job.get("state") or "")
+        stage = str(job.get("stage") or "")
+        action = "retry" if state == "error" else "execute" if state == "ready" else "none"
+
+        if state == "running":
+            blockers.append({"code": "job_running", "message": "Job já está em execução."})
+        elif state == "success":
+            blockers.append({"code": "job_completed", "message": "Atualização já concluída."})
+        elif state not in {"ready", "error"}:
+            blockers.append({"code": "job_state_invalid", "message": f"Estado {state or 'ausente'} não permite execução."})
+        elif state == "ready" and stage != "prepared":
+            blockers.append({"code": "job_not_prepared", "message": f"Job ainda não está preparado (etapa: {stage or 'ausente'})."})
+        elif state == "error" and (job.get("error") or {}).get("recoverable") is False:
+            blockers.append({"code": "job_not_recoverable", "message": "A falha exige intervenção antes de uma nova tentativa."})
+
+        if state not in {"ready", "error"} or blockers:
+            return {"allowed": False, "action": action, "blockers": blockers}
+
+        if int(job.get("woo_product_id") or 0) <= 0 or not job.get("source_url") or not job.get("source_version"):
+            blockers.append({"code": "job_incomplete", "message": "Job incompleto: produto, URL e versão são obrigatórios."})
+        if not self.executor.enabled:
+            blockers.append({"code": "execution_disabled", "message": "Execução desabilitada pelo gate de segurança."})
+        allowed_ids = self.executor.allowed_product_ids
+        if allowed_ids and int(job.get("woo_product_id") or 0) not in allowed_ids:
+            blockers.append({
+                "code": "product_not_allowed",
+                "message": f"Execução bloqueada pelo gate de segurança: produto WooCommerce #{job.get('woo_product_id')} não autorizado.",
+            })
+
+        validated = self.environment_validation
+        for key, code, label in (
+            ("woocommerce", "woocommerce", "WooCommerce"),
+            ("storage", "storage", "Armazenamento de destino"),
+        ):
+            result = validated.get(key)
+            if not result:
+                blockers.append({"code": f"{code}_not_validated", "message": f"{label} não validado. Execute Verificar pré-requisitos."})
+            elif not result.get("ok"):
+                detail = str(result.get("message") or "indisponível")
+                blockers.append({"code": f"{code}_unavailable", "message": f"{label} não pôde ser validado: {detail}"})
+
+        kind = str(job.get("source_kind") or "")
+        source = (validated.get("sources") or {}).get(kind)
+        source_label = self._source_label(kind)
+        if not source:
+            blockers.append({"code": "source_not_validated", "message": f"Fonte {source_label} não validada. Execute Verificar pré-requisitos."})
+        elif not source.get("ok"):
+            detail = str(source.get("message") or "autenticação indisponível")
+            blockers.append({"code": "source_unavailable", "message": f"Fonte {source_label} não autenticada: {detail}"})
+        return {"allowed": not blockers, "action": action, "blockers": blockers}
+
+    def _with_execution(self, job: dict[str, Any]) -> dict[str, Any]:
+        item = dict(job)
+        item["execution"] = self._execution(item)
+        return item
 
     def _plugintheme_environment(self) -> dict[str, Any]:
         account = get_source_account("plugintheme")
@@ -181,7 +265,8 @@ class UpdateService:
             source_results.append({"source": "plugintheme", "ok": authenticated, "status": "validated" if authenticated else plugin_result.get("status", "not_validated"), "message": "Sessão PluginTheme autenticada confirmada." if authenticated else plugin_result.get("message", "Sessão PluginTheme não validada.")})
 
         candidates = self.repository.list(group="prepared", page=1, page_size=100)["items"]
-        kinds = {str(item.get("source_kind") or "") for item in candidates if item.get("source_kind")}
+        candidate_kinds = {str(item.get("source_kind") or "") for item in candidates if item.get("source_kind")}
+        kinds = set(candidate_kinds)
         if self.credits is not None:
             kinds.discard("plugintheme")
         for kind in sorted(kinds):
@@ -204,8 +289,11 @@ class UpdateService:
                 set_source_state(kind, status)
                 source_results.append({"source": kind, "ok": False, "status": status, "message": message})
 
-        source_ok = all(item["ok"] for item in source_results)
-        validation["source"] = {"ok": source_ok, "status": "validated" if source_ok else next((item.get("status") for item in source_results if not item["ok"]), "invalid"), "message": "; ".join(f"{item['source']}: {item['message']}" for item in source_results)}
+        source_by_kind = {str(item["source"]): item for item in source_results}
+        required_sources = candidate_kinds or set(source_by_kind)
+        validation["sources"] = source_by_kind
+        validation["required_sources"] = sorted(required_sources)
+        validation["source"] = self._source_summary(source_by_kind, required_sources)
         self.environment_validation = validation
         return self.environment()
 
@@ -214,7 +302,10 @@ class UpdateService:
         clear_source_session("plugintheme", account_key=account)
         set_source_state("plugintheme", "not_validated", account)
         result = open_manual_session(account)
-        self.environment_validation["source"] = {"ok": False, "status": "not_validated", "message": "Renovação PluginTheme aberta; conclua o login e verifique novamente."}
+        sources = self.environment_validation.setdefault("sources", {})
+        sources["plugintheme"] = {"source": "plugintheme", "ok": False, "status": "not_validated", "message": "Renovação PluginTheme aberta; conclua o login e verifique novamente."}
+        required = set(self.environment_validation.get("required_sources") or sources)
+        self.environment_validation["source"] = self._source_summary(sources, required)
         return result
 
     def selection(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -223,10 +314,10 @@ class UpdateService:
         items = list(first["items"])
         for page in range(2, first["pages"] + 1):
             items.extend(self.repository.list(**base, page=page, page_size=100)["items"])
-        return {"ok": True, "items": items, "total": len(items)}
+        return {"ok": True, "items": [self._with_execution(item) for item in items], "total": len(items)}
 
     def job(self, job_id: str) -> dict[str, Any]:
-        return {"ok": True, "item": self.repository.get(job_id), "history": self.repository.history(job_id)}
+        return {"ok": True, "item": self._with_execution(self.repository.get(job_id)), "history": self.repository.history(job_id)}
 
     def _require_execution_environment(self) -> None:
         for key, label in (("woocommerce", "WooCommerce"), ("storage", "armazenamento")):
@@ -235,17 +326,37 @@ class UpdateService:
                 detail = safe_message(RuntimeError(str(result.get("message") or "não validado")))
                 raise RuntimeError(f"Pré-requisito {label} indisponível: {detail}")
 
+    def _require_job_execution(self, job_id: str) -> dict[str, Any]:
+        job = self.repository.get(job_id)
+        execution = self._execution(job)
+        if not execution["allowed"]:
+            raise UpdateExecutionBlocked(execution["blockers"])
+        return job
+
     def execute(self, job_id: str) -> dict[str, Any]:
         self._require_execution_environment()
+        self._require_job_execution(job_id)
         return self.executor.execute(job_id)
 
     def retry(self, job_id: str) -> dict[str, Any]:
         self._require_execution_environment()
+        self._require_job_execution(job_id)
         return self.executor.execute(job_id)
 
     def batch_start(self, job_ids: list[str] | None = None) -> dict[str, Any]:
         self._require_execution_environment()
         ids = job_ids or [item["job_id"] for item in self.repository.list(group="prepared", page_size=100)["items"]]
+        if not ids:
+            raise ValueError("Nenhum job preparado foi selecionado para execução.")
+        blocked: list[dict[str, str]] = []
+        for job_id in dict.fromkeys(ids):
+            job = self.repository.get(job_id)
+            execution = self._execution(job)
+            if not execution["allowed"]:
+                for item in execution["blockers"]:
+                    blocked.append({**item, "message": f"{job['product_name']}: {item['message']}"})
+        if blocked:
+            raise UpdateExecutionBlocked(blocked)
         return {"ok": True, "batch": self.batch.start(ids)}
 
     def batch_control(self, action: str) -> dict[str, Any]:
