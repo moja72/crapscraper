@@ -77,11 +77,17 @@ function updateCount(){
 }
 
 async function syncRows(){
-  const data=await get("/api/catalogs?page_size=100");
-  rowsById=new Map(pluginTemaRows(data.rows).map(row=>[String(row.id),row]));
+  const first=await get("/api/catalogs?page=1&page_size=100");
+  const rows=[...(first.rows||[])];
+  const totalPages=Math.max(1,Number(first.pagination?.total_pages||1));
+  for(let page=2;page<=totalPages;page++){
+    const data=await get(`/api/catalogs?page=${page}&page_size=100`);
+    rows.push(...(data.rows||[]));
+  }
+  rowsById=new Map(pluginTemaRows(rows).map(row=>[String(row.id),row]));
   ensureManagementUi();
   patchAll();
-  return data;
+  return {...first,rows};
 }
 
 function catalogIdFromCard(card){
