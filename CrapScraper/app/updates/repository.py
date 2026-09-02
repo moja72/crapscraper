@@ -123,7 +123,11 @@ class UpdateRepository:
                 item_id = str(item.get("comparison_item_id") or "").strip()
                 if not item_id: continue
                 job_id = self._job_id(item_id)
-                kind = source_kind(item); provider=str(item.get("source_provider_name") or ("PluginTheme" if kind=="plugintheme" else "UltraPackV2"))
+                try:
+                    kind = source_kind(item)
+                except ValueError:
+                    continue
+                provider = str(item.get("source_provider_name") or ("PluginTheme" if kind == "plugintheme" else "UltraPackV2"))
                 existing = db.execute("SELECT * FROM update_jobs WHERE comparison_item_id=?", (item_id,)).fetchone()
                 if existing:
                     # A mesma decisão é idempotente. Uma nova versão aprovada,

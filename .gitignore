@@ -64,3 +64,4 @@ data/**
 
 # Backups locais e código legado
 backups/
+/CrapScraper/.runtime/
