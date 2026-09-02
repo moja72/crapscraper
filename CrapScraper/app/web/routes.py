@@ -67,6 +67,8 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
 def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     if path == "/api/collection/context": return services.collection.set_context(payload)
     if path == "/api/catalogs/generate": return services.catalogs.generate_plugintema(payload)
+    if path == "/api/catalogs/name": return services.catalogs.set_name(payload)
+    if path == "/api/catalogs/delete": return services.catalogs.delete(payload)
     if path == "/api/collection/runs/create": return services.collection.create_run(payload)
     if path == "/api/collection/runs/remove": return services.collection.remove_run(payload)
     if path == "/api/collection/queue": return services.collection.save_queue(payload)

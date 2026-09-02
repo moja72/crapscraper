@@ -15,8 +15,9 @@ class ComparisonService:
     def __init__(self,data_dir:Path): self.repository=ComparisonRepository(data_dir);self.lock=threading.RLock();self.source_id="";self.site_id="";self.revision=0;self.last_run={};self._signature=None
     def catalogs(self)->dict[str,Any]:
         catalogs=self.repository.catalogs();sources=[x for x in catalogs if x["role"]=="source"];sites=[x for x in catalogs if x["role"]=="site"]
-        if not self.source_id and sources:self.source_id=sources[0]["id"]
-        if not self.site_id and sites:self.site_id=sites[0]["id"]
+        source_ids={x["id"] for x in sources};site_ids={x["id"] for x in sites}
+        if self.source_id not in source_ids:self.source_id=sources[0]["id"] if sources else ""
+        if self.site_id not in site_ids:self.site_id=sites[0]["id"] if sites else ""
         return {"ok":True,"catalogs":catalogs,"source_id":self.source_id,"site_id":self.site_id,"statuses":STATUSES,"decisions":DECISIONS,"relationships":RELATIONSHIPS,"database":str(decisions.get_database_path())}
     def run(self,payload:dict[str,Any])->dict[str,Any]:
         with self.lock:
