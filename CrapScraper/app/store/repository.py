@@ -19,11 +19,22 @@ class StoreRepository:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS store_monitor(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'idle',stage TEXT NOT NULL DEFAULT 'idle',last_run_at TEXT NOT NULL DEFAULT '',next_check_at TEXT NOT NULL DEFAULT '',current_product TEXT NOT NULL DEFAULT '',woo_product_id INTEGER NOT NULL DEFAULT 0,current_version TEXT NOT NULL DEFAULT '',found_version TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '',request_state TEXT NOT NULL DEFAULT '',current_error TEXT,logs TEXT NOT NULL DEFAULT '[]',updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS store_monitor_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT NOT NULL DEFAULT '',result TEXT NOT NULL DEFAULT 'running',product TEXT NOT NULL DEFAULT '',woo_product_id INTEGER NOT NULL DEFAULT 0,current_version TEXT NOT NULL DEFAULT '',found_version TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '',action TEXT NOT NULL DEFAULT 'poll',error TEXT,logs TEXT NOT NULL DEFAULT '[]');
+            CREATE TABLE IF NOT EXISTS store_monitor_requests(request_id TEXT PRIMARY KEY,woo_product_id INTEGER NOT NULL,job_id TEXT NOT NULL DEFAULT '',attempt_id TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '',current_version TEXT NOT NULL DEFAULT '',target_version TEXT NOT NULL DEFAULT '',state TEXT NOT NULL,stage TEXT NOT NULL DEFAULT '',message TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS store_pricing_runs(run_id TEXT PRIMARY KEY,created_at TEXT NOT NULL,result TEXT NOT NULL,payload TEXT NOT NULL,summary TEXT NOT NULL);
             """)
             columns={row[1] for row in db.execute("PRAGMA table_info(store_monitor)")}
             if "request_state" not in columns:db.execute("ALTER TABLE store_monitor ADD COLUMN request_state TEXT NOT NULL DEFAULT ''")
             db.execute("INSERT OR IGNORE INTO store_monitor(id,updated_at) VALUES(1,?)",(utc_now(),))
+    def request(self,request_id):
+        with self.connection() as db:row=db.execute("SELECT * FROM store_monitor_requests WHERE request_id=?",(str(request_id),)).fetchone()
+        return dict(row) if row else None
+    def save_request(self,request_id,**values):
+        payload={"request_id":str(request_id),"woo_product_id":int(values.get("woo_product_id") or 0),"job_id":str(values.get("job_id") or ""),"attempt_id":str(values.get("attempt_id") or ""),"source":str(values.get("source") or ""),"current_version":str(values.get("current_version") or ""),"target_version":str(values.get("target_version") or ""),"state":str(values.get("state") or ""),"stage":str(values.get("stage") or ""),"message":str(values.get("message") or ""),"updated_at":utc_now()}
+        with self.connection() as db:
+            db.execute("""INSERT INTO store_monitor_requests(request_id,woo_product_id,job_id,attempt_id,source,current_version,target_version,state,stage,message,updated_at)
+                VALUES(:request_id,:woo_product_id,:job_id,:attempt_id,:source,:current_version,:target_version,:state,:stage,:message,:updated_at)
+                ON CONFLICT(request_id) DO UPDATE SET woo_product_id=excluded.woo_product_id,job_id=excluded.job_id,attempt_id=excluded.attempt_id,source=excluded.source,current_version=excluded.current_version,target_version=excluded.target_version,state=excluded.state,stage=excluded.stage,message=excluded.message,updated_at=excluded.updated_at""",payload)
+        return self.request(request_id)
     def monitor(self):
         with self.connection() as db:row=dict(db.execute("SELECT * FROM store_monitor WHERE id=1").fetchone())
         row["enabled"]=bool(row["enabled"]);row["logs"]=json.loads(row["logs"] or "[]");row["error"]=json.loads(row.pop("current_error") or "null");return row

@@ -18,7 +18,7 @@ def test_source_is_immutable_and_zero_ultrapack_calls(tmp_path):
 def test_already_current_skips_source_and_install(tmp_path):
     source=FakeSource();installer=FakeInstaller();repo,job,ex,_=build(tmp_path,source=source,woo=FakeWoo("2.0"),installer=installer)
     result=ex.execute(job["job_id"])
-    assert result["already_current"] and source.calls==[] and installer.installs==0
+    assert result["already_current"] and result["attempt_id"].endswith("-a1") and source.calls==[] and installer.installs==0
 
 def test_newer_destination_skips_stale_approval_without_downgrade(tmp_path):
     source=FakeSource();installer=FakeInstaller();repo,job,ex,_=build(tmp_path,source=source,woo=FakeWoo("9.6.4"),installer=installer)

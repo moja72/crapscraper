@@ -59,6 +59,77 @@ def test_new_approved_target_reopens_previous_success_without_duplicate(tmp_path
     assert reopened["source_version"]=="1.10"
     assert len(repo.history(job["job_id"]))==1
 
+
+def test_same_woo_with_older_snapshot_does_not_downgrade_target(tmp_path):
+    repo = UpdateRepository(tmp_path)
+    newest = approval("version-aware", kind="UltraPackV2", woo=92038)
+    newest["site_version"] = "4.2.2"
+    newest["source_version"] = "4.2.3"
+    repo.materialize([newest])
+    stale = dict(newest)
+    stale["site_version"] = "4.2.1"
+    stale["source_version"] = "4.2.2"
+    repo.materialize([stale])
+    job = repo.list(query="92038", page_size=5)["items"][0]
+    assert job["current_version"] == "4.2.1"
+    assert job["source_version"] == "4.2.3"
+
+
+def test_fresh_target_reopens_completed_job_and_preserves_attempt(tmp_path):
+    repo = UpdateRepository(tmp_path)
+    old = approval("elementor", kind="UltraPackV2", woo=92038)
+    old["site_version"] = "4.2.1"
+    old["source_version"] = "4.2.2"
+    repo.materialize([old])
+    job = repo.list(query="92038", page_size=5)["items"][0]
+    attempt = repo.begin_attempt(job["job_id"])
+    repo.finish(job["job_id"], attempt["attempt_id"], success=True, stage="completed")
+    refreshed = repo.refresh_objective(job["job_id"], current_version="4.2.2", source_version="4.2.3")
+    assert refreshed["state"] == "ready" and refreshed["source_version"] == "4.2.3"
+    assert refreshed["attempts"] == 1 and len(repo.history(job["job_id"])) == 1
+
+
+def test_resolve_manual_request_uses_live_source_not_old_completed_target(tmp_path, monkeypatch):
+    old = approval("elementor-live", kind="UltraPackV2", woo=92038)
+    old["site_version"] = "4.2.1"
+    old["source_version"] = "4.2.2"
+    monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [old])
+    repository = UpdateRepository(tmp_path)
+    source = FakeSource(kind="ultrapackv2")
+    source.confirm_version = lambda job: "4.2.3"
+    executor = UpdateExecutor(
+        repository, sources=SourceRegistry([source]), woo=FakeWoo(version="4.2.2"),
+        installer=FakeInstaller(), enabled=True, allowed_product_ids=frozenset(),
+    )
+    service = UpdateService(tmp_path, repository=repository, executor=executor)
+    job = repository.list(query="92038", page_size=5)["items"][0]
+    attempt = repository.begin_attempt(job["job_id"])
+    repository.finish(job["job_id"], attempt["attempt_id"], success=True, stage="completed")
+
+    resolution = service.resolve_manual_request(92038)
+
+    assert resolution["state"] == "update_available"
+    assert resolution["current_version"] == "4.2.2"
+    assert resolution["target_version"] == "4.2.3"
+    assert resolution["item"]["state"] == "ready"
+
+
+def test_resolve_manual_request_returns_noop_when_live_versions_match(tmp_path, monkeypatch):
+    current = approval("elementor-current", kind="UltraPackV2", woo=92038)
+    current["site_version"] = current["source_version"] = "4.2.3"
+    monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [current])
+    repository = UpdateRepository(tmp_path)
+    source = FakeSource(kind="ultrapackv2")
+    source.confirm_version = lambda job: "4.2.3"
+    executor = UpdateExecutor(
+        repository, sources=SourceRegistry([source]), woo=FakeWoo(version="4.2.3"),
+        installer=FakeInstaller(), enabled=True, allowed_product_ids=frozenset(),
+    )
+    service = UpdateService(tmp_path, repository=repository, executor=executor)
+    resolution = service.resolve_manual_request(92038)
+    assert resolution["state"] == "already_updated"
+    assert resolution["item"]["state"] == "ready"
+
 def test_legacy_completed_without_attempt_is_not_operational_success(tmp_path):
     repo=UpdateRepository(tmp_path)
     repo.materialize([approval("legacy")]); job=repo.list(page_size=5)["items"][0]

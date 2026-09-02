@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
 
 from app.comparison import decisions
 from app.plugintheme_profile import open_manual_session, profile_diagnostic
-from app.updates.adapters import WooCommerceConnectivityError, normalize_version, version_metadata
+from app.updates.adapters import WooCommerceConnectivityError, normalize_version, product_version, version_metadata
 from app.updates.batch import UpdateBatchService
 from app.updates.executor import UpdateExecutor
 from app.updates.logging import safe_message
@@ -76,6 +77,62 @@ class UpdateService:
             self.repository.materialize([approval])
             job_id = self.repository._job_id(str(approval["comparison_item_id"]))
             return {"ok": True, "item": self.repository.get(job_id)}
+
+    @staticmethod
+    def _version_key(value: Any) -> tuple[int, ...]:
+        parts = tuple(int(part) for part in re.findall(r"\d+", normalize_version(value)))
+        while len(parts) > 1 and parts[-1] == 0:
+            parts = parts[:-1]
+        return parts or (0,)
+
+    def resolve_manual_request(self, product_id: int) -> dict[str, Any]:
+        """Resolve `Verificar e atualizar` against fresh Woo and approved sources."""
+        product_id = int(product_id)
+        self.materialize()
+        listing = self.repository.list(query=str(product_id), page=1, page_size=100, sort_by="date", sort_order="desc")
+        candidates = [item for item in listing["items"] if int(item.get("woo_product_id") or 0) == product_id]
+        if not candidates:
+            return {"ok": True, "state": "no_match", "message": "Produto sem aprovação de atualização materializada."}
+
+        reader = getattr(self.executor.woo, "get_product_fresh", None) or self.executor.woo.get_product
+        product = reader(product_id)
+        current = normalize_version(product_version(product))
+        live: list[tuple[tuple[int, ...], dict[str, Any], str]] = []
+        failures: list[str] = []
+        for candidate in candidates:
+            try:
+                source = self.executor.sources.get(str(candidate.get("source_kind") or ""))
+                probe = getattr(source, "validate_access", None)
+                details = probe(candidate) if callable(probe) else None
+                found = normalize_version((details or {}).get("version") or source.confirm_version(candidate))
+                if not found:
+                    raise ValueError("a fonte não retornou versão")
+                live.append((self._version_key(found), candidate, found))
+            except Exception as error:
+                failures.append(f"{candidate.get('source_name') or candidate.get('source_kind')}: {safe_message(error)}")
+        if not live:
+            raise RuntimeError("Não foi possível consultar a versão atual da fonte aprovada. " + "; ".join(failures))
+
+        _key, selected, target = max(live, key=lambda item: item[0])
+        refreshed = self.repository.refresh_objective(
+            str(selected["job_id"]), current_version=current, source_version=target,
+        )
+        state = "update_available" if self._version_key(target) > self._version_key(current) else "already_updated"
+        return {
+            "ok": True,
+            "state": state,
+            "stage": "checked",
+            "message": (
+                f"Atualização encontrada: {current} → {target}."
+                if state == "update_available"
+                else f"Produto já estava atualizado para a versão {current}."
+            ),
+            "current_version": current,
+            "target_version": target,
+            "item": self._with_execution(refreshed),
+            "checked_sources": len(live),
+            "source_errors": failures,
+        }
 
     def list(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}

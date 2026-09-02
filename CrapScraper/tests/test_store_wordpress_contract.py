@@ -10,6 +10,9 @@ def test_status_contract_uses_request_id_subject():
     def transport(request):captured.append(request);return 200,b'{"ok":true}'
     WordPressManualQueueClient("https://example.test","x"*32,transport).report("abc-123",status="completed",message="OK");assert captured[0].full_url.endswith("/manual-updates/abc-123/status") and json.loads(captured[0].data)["status"]=="completed"
 
+def test_already_updated_is_a_terminal_protocol_state():
+    assert "already_updated" in WordPressManualQueueClient.terminal_states
+
 def test_history_post_and_confirmation_use_operation_hmac_subject():
     captured=[]
     event={"operation_id":"upd-1-a2","job_id":"upd-1","woo_product_id":89893,"source":"UltraPackV2","previous_version":"2.3.2.1","new_version":"2.3.4","status":"completed","completed_at":"2026-08-31T03:42:00+00:00"}

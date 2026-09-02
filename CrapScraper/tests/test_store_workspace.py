@@ -13,6 +13,9 @@ class Updates:
     def list(self, payload):
         return {"items": [{"job_id": "job-42", "woo_product_id": 42, "source_name": "UltraPackV2", "current_version": "1.0", "source_version": "2.0"}]}
 
+    def resolve_manual_request(self, product_id):
+        return {"state": "update_available", "message": "Atualização encontrada.", "item": self.list({})["items"][0]}
+
     def execute(self, job_id):
         self.executed.append(job_id)
         return {"ok": True}

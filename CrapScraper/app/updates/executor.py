@@ -87,7 +87,7 @@ class UpdateExecutor:
                 message=f"Destino já está na versão {original_version}; aprovação {target_version} não será aplicada para evitar downgrade." if version_key(original_version)>version_key(target_version) else f"Destino já está na versão {original_version}; nenhuma escrita necessária."
                 progress("already_current",message)
                 self.repository.finish(job_id,attempt_id,success=True,stage="already_current")
-                return {"ok":True,"job_id":job_id,"already_current":True}
+                return {"ok":True,"job_id":job_id,"attempt_id":attempt_id,"already_current":True}
             prepare_job=getattr(self.woo,"prepare_job",None)
             if prepare_job: prepare_job(job)
             if job.get("woocommerce_version_scope"):

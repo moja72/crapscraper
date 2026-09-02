@@ -96,6 +96,7 @@ class _HttpSource:
     def _get(self,url: str, **kwargs: Any) -> requests.Response:
         shared=get_source_session(self.kind)
         headers={} if shared is not None else _json_env(self.header_env)
+        headers={**headers,"Cache-Control":"no-cache, no-store, max-age=0","Pragma":"no-cache"}
         cookies={} if shared is not None else _json_env(self.cookie_env)
         try:r=self._session().get(url,headers=headers,cookies=cookies,timeout=self.transport.timeout,allow_redirects=True,**kwargs)
         except requests.RequestException as exc:raise SourceFailure(classify_source_error(self.display_name,requested_url=url,technical=str(exc))) from exc

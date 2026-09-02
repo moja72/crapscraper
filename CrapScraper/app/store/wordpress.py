@@ -8,7 +8,7 @@ class WordPressManualQueueClient:
     status_route="/crapscraper/v1/manual-updates/{request_id}/status"
     history_route="/crapscraper/v1/update-history"
     history_confirm_route="/crapscraper/v1/update-history/{operation_id}"
-    terminal_states=frozenset({"up_to_date","no_match","source_not_found","source_version_missing","relationship_required","comparison_stale","completed","error","blocked","rolled_back","rollback_required"})
+    terminal_states=frozenset({"already_updated","up_to_date","no_match","source_not_found","source_version_missing","relationship_required","comparison_stale","completed","error","blocked","rolled_back","rollback_required"})
     def __init__(self,base_url=None,secret=None,transport=None):self.base_url=(base_url or os.getenv("SCRAPER_WP_BASE_URL","")).rstrip("/");self.secret=secret or os.getenv("SCRAPER_WORDPRESS_MANUAL_SECRET","");self.transport=transport or self._transport
     @property
     def configured(self):return self.base_url.startswith("https://") and len(self.secret)>=24

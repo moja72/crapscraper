@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -38,6 +39,13 @@ def normalize_woo_product_id(value: Any) -> int:
     if not number.is_finite() or number != number.to_integral_value() or number < 0:
         raise ValueError(f"Woo ID inválido: {value!r}")
     return int(number)
+
+
+def version_key(value: Any) -> tuple[int, ...]:
+    parts = tuple(int(part) for part in re.findall(r"\d+", str(value or "")))
+    while len(parts) > 1 and parts[-1] == 0:
+        parts = parts[:-1]
+    return parts or (0,)
 
 
 class UpdateRepository:
@@ -122,8 +130,11 @@ class UpdateRepository:
                     # porém, é uma nova unidade operacional e não pode herdar
                     # success/already_current da versão anterior.
                     new_target = str(item.get("source_version") or "")
-                    if new_target and new_target != str(existing["source_version"] or "") and existing["public_state"] != "running":
+                    if (new_target and version_key(new_target) > version_key(existing["source_version"])
+                            and existing["public_state"] != "running"):
                         db.execute("UPDATE update_jobs SET source_version=?, current_version=?, source_kind=?, source_name=?, source_url=?, source_product_id=?, public_state='ready', stage='prepared', current_error=NULL, finished_at='', updated_at=? WHERE comparison_item_id=?", (new_target,str(item.get("site_version") or existing["current_version"] or ""),kind,provider,str(item.get("source_product_url") or item.get("source_official_url") or ""),str(item.get("source_product_id") or ""),utc_now(),item_id))
+                    elif str(item.get("site_version") or "").strip():
+                        db.execute("UPDATE update_jobs SET current_version=?, updated_at=? WHERE comparison_item_id=?", (str(item["site_version"]),utc_now(),item_id))
                     continue
                 position += 1; now = utc_now()
                 db.execute("""INSERT INTO update_jobs(job_id,comparison_item_id,woo_product_id,product_name,current_version,
@@ -134,6 +145,38 @@ class UpdateRepository:
                     str(item.get("source_product_url") or item.get("source_official_url") or ""),str(item.get("source_product_id") or ""),position,now,now))
                 created += 1
         return {"created": created, "total": self.count()}
+
+    def refresh_objective(self, job_id: str, *, current_version: str, source_version: str) -> dict[str, Any]:
+        """Refresh a manual check from live Woo/source data without changing its approved source."""
+        current = str(current_version or "").strip()
+        target = str(source_version or "").strip()
+        if not current or not target:
+            raise ValueError("Versões atual e da fonte são obrigatórias para atualizar o objetivo")
+        now = utc_now()
+        with self.connection() as db:
+            row = db.execute("SELECT * FROM update_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if not row:
+                raise KeyError(job_id)
+            if row["public_state"] == "running":
+                raise ValueError("Job já está em execução")
+            needs_update = version_key(target) > version_key(current)
+            target_advanced = version_key(target) > version_key(row["source_version"])
+            reopen = needs_update and (target_advanced or row["public_state"] == "success")
+            if reopen:
+                db.execute(
+                    "UPDATE update_jobs SET current_version=?,source_version=?,public_state='ready',"
+                    "stage='prepared',current_error=NULL,finished_at='',updated_at=? WHERE job_id=?",
+                    (current, target, now, job_id),
+                )
+            else:
+                # A fonte/URL aprovada permanece imutável. Uma leitura antiga nunca
+                # reduz o alvo vivo que já foi persistido por uma consulta posterior.
+                persisted_target = target if version_key(target) >= version_key(row["source_version"]) else str(row["source_version"])
+                db.execute(
+                    "UPDATE update_jobs SET current_version=?,source_version=?,updated_at=? WHERE job_id=?",
+                    (current, persisted_target, now, job_id),
+                )
+        return self.get(job_id)
 
     def migrate_legacy_runtime(self, path: Path) -> dict[str,int]:
         """Importa uma vez, sem alterar o JSON legado; a chave estável evita duplicação."""

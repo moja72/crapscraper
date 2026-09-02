@@ -8,90 +8,108 @@
   const source = root.querySelector('[data-cs-source]');
   const version = root.querySelector('[data-cs-version]');
   const productId = root.dataset.productId;
-  const dragHandle = root.querySelector('[data-cs-drag-handle]');
-  const minimize = root.querySelector('[data-cs-minimize]');
+  const toolbarTrigger = document.querySelector('#wp-admin-bar-crapscraper-manual-toolbar > .ab-item');
+  const closeButton = root.querySelector('[data-cs-close]');
+  const updateToggle = root.querySelector('.cs-accordion > [data-cs-accordion-toggle]');
+  const updatePanel = root.querySelector('.cs-accordion > [data-cs-accordion-panel]');
   const historyToggle = root.querySelector('[data-cs-history-toggle]');
   const historyPanel = root.querySelector('[data-cs-history-panel]');
-  const storageKey = 'crapscraper-manual-panel-v1';
-  let panelState = { x: null, y: null, minimized: false };
+  const monitor = root.querySelector('[data-cs-monitor]');
+  const monitorLabel = root.querySelector('[data-cs-monitor-label]');
   let historyLoaded = false;
 
-  const persistPanel = () => {
-    try { window.localStorage.setItem(storageKey, JSON.stringify(panelState)); } catch (_error) {}
-  };
-  const clampPanel = (x, y) => {
-    const margin = 8;
-    const maxX = Math.max(margin, window.innerWidth - root.offsetWidth - margin);
-    const maxY = Math.max(margin, window.innerHeight - root.offsetHeight - margin);
-    return { x: Math.min(Math.max(margin, x), maxX), y: Math.min(Math.max(margin, y), maxY) };
-  };
-  const placePanel = (x, y, save = true) => {
-    if (root.dataset.context !== 'frontend' || window.innerWidth <= 782) return;
-    const next = clampPanel(Number(x) || 8, Number(y) || 8);
-    root.style.left = `${next.x}px`;
-    root.style.top = `${next.y}px`;
-    root.style.right = 'auto';
-    panelState.x = next.x; panelState.y = next.y;
-    if (save) persistPanel();
-  };
-  const setMinimized = (value, save = true) => {
-    panelState.minimized = Boolean(value);
-    root.classList.toggle('is-minimized', panelState.minimized);
-    if (minimize) {
-      minimize.setAttribute('aria-expanded', String(!panelState.minimized));
-      minimize.setAttribute('aria-label', panelState.minimized ? 'Expandir painel' : 'Minimizar painel');
-      minimize.title = panelState.minimized ? 'Expandir painel' : 'Minimizar painel';
-      minimize.querySelector('span').textContent = panelState.minimized ? '⬇️' : '−';
-    }
-    if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x, panelState.y, false);
-    if (save) persistPanel();
-  };
-
-  if (root.dataset.context === 'frontend') {
-    try { panelState = { ...panelState, ...JSON.parse(window.localStorage.getItem(storageKey) || '{}') }; } catch (_error) {}
-    setMinimized(panelState.minimized, false);
-    if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x, panelState.y, false);
-    minimize?.addEventListener('click', () => setMinimized(!panelState.minimized));
-    dragHandle?.addEventListener('pointerdown', (event) => {
-      if (event.target.closest('[data-cs-minimize]') || window.innerWidth <= 782) return;
-      const rect = root.getBoundingClientRect();
-      const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      root.classList.add('is-dragging');
-      dragHandle.setPointerCapture?.(event.pointerId);
-      const move = (nextEvent) => { nextEvent.preventDefault(); placePanel(nextEvent.clientX - offsetX, nextEvent.clientY - offsetY, false); };
-      const finish = () => {
-        root.classList.remove('is-dragging');
-        dragHandle.removeEventListener('pointermove', move);
-        dragHandle.removeEventListener('pointerup', finish);
-        dragHandle.removeEventListener('pointercancel', finish);
-        persistPanel();
-      };
-      dragHandle.addEventListener('pointermove', move);
-      dragHandle.addEventListener('pointerup', finish);
-      dragHandle.addEventListener('pointercancel', finish);
-    });
-    dragHandle?.addEventListener('keydown', (event) => {
-      const deltas = {ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};
-      if (event.key === 'Home') { event.preventDefault(); root.style.left=''; root.style.top=''; root.style.right=''; panelState.x=null; panelState.y=null; persistPanel(); return; }
-      if (!deltas[event.key]) return;
+  if (root.dataset.context === 'toolbar' && toolbarTrigger) {
+    const positionToolbar = () => {
+      if (root.hidden) return;
+      const triggerRect = toolbarTrigger.getBoundingClientRect();
+      const margin = 8;
+      const gap = 7;
+      const panelWidth = root.offsetWidth;
+      const top = Math.round(triggerRect.bottom + gap);
+      const left = Math.round(Math.min(
+        window.innerWidth - panelWidth - margin,
+        Math.max(margin, triggerRect.right - panelWidth)
+      ));
+      root.style.top = `${top}px`;
+      root.style.left = `${left}px`;
+      root.style.right = 'auto';
+      root.style.maxHeight = `${Math.max(180, window.innerHeight - top - margin)}px`;
+      root.style.setProperty('--cs-anchor-x', `${Math.round(Math.min(panelWidth - 18, Math.max(18, triggerRect.left + (triggerRect.width / 2) - left)))}px`);
+    };
+    const setToolbarOpen = (open, restoreFocus = false) => {
+      if (open) root.style.removeProperty('display');
+      else root.style.display = 'none';
+      root.hidden = !open;
+      toolbarTrigger.setAttribute('aria-expanded', String(open));
+      toolbarTrigger.parentElement?.classList.toggle('is-active', open);
+      if (open) {
+        positionToolbar();
+        loadMonitor();
+        closeButton?.focus();
+      }
+      else if (restoreFocus) toolbarTrigger.focus();
+    };
+    toolbarTrigger.setAttribute('aria-haspopup', 'dialog');
+    toolbarTrigger.setAttribute('aria-controls', root.id);
+    toolbarTrigger.setAttribute('aria-expanded', 'false');
+    toolbarTrigger.addEventListener('click', event => {
       event.preventDefault();
-      const rect=root.getBoundingClientRect(),delta=deltas[event.key];
-      placePanel(rect.left+delta[0],rect.top+delta[1]);
+      event.stopPropagation();
+      setToolbarOpen(root.hidden);
     });
-    window.addEventListener('resize', () => {
-      if (window.innerWidth <= 782) { root.style.left=''; root.style.top=''; root.style.right=''; return; }
-      if (panelState.x !== null && panelState.y !== null) placePanel(panelState.x,panelState.y,false);
+    closeButton?.addEventListener('click', () => setToolbarOpen(false, true));
+    document.addEventListener('click', event => {
+      if (!root.hidden && !root.contains(event.target) && !toolbarTrigger.contains(event.target)) setToolbarOpen(false);
     });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !root.hidden) setToolbarOpen(false, true);
+    });
+    window.addEventListener('resize', positionToolbar);
+    window.addEventListener('scroll', positionToolbar, {passive:true});
   }
+
+  updateToggle?.addEventListener('click', () => {
+    const expanded = updateToggle.getAttribute('aria-expanded') !== 'true';
+    updateToggle.setAttribute('aria-expanded', String(expanded));
+    updatePanel.hidden = !expanded;
+  });
 
   const request = async (action, values = {}) => {
     const body = new URLSearchParams({ action, nonce: CrapScraperManual.nonce, product_id: productId, ...values });
-    const response = await fetch(CrapScraperManual.ajaxUrl, { method: 'POST', credentials: 'same-origin', body });
-    const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(result?.data?.message || 'Falha na atualização.');
-    return result.data;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(CrapScraperManual.ajaxUrl, {
+        method: 'POST', credentials: 'same-origin', body, signal: controller.signal,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result?.data?.message || 'Falha na atualização.');
+      return result.data;
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('O servidor demorou demais para responder. Tente novamente.');
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
   };
-  const historyLabels = {pending:'Aguardando',claimed:'Recebido pelo PC',locating:'Localizando',comparing:'Comparando',update_found:'Atualização encontrada',preparing:'Preparando',processing:'Processando',executing:'Executando',validating:'Validando',up_to_date:'Já atualizado',no_match:'Sem correspondência',source_not_found:'Fonte não encontrada',source_version_missing:'Versão ausente',relationship_required:'Vínculo necessário',comparison_stale:'Comparação desatualizada',completed:'Concluído',error:'Erro',blocked:'Bloqueado',rolled_back:'Revertido',rollback_required:'Rollback necessário'};
+  const setMonitor = data => {
+    if (!monitor) return;
+    const state = ['online', 'offline'].includes(data?.state) ? data.state : 'checking';
+    monitor.classList.remove('is-online', 'is-offline', 'is-checking');
+    monitor.classList.add(`is-${state}`);
+    const label = data?.label || (state === 'checking' ? 'Verificando' : 'Offline');
+    if (monitorLabel) monitorLabel.textContent = label;
+    monitor.title = data?.title || 'Não foi possível consultar o monitor da loja';
+  };
+  const loadMonitor = async () => {
+    if (!monitor || document.hidden) return;
+    try {
+      setMonitor(await request('crapscraper_manual_monitor'));
+    } catch (_error) {
+      setMonitor({state:'checking', label:'Indisponível', title:'Não foi possível consultar o monitor da loja'});
+    }
+  };
+  const historyLabels = {pending:'Aguardando',claimed:'Recebido pelo PC',checking:'Verificando',locating:'Localizando',comparing:'Comparando',update_available:'Atualização encontrada',update_found:'Atualização encontrada',preparing:'Preparando',processing:'Processando',executing:'Executando',validating:'Validando',already_updated:'Já atualizado',up_to_date:'Já atualizado',no_match:'Sem correspondência',source_not_found:'Fonte não encontrada',source_version_missing:'Versão ausente',relationship_required:'Vínculo necessário',comparison_stale:'Comparação desatualizada',completed:'Concluído',error:'Erro',blocked:'Bloqueado',rolled_back:'Revertido',rollback_required:'Rollback necessário'};
   const loadHistory = async (force = false) => {
     if (!historyPanel || (historyLoaded && !force)) return;
     historyPanel.classList.remove('is-error');
@@ -143,16 +161,18 @@
   };
   const poll = async (requestId) => {
     const data = await request('crapscraper_manual_status', { request_id: requestId });
-    const terminal = ['up_to_date','no_match','source_not_found','source_version_missing','relationship_required','comparison_stale','completed','error','blocked','rolled_back','rollback_required'].includes(data.status);
-    const labels = { pending:'Aguardando o CrapScraper', claimed:'Pedido recebido pelo PC', locating:'Localizando versão', comparing:'Comparando versões', update_found:'Atualização encontrada', preparing:'Preparando atualização', processing:'Executando atualização', executing:'Executando atualização', validating:'Validando atualização', up_to_date:'Produto já está atualizado', no_match:'Não foi possível localizar correspondência', source_not_found:'Fonte não encontrada', source_version_missing:'Versão da fonte não identificada', relationship_required:'Vínculo seguro necessário', comparison_stale:'Comparação desatualizada', completed:'Atualização concluída', rolled_back:'Falha revertida com segurança', error:'Erro' };
-    const versions = data.previous_version || data.new_version ? ` · ${data.previous_version || '?'} → ${data.new_version || '?'}` : '';
-    const tone = !terminal ? 'loading' : (['up_to_date','no_match','source_not_found','source_version_missing','comparison_stale'].includes(data.status) ? 'empty' : (data.status === 'completed' ? 'success' : 'error'));
+    const terminal = ['already_updated','up_to_date','no_match','source_not_found','source_version_missing','relationship_required','comparison_stale','completed','error','blocked','rolled_back','rollback_required'].includes(data.status);
+    const labels = { pending:'Aguardando o CrapScraper', claimed:'Pedido recebido pelo PC', checking:'Verificando versão atual', locating:'Localizando versão', comparing:'Comparando versões', update_available:'Atualização encontrada', update_found:'Atualização encontrada', preparing:'Preparando atualização', processing:'Executando atualização', executing:'Executando atualização', validating:'Validando atualização', already_updated:'Produto já está atualizado', up_to_date:'Produto já está atualizado', no_match:'Não foi possível localizar correspondência', source_not_found:'Fonte não encontrada', source_version_missing:'Versão da fonte não identificada', relationship_required:'Vínculo seguro necessário', comparison_stale:'Comparação desatualizada', completed:'Atualização concluída', rolled_back:'Falha revertida com segurança', error:'Erro' };
+    const currentVersion = data.current_version || data.previous_version || '';
+    const targetVersion = data.target_version || data.new_version || '';
+    const versions = currentVersion || targetVersion ? ` · ${currentVersion || '?'} → ${targetVersion || '?'}` : '';
+    const tone = !terminal ? 'loading' : (['already_updated','up_to_date','no_match','source_not_found','source_version_missing','comparison_stale'].includes(data.status) ? 'empty' : (data.status === 'completed' ? 'success' : 'error'));
     const label = labels[data.status] || data.message || 'Processando';
     show(`${label}${data.source ? ` · ${data.source}` : ''}${versions}`, tone, {
       stage: label,
       source: data.source || 'Ainda não definida',
-      version: data.previous_version || data.new_version
-        ? `${data.previous_version || '?'} → ${data.new_version || '?'}` : 'Aguardando consulta',
+      version: currentVersion || targetVersion
+        ? `${currentVersion || '?'} → ${targetVersion || '?'}` : 'Aguardando consulta',
     });
     if (!terminal) window.setTimeout(() => poll(requestId).catch(fail), 3000);
     else {
