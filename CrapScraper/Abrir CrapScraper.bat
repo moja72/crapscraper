@@ -1,11 +1,13 @@
 @echo off
 setlocal EnableExtensions
-cd /d "%~dp0"
+
+for %%I in ("%~dp0.") do set "CRAPSCRAPER_ROOT=%%~fI"
+cd /d "%CRAPSCRAPER_ROOT%"
 
 set "CRAPSCRAPER_PORT=%SCRAPER_PORT%"
 if not defined CRAPSCRAPER_PORT set "CRAPSCRAPER_PORT=8766"
 set "CRAPSCRAPER_URL=http://127.0.0.1:%CRAPSCRAPER_PORT%"
-set "CRAPSCRAPER_RUNTIME=%~dp0.runtime"
+set "CRAPSCRAPER_RUNTIME=%CRAPSCRAPER_ROOT%\.runtime"
 set "CRAPSCRAPER_PID=%CRAPSCRAPER_RUNTIME%\server.pid"
 
 rem O launcher local habilita as escritas da Loja por padrao.
@@ -42,7 +44,7 @@ if errorlevel 1 (
 
 if not exist "%CRAPSCRAPER_RUNTIME%" mkdir "%CRAPSCRAPER_RUNTIME%" >nul 2>nul
 echo [CrapScraper] Iniciando servidor em %CRAPSCRAPER_URL% ...
-python.exe -c "import os,subprocess,sys; os.makedirs('.runtime',exist_ok=True); out=open(r'.runtime\server.stdout.log','ab'); err=open(r'.runtime\server.stderr.log','ab'); process=subprocess.Popen([sys.executable,'main.py'],cwd=os.getcwd(),stdin=subprocess.DEVNULL,stdout=out,stderr=err,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.DETACHED_PROCESS); print(process.pid)" > "%CRAPSCRAPER_PID%"
+python.exe -c "import os,subprocess,sys; root=r'%CRAPSCRAPER_ROOT%'; runtime=r'%CRAPSCRAPER_RUNTIME%'; os.makedirs(runtime,exist_ok=True); out=open(os.path.join(runtime,'server.stdout.log'),'ab'); err=open(os.path.join(runtime,'server.stderr.log'),'ab'); process=subprocess.Popen([sys.executable,os.path.join(root,'main.py')],cwd=root,stdin=subprocess.DEVNULL,stdout=out,stderr=err,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.DETACHED_PROCESS); print(process.pid)" > "%CRAPSCRAPER_PID%"
 if errorlevel 1 (
   echo [CrapScraper] Nao foi possivel iniciar o servidor.
   pause
