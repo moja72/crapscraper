@@ -16,6 +16,34 @@ class CollectionService:
         self.repository = repository or CollectionRepository()
         self.engine = engine or CollectionEngine()
 
+    @staticmethod
+    def _normalize_context_dependencies(context: dict[str, str]) -> dict[str, str]:
+        """Keep site, item type and account as one valid registry combination."""
+        normalized = dict(context)
+        registry = registry_payload()
+        site_key = str(normalized.get("site_key") or "")
+        site = next((item for item in registry.get("sites", []) if str(item.get("key")) == site_key), None)
+        if not site:
+            return normalized
+
+        allowed_type_keys = [str(key) for key in site.get("item_types", [])]
+        item_type_key = str(normalized.get("item_type_key") or "")
+        if item_type_key not in allowed_type_keys:
+            item_type_key = allowed_type_keys[0] if allowed_type_keys else ""
+        normalized["item_type_key"] = item_type_key
+
+        allowed_accounts = [
+            item for item in registry.get("accounts", [])
+            if site_key in [str(value) for value in item.get("sites", [])]
+            and item_type_key in [str(value) for value in item.get("item_types", [])]
+        ]
+        account_key = str(normalized.get("account_key") or "")
+        allowed_account_keys = [str(item.get("key") or "") for item in allowed_accounts]
+        if account_key not in allowed_account_keys:
+            account_key = allowed_account_keys[0] if allowed_account_keys else ""
+        normalized["account_key"] = account_key
+        return normalized
+
     def context_payload(self, payload: dict[str,Any]|None=None) -> dict[str, Any]:
         run_id=str((payload or {}).get("run_id") or "") or None
         context = self.engine.context_for(run_id) if hasattr(self.engine,"context_for") else self.engine.context
@@ -24,6 +52,7 @@ class CollectionService:
 
     def set_context(self, payload: dict[str, Any]) -> dict[str, Any]:
         context = {key: str(payload.get(key, "")) for key in ("site_key", "item_type_key", "account_key", "slot_name")}
+        context = self._normalize_context_dependencies(context)
         if hasattr(self.engine,"runs"):self.engine.set_context(context,str(payload.get("run_id") or "") or None)
         else:self.engine.set_context(context)
         return self.context_payload({"run_id":payload.get("run_id")})
