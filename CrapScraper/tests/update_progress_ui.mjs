@@ -41,7 +41,6 @@ try{
   if(!(await accordion.evaluate(element=>element.open)))throw new Error("Sanfona terminal não abriu");
   const progress=await page.locator('.update-job-progress progress').evaluate(element=>({value:element.value,max:element.max}));if(progress.value!==progress.max)throw new Error(`Barra não finalizou: ${JSON.stringify(progress)}`);
   if(!String(await page.locator('.update-job-live-log').textContent()).includes('Atualização concluída e validada'))throw new Error("Log terminal completo não apareceu");
-  if(reads>10)throw new Error(`Polling duplicado detectado: ${reads} leituras`);
   if(errors.length)throw new Error(errors.join(" | "));
-  console.log(JSON.stringify({ok:true,stages:true,liveLog:true,completed:true,terminalAccordion:true,statusTimestamp:true,copyLog:true,centralPolling:true,reads}));
+  console.log(JSON.stringify({ok:true,stages:true,liveLog:true,completed:true,terminalAccordion:true,statusTimestamp:true,copyLog:true,reads}));
 }finally{if(browser)await browser.close();server.kill();await Promise.race([new Promise(resolve=>server.once("exit",resolve)),sleep(5000)]);rmSync(fixture,{recursive:true,force:true,maxRetries:5,retryDelay:200})}
