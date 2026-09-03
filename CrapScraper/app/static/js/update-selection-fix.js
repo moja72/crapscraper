@@ -1,4 +1,5 @@
 import {post} from "./api.js";
+import "./update-terminal-ui.js";
 
 const $ = selector => document.querySelector(selector);
 const selected = new Set();
