@@ -15,6 +15,7 @@ from app.updates.history import UpdateHistorySynchronizer
 from app.updates.models import UpdateError
 from app.updates.repository import UpdateRepository
 from app.updates.sources import SourceFailure, SourceRegistry
+from app.updates.target_preflight import TargetZipError, check_target, translate_target_exception
 
 
 def env_enabled(name: str) -> bool: return os.getenv(name,"").strip().lower() in {"1","true","yes","on"}
@@ -89,7 +90,12 @@ class UpdateExecutor:
                 self.repository.finish(job_id,attempt_id,success=True,stage="already_current")
                 return {"ok":True,"job_id":job_id,"attempt_id":attempt_id,"already_current":True}
             prepare_job=getattr(self.woo,"prepare_job",None)
-            if prepare_job: prepare_job(job)
+            if prepare_job:
+                prepare_job(job)
+                progress("validating",f"Validando ZIP atual de destino antes do download: {job.get('target_filename') or 'não resolvido'}.")
+                target_check=check_target(self.installer,job)
+                if target_check.get("checked"):
+                    progress("validating",f"ZIP atual de destino confirmado: {target_check.get('target_filename')}.")
             if job.get("woocommerce_version_scope"):
                 progress("validating","Escopo pt_versao: escrita somente no produto pai; variações inspecionadas e preservadas: "+json.dumps(job["woocommerce_version_scope"],ensure_ascii=False,sort_keys=True))
             source=self.sources.get(job["source_kind"])
@@ -114,7 +120,12 @@ class UpdateExecutor:
             except ImportError:
                 pass
             progress("staging",f"Download concluído e ZIP validado: {artifact.path.name} ({artifact.size} bytes, SHA-256 {artifact.sha256[:12]}…).")
-            backup=self.installer.backup(job,attempt_dir)
+            try:
+                backup=self.installer.backup(job,attempt_dir)
+            except (FileNotFoundError,OSError) as backup_error:
+                translated=translate_target_exception(self.installer,job,backup_error)
+                if translated is not None:raise translated from backup_error
+                raise
             if isinstance(backup,(str,Path)) and Path(backup).is_file():backup_sha=hashlib.sha256(Path(backup).read_bytes()).hexdigest()
             if not backup_sha:raise RuntimeError("Backup não forneceu SHA-256 verificável")
             progress("backing_up",f"Arquivo atual preservado em backup: {getattr(backup,'name','backup')} (SHA-256 {backup_sha[:12]}…).")
@@ -146,7 +157,11 @@ class UpdateExecutor:
                 self.repository.append_log(job_id,attempt_id,f"Histórico WordPress não confirmado; nova sincronização poderá reutilizar operation_id={attempt_id}.")
             return {"ok":True,"job_id":job_id,"attempt_id":attempt_id,"sha256":artifact_sha,"history_confirmed":bool(sync.get("confirmed"))}
         except Exception as exc:
-            if isinstance(exc,SourceFailure): error=exc.error
+            if isinstance(exc,TargetZipError):
+                stage="staging"
+                details={"stage":stage,"product":job.get("product_name"),"woo_product_id":job.get("woo_product_id"),**exc.details}
+                error=UpdateError(message=str(exc),technical_message=json.dumps(details,ensure_ascii=False,sort_keys=True),code=exc.code,stage=stage,source="Armazenamento",diagnosis=exc.diagnosis,recoverable=True,details=details)
+            elif isinstance(exc,SourceFailure): error=exc.error
             elif isinstance(exc,VersionPersistenceError):
                 observed=(exc.evidence.get("failure") or exc.evidence).get("observed_pt_versao")
                 details={"stage":stage,"product":job.get("product_name"),"woo_product_id":job.get("woo_product_id"),"source":job.get("source_name",job.get("source_kind","")),"attempt_id":attempt_id,"previous_pt_versao":original_version,"requested_pt_versao":normalize_version(job.get("source_version")),"observed_pt_versao":observed,"version_evidence":exc.evidence}

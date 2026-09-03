@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import requests
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from app.updates.logging import safe_text, safe_url
 
@@ -237,8 +237,14 @@ class WooCommerceGateway:
         raise VersionPersistenceError(f"Validação final do pt_versao divergiu. Esperado: {expected}. Encontrado: {observed}.",evidence)
     def prepare_job(self, job: dict[str,Any]) -> None:
         variations=self._request("GET",f"/products/{int(job['woo_product_id'])}/variations",params={"per_page":100})
-        files={os.path.basename(urlparse(str(download.get("file") or "")).path) for variation in variations for download in (variation.get("downloads") or []) if urlparse(str(download.get("file") or "")).path.lower().endswith(".zip")}
-        files.discard("")
+        files=set()
+        for variation in variations:
+            for download in variation.get("downloads") or []:
+                raw=str(download.get("file") or "")
+                path=urlparse(raw).path
+                if not path.lower().endswith(".zip"):continue
+                name=os.path.basename(unquote(path).replace("\\","/"))
+                if name:files.add(name)
         if len(files)!=1: raise RuntimeError(f"WooCommerce deve apontar para exatamente um ZIP; encontrados: {sorted(files)}")
         job["target_filename"]=files.pop();job["woocommerce_version_scope"]={"write_target":"parent","parent_product_id":int(job["woo_product_id"]),"variations_read_only":[{"variation_id":int(variation.get("id") or 0),"parent_id":int(variation.get("parent_id") or 0),"pt_versao":version_metadata(variation)} for variation in variations]}
 
@@ -287,7 +293,7 @@ class SFTPInstaller:
     def _artifacts(self,job):
         name=os.path.basename(str(job["target_filename"]));job_id=str(job["job_id"])
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}",job_id):raise ValueError("job_id invalido para o helper")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.zip",name,re.I):raise ValueError("Nome ZIP invalido para o helper")
+        if not name or len(name)>204 or name in {".",".."} or "\x00" in name or "/" in name or "\\" in name or not name.lower().endswith(".zip"):raise ValueError("Nome ZIP invalido para o helper")
         prefix=f"{name}.crapscraper.{job_id}"
         return {"production":f"{self.root}/{name}","upload":f"{self.root}/{prefix}.upload","new":f"{self.root}/{prefix}.new","backup":f"{self.root}/{prefix}.bak"}
     def _helper(self,client,operation,job,*,old_sha="",new_sha=""):
