@@ -129,10 +129,12 @@ def test_sftp_artifact_names_accept_safe_spaces_and_parentheses():
     assert ".crapscraper.upd-safe_name.upload" in artifacts["upload"]
 
 
-def test_sftp_artifact_names_still_reject_path_traversal():
+def test_sftp_artifact_name_cannot_escape_configured_root():
     installer = SFTPInstaller()
-    with pytest.raises(ValueError):
-        installer._artifacts({"job_id": "upd-safe", "target_filename": "../evil.zip"})
+    installer.root = "/home/plugintema.com/downloads"
+    artifacts = installer._artifacts({"job_id": "upd-safe", "target_filename": "../evil.zip"})
+    assert artifacts["production"] == "/home/plugintema.com/downloads/evil.zip"
+    assert "/../" not in artifacts["production"]
 
 
 def test_sftp_enoent_becomes_structured_target_error():
