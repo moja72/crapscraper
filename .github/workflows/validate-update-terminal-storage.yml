@@ -9,7 +9,7 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       PYTHON: python
     defaults:
@@ -28,10 +28,12 @@ jobs:
       - name: Install Playwright
         run: npm install && npx playwright install chromium
       - name: Compile Python
-        run: python -m compileall -q app tests/test_update_storage_recovery.py tests/test_update_execution_preflight_and_live_version.py tests/test_runtime_performance_regressions.py tests/test_update_batch.py
+        run: python -m compileall -q app tests
       - name: Check JavaScript syntax
-        run: node --check app/static/js/update-terminal-ui.js && node --check app/static/js/update-selection-fix.js && node --check tests/update_progress_ui.mjs
-      - name: Run Python update regressions
-        run: python -m pytest -q tests/test_update_storage_recovery.py tests/test_update_execution_preflight_and_live_version.py tests/test_runtime_performance_regressions.py tests/test_update_batch.py
+        run: node --check app/static/js/update-terminal-ui.js && node --check app/static/js/update-selection-fix.js && node --check tests/update_progress_ui.mjs && node --check tests/update_execution_ui.mjs
+      - name: Run all update Python regressions
+        run: python -m pytest -q tests/test_update*.py tests/test_updates.py tests/test_ultrapack_update_session_recovery.py tests/test_runtime_performance_regressions.py
+      - name: Run update execution UI regression
+        run: node tests/update_execution_ui.mjs
       - name: Run update progress UI regression
         run: node tests/update_progress_ui.mjs
