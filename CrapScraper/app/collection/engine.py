@@ -8,6 +8,14 @@ class CollectionEngine:
     """Adaptador fino para o manager multi-run maduro, sem policies ou patches."""
 
     def __init__(self) -> None:
+        # Compatibilidade com o engine legado: execute_flow_async publica a sessão
+        # autenticada do UltraPack por meio do nome global ``session_attribute``.
+        # Esse nome deixou de ser inicializado durante o refactor, causando
+        # NameError imediatamente após o login. O bloco em questão só roda para
+        # UltraPackV2, portanto o atributo correto é determinístico.
+        from app.collection.legacy_core import engine as legacy_engine
+        legacy_engine.session_attribute = "ultrapack_http_session"
+
         from app.collection.legacy_core.app import ScraperRunManager
         self._lock = threading.RLock()
         self.manager = ScraperRunManager()
