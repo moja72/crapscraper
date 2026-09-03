@@ -22,7 +22,7 @@ jobs:
           cache: npm
           cache-dependency-path: CrapScraper/package-lock.json
       - name: Install Python test dependencies
-        run: python -m pip install --upgrade pip pytest requests paramiko
+        run: python -m pip install --upgrade pip pytest requests paramiko beautifulsoup4
       - name: Compile Python
         run: python -m compileall -q app tests
       - name: Run update Python tests
