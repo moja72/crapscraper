@@ -9,6 +9,7 @@
   const DEFAULT_PAGE_SIZE = 5;
   const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const timers = new WeakMap();
+  const catalogModalDefaultsApplied = new Set();
 
   const KNOWN_SETTERS = new Map([
     ["catalogos_page_label", "catalogs"],
@@ -31,6 +32,12 @@
     "update_list_preview_page_size",
     "catalog_preview_page_size",
     "update_lists_inline_page_size",
+  ];
+
+  const CATALOG_MODAL_PAGE_SIZE_IDS = [
+    "catalogos_page_size",
+    "catalog_preview_page_size",
+    "plugintema_manage_page_size",
   ];
 
   function clampPage(value, total, fallback) {
@@ -163,6 +170,97 @@
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  function ensureCatalogModalStyle() {
+    const styleId = "crapscraper-catalog-modal-listing-standardization";
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      .catalogo-card-actions .catalogo-view-button.cs-catalog-visualize-button{
+        width:auto!important;
+        min-width:96px!important;
+        padding:0 12px!important;
+        white-space:nowrap!important;
+      }
+      #plugintema_manage_catalog_cards [data-catalog-action="select"]{
+        min-width:96px!important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function standardizeCatalogActionLabels() {
+    document.querySelectorAll(".catalogo-view-button").forEach((button) => {
+      button.classList.add("cs-catalog-visualize-button");
+      if (normalize(button.textContent) !== "Visualizar") button.textContent = "Visualizar";
+      const active = button.getAttribute("aria-pressed") === "true";
+      button.title = active ? "Mostrar todos os catálogos" : "Visualizar catálogo";
+      button.setAttribute("aria-label", active ? "Mostrar todos os catálogos" : "Visualizar catálogo");
+    });
+
+    document.querySelectorAll('#plugintema_manage_catalog_cards [data-catalog-action="select"]').forEach((button) => {
+      if (normalize(button.textContent) !== "Visualizar") button.textContent = "Visualizar";
+      button.title = "Visualizar catálogo";
+      button.setAttribute("aria-label", "Visualizar catálogo");
+    });
+  }
+
+  function standardizeCatalogSearchLabels() {
+    const definitions = [
+      ["catalogos_preview_search", "Nome, versão, categoria ou link"],
+      ["plugintema_manage_search", "Nome, ID, versão ou categoria"],
+    ];
+    definitions.forEach(([id, placeholder]) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      const field = input.closest(".field") || input.parentElement;
+      const label = field?.querySelector(`label[for="${id}"]`) || field?.querySelector("label");
+      if (label && normalize(label.textContent) !== "Buscar no catálogo") label.textContent = "Buscar no catálogo";
+      if (input.placeholder !== placeholder) input.placeholder = placeholder;
+    });
+
+    const title = document.getElementById("plugintema_manage_title");
+    if (title && normalize(title.textContent) !== "Catálogos PluginTema") {
+      title.textContent = "Catálogos PluginTema";
+    }
+  }
+
+  function enforceCatalogModalPageSizeDefaults() {
+    CATALOG_MODAL_PAGE_SIZE_IDS.forEach((id) => {
+      if (catalogModalDefaultsApplied.has(id)) return;
+      const input = document.getElementById(id);
+      if (!input) return;
+      catalogModalDefaultsApplied.add(id);
+      const parsed = Number.parseInt(String(input.value ?? ""), 10);
+      if (parsed === DEFAULT_PAGE_SIZE) return;
+      input.value = String(DEFAULT_PAGE_SIZE);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  function bindPluginTemaPreviewScroll() {
+    const wrap = document.getElementById("plugintema_manage_catalog_cards");
+    if (!wrap || wrap.dataset.csPreviewScrollBound === "1") return;
+    wrap.dataset.csPreviewScrollBound = "1";
+    wrap.addEventListener("click", (event) => {
+      const button = event.target.closest?.('[data-catalog-action="select"]');
+      if (!button || !wrap.contains(button)) return;
+      window.setTimeout(() => {
+        const preview = document.getElementById("plugintema_manage_search")?.closest(".plugintema-manage-filters")
+          || document.getElementById("plugintema_manage_rows")?.closest(".table-wrap");
+        preview?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      }, 120);
+    });
+  }
+
+  function standardizeCatalogModals() {
+    ensureCatalogModalStyle();
+    standardizeCatalogActionLabels();
+    standardizeCatalogSearchLabels();
+    enforceCatalogModalPageSizeDefaults();
+    bindPluginTemaPreviewScroll();
+  }
+
   function scanPageSizes() {
     const bind = input => {
       if (!input || input.tagName !== "INPUT" || input.dataset.csPageSizeBound === "1") return;
@@ -212,6 +310,7 @@
 
   function scan() {
     scanPageSizes();
+    standardizeCatalogModals();
     document.querySelectorAll("input[data-cs-page-input]").forEach((input) => {
       const label = input.closest(".cs-page-jump") || input.parentElement;
       bindInput(label, input);
