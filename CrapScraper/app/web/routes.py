@@ -54,6 +54,7 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/store/bundles": services.store.bundles,
         "/api/store/plans": services.store.plans,
         "/api/store/pricing/catalog": services.store.pricing_catalog,
+        "/api/store/pricing/status": lambda: services.store.pricing.status(),
         "/api/store/categories": services.store.categories,
         "/api/store/quality": lambda: services.store.quality(query),
         "/api/store/quality/products": lambda: services.store.quality_products(query),
