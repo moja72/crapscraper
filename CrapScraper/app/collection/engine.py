@@ -14,7 +14,13 @@ class CollectionEngine:
         # NameError imediatamente após o login. O bloco em questão só roda para
         # UltraPackV2, portanto o atributo correto é determinístico.
         from app.collection.legacy_core import engine as legacy_engine
-        legacy_engine.session_attribute = "ultrapack_http_session"
+        session_attribute = "ultrapack_http_session"
+        legacy_engine.session_attribute = session_attribute
+        # Grava também diretamente no namespace global das funções que são
+        # importadas pelo worker. Isso evita divergência caso o módulo legado
+        # seja reimportado/aliasado durante a inicialização do runtime.
+        legacy_engine.execute_flow_async.__globals__["session_attribute"] = session_attribute
+        legacy_engine.execute_flow.__globals__["session_attribute"] = session_attribute
 
         from app.collection.legacy_core.app import ScraperRunManager
         self._lock = threading.RLock()
