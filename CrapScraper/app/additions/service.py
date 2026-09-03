@@ -10,7 +10,7 @@ from app.additions.repository import AdditionRepository
 from app.comparison import decisions
 
 
-RESET_MARKER_SUFFIX = ".baseline-reset-20260903-v1"
+RESET_BASELINE_KEY = "baseline_reset_20260903_v1"
 
 
 class AdditionService:
@@ -21,7 +21,7 @@ class AdditionService:
         self.lock = threading.RLock()
 
         # Limpa uma única vez os registros históricos/legados da fila de Adicionar.
-        # O marcador fica ao lado do banco para não apagar novas adições em reinícios futuros.
+        # O marcador fica no próprio SQLite para não gerar arquivos soltos no projeto.
         self._reset_existing_records_once()
 
         # A importação legada deixa de ser automática. Pode ser reativada explicitamente
@@ -35,16 +35,23 @@ class AdditionService:
             self._seed_e2e_fixtures()
 
     def _reset_existing_records_once(self) -> None:
-        marker = Path(str(self.repository.path) + RESET_MARKER_SUFFIX)
-        if marker.exists():
-            return
         with self.repository.connection() as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS addition_runtime_metadata("
+                "key TEXT PRIMARY KEY,value TEXT NOT NULL)"
+            )
+            already_reset = db.execute(
+                "SELECT 1 FROM addition_runtime_metadata WHERE key=?",
+                (RESET_BASELINE_KEY,),
+            ).fetchone()
+            if already_reset:
+                return
             db.execute("DELETE FROM addition_attempts")
             db.execute("DELETE FROM addition_jobs")
-        marker.write_text(
-            "Baseline de registros da aba Adicionar zerado em 2026-09-03.\n",
-            encoding="utf-8",
-        )
+            db.execute(
+                "INSERT INTO addition_runtime_metadata(key,value) VALUES(?,?)",
+                (RESET_BASELINE_KEY, "2026-09-03"),
+            )
 
     def _seed_e2e_fixtures(self):
         approvals = [
