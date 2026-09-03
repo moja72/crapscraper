@@ -4,6 +4,7 @@ import {polling} from "./polling.js";
 import "./collect.js";
 import "./collection-management.js";
 import "./compare.js";
+import "./catalog-modal-standardization.js";
 import "./catalog-management.js";
 import "./update.js";
 import "./plugintheme-update.js";
