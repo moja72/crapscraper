@@ -3,7 +3,7 @@ import {polling} from "./polling.js";
 
 const $=selector=>document.querySelector(selector);
 const safe=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-const state={active:false,quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},logs:[],monitorBusy:false,qualityTimer:null};
+const state={active:false,quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},logs:[],monitorBusy:false,qualityTimer:null,pricingBusy:false,pricingPoll:null};
 const formatDate=value=>value?new Date(value).toLocaleString("pt-BR"):"—";
 const money=value=>value?`R$ ${safe(value)}`:"—";
 
@@ -59,6 +59,36 @@ function priceGroup(items,group){
   return items.map(item=>{const variations=item.variations||[],priceFields=variations.length?`<div class="store-variation-prices">${variations.map(row=>`<div data-price-variation="${row.id}"><strong>${safe(row.name||`Variação #${row.id}`)}</strong><label>Regular<input data-variation-regular inputmode="decimal" value="${safe(row.regular_price)}"></label><label>Promocional<input data-variation-sale inputmode="decimal" value="${safe(row.sale_price)}"></label></div>`).join("")}</div>`:`<div class="form-row"><label>Regular<input data-bundle-regular inputmode="decimal" value="${safe(item.regular_price)}"></label><label>Promocional<input data-bundle-sale inputmode="decimal" value="${safe(item.sale_price)}"></label></div>`;return`<article class="store-price-item" data-price-product="${item.product_id}" data-price-group="${group}"><header><div><strong>${safe(item.product_name)}</strong><small>Woo #${item.product_id} · ${safe(item.product_type)}</small></div><span>${variations.length?`${variations.length} variação(ões)`:money(item.regular_price)+" / "+money(item.sale_price)}</span></header>${priceFields}<div class="form-row"><label>Confirmação<input data-bundle-confirmation placeholder="ALTERAR PRECO"></label><button data-bundle-preview>Prévia</button><button data-bundle-apply class="primary">Aplicar</button></div><div data-bundle-status class="action-message" aria-live="polite"></div></article>`}).join("");
 }
 
+function ensurePricingProgress(){
+  let panel=$("#store-pricing-progress");
+  if(panel)return panel;
+  const anchor=$("#store-pricing-preview");
+  if(!anchor)return null;
+  anchor.insertAdjacentHTML("afterend",`<section id="store-pricing-progress" hidden><div id="store-pricing-progress-status" class="operation-band info">Aguardando aplicação.</div><progress id="store-pricing-progress-bar" max="100" value="0" style="width:100%;height:12px;margin-top:10px"></progress><div class="head-progress-foot"><output id="store-pricing-progress-percent">0%</output><output id="store-pricing-progress-count">0 de 0</output></div><pre id="store-pricing-progress-log" class="preview-log" role="log" aria-live="polite" style="height:220px;margin-top:10px">Sem logs.</pre></section>`);
+  return $("#store-pricing-progress");
+}
+
+function pricingProgressView(payload={},forceVisible=false){
+  const panel=ensurePricingProgress();
+  if(!panel)return;
+  const terminal=["success","partial","error"].includes(payload.state),running=payload.state==="running";
+  panel.hidden=!(forceVisible||running||terminal);
+  const status=$("#store-pricing-progress-status"),progress=Math.max(0,Math.min(100,Number(payload.progress||0))),current=Number(payload.current||0),total=Number(payload.total||0);
+  status.textContent=payload.message||"Processando preços…";
+  status.className=`operation-band ${running?"loading":payload.state==="success"?"success":payload.state==="partial"||payload.state==="error"?"error":"info"}`;
+  $("#store-pricing-progress-bar").value=progress;
+  $("#store-pricing-progress-percent").textContent=`${progress}%`;
+  $("#store-pricing-progress-count").textContent=total?`${current} de ${total}`:"Aguardando dados";
+  const output=$("#store-pricing-progress-log"),logs=[...(payload.logs||[])];
+  output.textContent=logs.join("\n")||"Aguardando logs da aplicação…";
+  output.scrollTop=output.scrollHeight;
+}
+
+async function refreshPricingProgress(forceVisible=false){
+  try{const payload=await get("/api/store/pricing/status");pricingProgressView(payload,forceVisible);return payload}
+  catch(error){if(forceVisible)pricingProgressView({state:"error",message:`Falha ao consultar o status: ${error.message}`,logs:[`Falha ao consultar o status: ${error.message}`]},true);return null}
+}
+
 async function loadPricing(){
   try{
     const payload=await get("/api/store/pricing/catalog"),individual=payload.individual?.items||[];
@@ -99,9 +129,32 @@ async function selectProduct(id){
 
 const individualPayload=()=>({kinds:[$("#store-price-plugin").checked?"plugin":"",$("#store-price-theme").checked?"theme":""].filter(Boolean),annual_regular:$("#store-annual-regular").value,annual_sale:$("#store-annual-sale").value,lifetime_regular:$("#store-lifetime-regular").value,lifetime_sale:$("#store-lifetime-sale").value,confirmation:$("#store-price-confirmation").value});
 async function individualPricing(apply=false){
-  const target=$("#store-pricing-preview");target.textContent=apply?"Aplicando preços…":"Gerando prévia…";
-  try{const payload=await post(apply?"/api/store/pricing/apply":"/api/store/pricing/preview",individualPayload());target.textContent=apply?`${payload.changed} preço(s) alterado(s); ${payload.unchanged} inalterado(s).`:`${payload.affected} alteração(ões); ${payload.unchanged} inalterada(s).`;if(apply)await loadPricing()}
-  catch(error){target.textContent=`Falha: ${error.message}`}
+  const target=$("#store-pricing-preview");
+  if(!apply){
+    target.textContent="Gerando prévia…";
+    try{const payload=await post("/api/store/pricing/preview",individualPayload());target.textContent=`${payload.affected} alteração(ões); ${payload.unchanged} inalterada(s).`}
+    catch(error){target.textContent=`Falha: ${error.message}`}
+    return;
+  }
+  if(state.pricingBusy)return;
+  state.pricingBusy=true;
+  const applyButton=$("#store-price-apply"),previewButton=$("#store-price-preview");
+  applyButton.disabled=true;previewButton.disabled=true;target.textContent="Aplicando preços…";
+  pricingProgressView({state:"running",message:"Iniciando aplicação de preços…",progress:0,current:0,total:0,logs:["Preparando aplicação e aguardando a primeira resposta do servidor…"]},true);
+  state.pricingPoll=setInterval(()=>refreshPricingProgress(true),500);
+  try{
+    const payload=await post("/api/store/pricing/apply",individualPayload());
+    await refreshPricingProgress(true);
+    target.textContent=`${payload.changed} preço(s) alterado(s); ${payload.unchanged} inalterado(s).`;
+    await loadPricing();
+  }catch(error){
+    target.textContent=`Falha: ${error.message}`;
+    const latest=await refreshPricingProgress(true);
+    if(!latest||latest.state==="idle")pricingProgressView({state:"error",message:`Falha ao aplicar preços: ${error.message}`,progress:0,current:0,total:0,logs:[`Falha ao aplicar preços: ${error.message}`]},true);
+  }finally{
+    if(state.pricingPoll){clearInterval(state.pricingPoll);state.pricingPoll=null}
+    state.pricingBusy=false;applyButton.disabled=false;previewButton.disabled=false;
+  }
 }
 
 async function bundlePricing(card,apply=false){
@@ -117,7 +170,7 @@ async function toggleMonitor(){
   finally{state.monitorBusy=false;await refreshSummary()}
 }
 
-document.addEventListener("app:tab",event=>{state.active=event.detail==="store";if(state.active){refreshEnvironment();refreshSummary();loadPricing();loadCategories();refreshQuality()}});
+document.addEventListener("app:tab",event=>{state.active=event.detail==="store";if(state.active){refreshEnvironment();refreshSummary();loadPricing();ensurePricingProgress();refreshPricingProgress();loadCategories();refreshQuality()}});
 document.addEventListener("input",event=>{if(event.target.id==="store-quality-query"){state.quality.query=event.target.value;state.quality.page=1;clearTimeout(state.qualityTimer);state.qualityTimer=setTimeout(refreshQuality,250)}});
 document.addEventListener("change",event=>{if(event.target.id==="store-quality-field"){state.quality.field=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-status"){state.quality.status=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-category"){state.quality.category=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-page-size"){state.quality.pageSize=Number(event.target.value);state.quality.page=1;refreshQuality()}});
 document.addEventListener("click",async event=>{if(event.target.id==="store-environment-check")await refreshEnvironment(true);if(event.target.id==="store-monitor-toggle")await toggleMonitor();if(event.target.id==="store-monitor-run"){state.monitorBusy=true;event.target.disabled=true;try{const payload=await post("/api/store/monitor/run",{});monitorView(payload.monitor)}catch(error){$("#store-monitor-operation").textContent=`Falha: ${error.message}`;$("#store-monitor-operation").className="operation-band error"}finally{state.monitorBusy=false;event.target.disabled=false;await refreshSummary()}}if(event.target.id==="store-price-preview")await individualPricing(false);if(event.target.id==="store-price-apply")await individualPricing(true);const preview=event.target.closest("[data-bundle-preview]"),apply=event.target.closest("[data-bundle-apply]");if(preview||apply)await bundlePricing(event.target.closest("[data-price-product]"),Boolean(apply));const product=event.target.closest("[data-store-select]")?.dataset.storeSelect;if(product)await selectProduct(product);if(event.target.id==="store-quality-prev"&&state.quality.page>1){state.quality.page--;refreshQuality()}if(event.target.id==="store-quality-next"&&state.quality.page<state.quality.pages){state.quality.page++;refreshQuality()}});
