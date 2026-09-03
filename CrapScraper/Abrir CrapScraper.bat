@@ -10,16 +10,18 @@ set "CRAPSCRAPER_URL=http://127.0.0.1:%CRAPSCRAPER_PORT%"
 set "CRAPSCRAPER_RUNTIME=%CRAPSCRAPER_ROOT%\.runtime"
 set "CRAPSCRAPER_PID=%CRAPSCRAPER_RUNTIME%\server.pid"
 
-rem O launcher local habilita as escritas da Loja por padrao.
-rem Defina SCRAPER_STORE_WRITE_ENABLED=0 explicitamente para iniciar em somente leitura.
+rem O launcher local habilita as escritas da Loja e a execucao real de adicoes por padrao.
+rem Defina SCRAPER_STORE_WRITE_ENABLED=0 para iniciar a Loja em somente leitura.
+rem Defina SCRAPER_ADDITION_EXECUTION_ENABLED=0 para bloquear explicitamente a criacao de novos produtos.
 if not defined SCRAPER_STORE_WRITE_ENABLED set "SCRAPER_STORE_WRITE_ENABLED=1"
+if not defined SCRAPER_ADDITION_EXECUTION_ENABLED set "SCRAPER_ADDITION_EXECUTION_ENABLED=1"
 
 call :health
 if errorlevel 1 goto start_server
 call :health_write
 if not errorlevel 1 goto open_browser
 
-echo [CrapScraper] Instancia antiga ou em somente leitura detectada. Reiniciando...
+echo [CrapScraper] Instancia antiga, em somente leitura ou com adicoes reais desabilitadas. Reiniciando...
 call :stop_existing
 if errorlevel 1 (
   echo.
