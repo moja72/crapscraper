@@ -3,6 +3,8 @@ import {post} from "./api.js";
 const $ = selector => document.querySelector(selector);
 const selected = new Set();
 let allFiltered = false;
+let stickyOperation = null;
+let restoringOperation = false;
 
 function listingTotal() {
   const text = $("#update-showing")?.textContent || "";
@@ -33,7 +35,7 @@ function syncUi() {
     start.title = batchRunning()
       ? "Já existe uma fila em execução."
       : count
-        ? "Executar os produtos selecionados; itens que deixaram de ser elegíveis serão ignorados com diagnóstico."
+        ? "Executar os produtos selecionados. Pré-requisitos e versão live da origem serão validados automaticamente."
         : "Selecione ao menos um produto preparado para executar a fila.";
   }
 }
@@ -62,19 +64,43 @@ async function selectedJobIds() {
   return (response.items || []).map(item => String(item.job_id || "")).filter(Boolean);
 }
 
-function operation(message, kind = "info") {
+function operation(message, kind = "info", stickyMs = 0) {
   const node = $("#update-operation-status");
   if (!node) return;
+  stickyOperation = stickyMs > 0
+    ? {message, kind, until: Date.now() + stickyMs}
+    : null;
   node.textContent = message;
   node.className = `operation-band ${kind}`;
+}
+
+function preserveOperationError(node) {
+  if (!node || restoringOperation) return;
+  const text = (node.textContent || "").trim();
+  const isError = node.classList.contains("error") && text.length > 0;
+  if (isError) {
+    stickyOperation = {message: text, kind: "error", until: Date.now() + 15000};
+    return;
+  }
+  if (!stickyOperation || Date.now() >= stickyOperation.until) {
+    stickyOperation = null;
+    return;
+  }
+  if (text === stickyOperation.message && node.classList.contains(stickyOperation.kind)) return;
+  restoringOperation = true;
+  node.textContent = stickyOperation.message;
+  node.className = `operation-band ${stickyOperation.kind}`;
+  queueMicrotask(() => { restoringOperation = false; });
 }
 
 async function startBatch() {
   const button = $("#update-batch-start");
   if (!button || batchRunning()) return;
   const original = button.textContent;
+  stickyOperation = null;
   button.disabled = true;
   button.textContent = "Preparando fila…";
+  operation("Validando pré-requisitos e confirmando a versão atual das origens…", "loading");
   try {
     const ids = await selectedJobIds();
     if (!ids.length) throw new Error("Selecione ao menos um produto preparado para executar a fila.");
@@ -90,7 +116,7 @@ async function startBatch() {
     clearSelection();
     $("#update-refresh")?.click();
   } catch (error) {
-    operation(`Fila bloqueada: ${error.message}`, "error");
+    operation(`Fila bloqueada: ${error.message}`, "error", 15000);
   } finally {
     button.textContent = original;
     queueMicrotask(syncUi);
@@ -120,6 +146,10 @@ document.addEventListener("click", event => {
   const target = event.target.closest?.("button,[data-update-group]");
   if (!target) return;
 
+  if (target.matches?.("[data-update-execute]")) {
+    stickyOperation = null;
+    return;
+  }
   if (target.id === "update-select-page") {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -158,7 +188,10 @@ document.addEventListener("click", event => {
 const list = $("#update-list");
 if (list) new MutationObserver(syncUi).observe(list, {childList: true, subtree: true});
 const operationNode = $("#update-operation-status");
-if (operationNode) new MutationObserver(syncUi).observe(operationNode, {childList: true, characterData: true, subtree: true});
+if (operationNode) new MutationObserver(() => {
+  preserveOperationError(operationNode);
+  syncUi();
+}).observe(operationNode, {childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class"]});
 
 window.__crapscraperUpdateSelectionFix = true;
 queueMicrotask(syncUi);
