@@ -87,6 +87,7 @@ function buildTerminalProgress(job, oldNode) {
   const details = document.createElement("details");
   details.className = "update-job-progress update-job-progress-accordion";
   details.dataset.progressState = p.failed ? "error" : p.complete ? "complete" : "idle";
+  details.dataset.jobRevision = String(job.updated_at || job.finished_at || "");
   details.setAttribute("aria-label", `Log da atualização de ${job.product_name || "produto"}`);
 
   const summary = document.createElement("summary");
@@ -133,20 +134,26 @@ function decorateCard(card) {
   if (state) {
     const [label, raw] = stateTimestamp(job);
     const formatted = formatDate(raw);
+    const desiredText = formatted ? `${label} em ${formatted}` : "";
     let stamp = state.querySelector(".update-status-time");
     if (!stamp) {
       stamp = document.createElement("small");
       stamp.className = "update-status-time";
       state.appendChild(stamp);
     }
-    stamp.textContent = formatted ? `${label} em ${formatted}` : "";
-    stamp.hidden = !formatted;
+    if (stamp.textContent !== desiredText) stamp.textContent = desiredText;
+    const shouldHide = !formatted;
+    if (stamp.hidden !== shouldHide) stamp.hidden = shouldHide;
   }
 
-  if (!['success', 'error'].includes(String(job.state || ""))) return;
+  if (!["success", "error"].includes(String(job.state || ""))) return;
   const progress = card.querySelector(".update-job-progress");
-  if (!progress || progress.matches("details.update-job-progress-accordion")) return;
+  if (!progress) return;
+  const revision = String(job.updated_at || job.finished_at || "");
+  if (progress.matches("details.update-job-progress-accordion") && progress.dataset.jobRevision === revision) return;
+  const wasOpen = progress.matches("details.update-job-progress-accordion") && progress.open;
   buildTerminalProgress(job, progress);
+  if (wasOpen) card.querySelector("details.update-job-progress-accordion")?.setAttribute("open", "");
 }
 
 function decorateCards() {
