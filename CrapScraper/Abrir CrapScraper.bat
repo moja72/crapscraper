@@ -8,6 +8,10 @@ set "CRAPSCRAPER_URL=http://127.0.0.1:%CRAPSCRAPER_PORT%"
 set "CRAPSCRAPER_RUNTIME=%~dp0.runtime"
 set "CRAPSCRAPER_PID=%CRAPSCRAPER_RUNTIME%\server.pid"
 
+rem O launcher local habilita as escritas da Loja por padrao.
+rem Defina SCRAPER_STORE_WRITE_ENABLED=0 explicitamente para iniciar em somente leitura.
+if not defined SCRAPER_STORE_WRITE_ENABLED set "SCRAPER_STORE_WRITE_ENABLED=1"
+
 call :health
 if not errorlevel 1 goto open_browser
 
