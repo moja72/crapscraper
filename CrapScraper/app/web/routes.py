@@ -7,7 +7,7 @@ from app.web.api import ApplicationServices
 def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | None=None) -> dict[str, Any]:
     query=query or {}
     routes = {
-        "/api/health": lambda: {"ok": True},
+        "/api/health": lambda: {"ok": True, "app": "CrapScraper", "store_write_enabled": bool(services.store.write_enabled)},
         "/api/credits": lambda: services.credits.get(
             str(query.get("site_key") or ""),
             str(query.get("account_key") or ""),
