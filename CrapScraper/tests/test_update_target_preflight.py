@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from app.updates.adapters import FilesystemInstaller, SFTPInstaller
+from app.updates.adapters import FilesystemInstaller, SFTPInstaller, WooCommerceGateway
 from app.updates.executor import UpdateExecutor
 from app.updates.repository import UpdateRepository
 from app.updates.sources import SourceRegistry
@@ -100,8 +100,39 @@ def test_url_encoded_target_filename_is_decoded_before_filesystem_lookup(tmp_pat
     assert woo.set_calls == ["2.0"]
 
 
+def test_woocommerce_prepare_job_decodes_url_filename():
+    class Gateway(WooCommerceGateway):
+        def _request(self, method, path, **kwargs):
+            assert method == "GET"
+            assert path == "/products/91438/variations"
+            return [{
+                "id": 1001,
+                "parent_id": 91438,
+                "meta_data": [],
+                "downloads": [{"file": "https://plugintema.com/downloads/AutomatorWP%20BuddyPress%20%281%29.zip"}],
+            }]
+
+    job = {"woo_product_id": 91438}
+    Gateway().prepare_job(job)
+    assert job["target_filename"] == "AutomatorWP BuddyPress (1).zip"
+
+
 def test_normalize_target_filename_decodes_encoded_parentheses_and_nested_path():
     assert normalize_target_filename("folder%2FAutomatorWP%20BuddyPress%20%281%29.zip") == "AutomatorWP BuddyPress (1).zip"
+
+
+def test_sftp_artifact_names_accept_safe_spaces_and_parentheses():
+    installer = SFTPInstaller()
+    installer.root = "/home/plugintema.com/downloads"
+    artifacts = installer._artifacts({"job_id": "upd-safe_name", "target_filename": "AutomatorWP BuddyPress (1).zip"})
+    assert artifacts["production"].endswith("/AutomatorWP BuddyPress (1).zip")
+    assert ".crapscraper.upd-safe_name.upload" in artifacts["upload"]
+
+
+def test_sftp_artifact_names_still_reject_path_traversal():
+    installer = SFTPInstaller()
+    with pytest.raises(ValueError):
+        installer._artifacts({"job_id": "upd-safe", "target_filename": "../evil.zip"})
 
 
 def test_sftp_enoent_becomes_structured_target_error():
