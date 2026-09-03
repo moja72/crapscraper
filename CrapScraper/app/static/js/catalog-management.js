@@ -6,6 +6,7 @@ const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&
 let rowsById=new Map();
 let syncTimer;
 let previewTimer;
+let openingExistingCatalog=false;
 const previewState={catalogId:"",page:1,pageSize:20,query:"",pagination:{page:1,total_pages:1,total_rows:0,page_size:20}};
 
 const isPluginTema=row=>{
@@ -103,7 +104,7 @@ function patchCard(card){
   const actions=$(".compact-actions",card);
   if(!actions||actions.dataset.catalogManagementReady==="1")return;
   actions.dataset.catalogManagementReady="1";
-  actions.insertAdjacentHTML("beforeend",`<button type="button" data-catalog-name="${esc(id)}">Renomear</button><button type="button" class="danger" data-catalog-delete="${esc(id)}">Excluir</button>`);
+  actions.insertAdjacentHTML("beforeend",`<button type="button" data-catalog-update="${esc(id)}">Atualizar</button><button type="button" data-catalog-name="${esc(id)}">Renomear</button><button type="button" class="danger" data-catalog-delete="${esc(id)}">Excluir</button>`);
 }
 
 function patchSiteSelect(){
@@ -151,6 +152,8 @@ async function renameCatalog(button){
   try{
     const response=await post("/api/catalogs/name",{catalog_id:id,name});
     if(response.catalog)rowsById.set(id,response.catalog);
+    await syncRows();
+    await refreshSiteSelect();
     patchAll();
   }catch(error){
     window.alert(`Não foi possível renomear o catálogo. ${error.message}`);
@@ -197,6 +200,102 @@ async function deleteAllCatalogs(button){
   if(list&&!rowsById.size)list.innerHTML='<div class="empty">Nenhum catálogo PluginTema disponível.</div>';
   button.disabled=!rowsById.size;
   if(failed.length)window.alert(`Foram excluídos ${deleted} catálogo(s), mas ${failed.length} falharam:\n\n${failed.join("\n")}`);
+}
+
+function waitUntil(test,timeout=6000){
+  return new Promise((resolve,reject)=>{
+    const started=Date.now();
+    const tick=()=>{
+      let value;
+      try{value=test();}catch(_error){value=false;}
+      if(value){resolve(value);return;}
+      if(Date.now()-started>=timeout){reject(new Error("O modal de atualização não ficou pronto a tempo."));return;}
+      setTimeout(tick,35);
+    };
+    tick();
+  });
+}
+
+function resetGenerationIdentity(){
+  const name=$("#catalog-generation-name");if(name){name.readOnly=false;name.title="";}
+  const title=$("#catalog-generation-title");if(title)title.textContent="Atualizar catálogo PluginTema";
+  const modal=$("#catalog-generation-modal");if(modal)delete modal.dataset.catalogUpdateId;
+}
+
+async function restoreManualIncludes(ids){
+  const unique=[...new Set((ids||[]).map(Number).filter(Number.isFinite))];
+  for(const id of unique){
+    const search=$("#catalog-generation-product-search");
+    if(!search)break;
+    search.value=String(id);
+    $("#catalog-generation-product-search-button")?.click();
+    try{
+      const add=await waitUntil(()=>document.querySelector(`[data-generation-add-product="${id}"]`),4000);
+      if(add.textContent.trim()!=="Adicionado")add.click();
+    }catch(_error){/* produto removido do WooCommerce: segue sem bloquear a atualização */}
+  }
+  const search=$("#catalog-generation-product-search");if(search)search.value="";
+}
+
+async function applyGenerationConfig(row){
+  const modal=await waitUntil(()=>$("#catalog-generation-modal[open]"));
+  await waitUntil(()=>{
+    const select=$("#catalog-generation-categories");
+    return select&&select.options.length&&![...select.options].some(option=>option.textContent.includes("Carregando"));
+  });
+
+  modal.dataset.catalogUpdateId=String(row.id||"");
+  const title=$("#catalog-generation-title");if(title)title.textContent=`Atualizar catálogo PluginTema · ${rowLabel(row)}`;
+  const name=$("#catalog-generation-name");if(name){name.value=rowLabel(row);name.readOnly=true;name.title="Use Renomear no gerenciamento para alterar o nome deste catálogo.";}
+
+  document.querySelectorAll("[data-generation-remove-product]").forEach(button=>button.click());
+  document.querySelectorAll('input[name="catalog-kind"]').forEach(input=>input.checked=false);
+  const customRadio=$("#catalog-generation-custom-mode");
+  if(customRadio)customRadio.checked=false;
+  const customPanel=$("#catalog-generation-custom-panel");
+  if(customPanel)customPanel.hidden=true;
+
+  const config=row.generation_config||{};
+  const mode=config.mode==="custom"?"custom":"preset";
+  if(mode==="custom"){
+    if(customRadio){customRadio.checked=true;customRadio.dispatchEvent(new Event("change",{bubbles:true}));}
+    const custom=config.custom||{};
+    if($("#catalog-generation-type"))$("#catalog-generation-type").value=custom.type||"all";
+    if($("#catalog-generation-status"))$("#catalog-generation-status").value=custom.status||"publish";
+    if($("#catalog-generation-query"))$("#catalog-generation-query").value=custom.query||"";
+    if($("#catalog-generation-ids"))$("#catalog-generation-ids").value=custom.specific_ids||"";
+    if($("#catalog-generation-version"))$("#catalog-generation-version").value=custom.version||"all";
+    const wantedCategories=new Set((custom.category_ids||[]).map(String));
+    const categories=$("#catalog-generation-categories");
+    if(categories)[...categories.options].forEach(option=>option.selected=wantedCategories.has(String(option.value)));
+    if(!config.inferred)await restoreManualIncludes(custom.include_ids||[]);
+  }else{
+    const wanted=new Set((config.kinds||[]).map(String));
+    document.querySelectorAll('input[name="catalog-kind"]').forEach(input=>input.checked=wanted.has(input.value));
+    if(!wanted.size){const plugin=document.querySelector('input[name="catalog-kind"][value="plugin"]');if(plugin)plugin.checked=true;}
+  }
+
+  const status=$("#catalog-generation-status-band");
+  if(status){status.className="operation-band info";status.textContent=`Atualizando “${rowLabel(row)}”. Ao concluir, a versão anterior com este nome será substituída.`;}
+}
+
+async function updateCatalog(button){
+  const id=button.dataset.catalogUpdate;
+  const row=rowsById.get(id)||{id,display_name:defaultCatalogName({id})};
+  button.disabled=true;
+  openingExistingCatalog=true;
+  try{
+    const management=$("#comparison-catalog-modal");if(management?.open)management.close();
+    const globalButton=$("#comparison-update-catalog");
+    if(!globalButton)throw new Error("A ação global de atualização não foi encontrada.");
+    globalButton.click();
+    await applyGenerationConfig(row);
+  }catch(error){
+    window.alert(`Não foi possível preparar a atualização do catálogo. ${error.message}`);
+  }finally{
+    openingExistingCatalog=false;
+    button.disabled=false;
+  }
 }
 
 async function renderPreview(){
@@ -260,12 +359,17 @@ observer.observe(document.body,{childList:true,subtree:true});
 document.addEventListener("click",event=>{
   const preview=event.target.closest("[data-catalog-preview]");
   if(preview){event.preventDefault();event.stopImmediatePropagation();openPreview(preview.dataset.catalogPreview);return;}
+  const update=event.target.closest("[data-catalog-update]");
+  if(update){event.preventDefault();event.stopImmediatePropagation();updateCatalog(update);return;}
   const rename=event.target.closest("[data-catalog-name]");
   if(rename){event.preventDefault();event.stopImmediatePropagation();renameCatalog(rename);return;}
   const remove=event.target.closest("[data-catalog-delete]");
   if(remove){event.preventDefault();event.stopImmediatePropagation();deleteCatalog(remove);return;}
   const removeAll=event.target.closest("#comparison-catalog-delete-all");
   if(removeAll){event.preventDefault();event.stopImmediatePropagation();deleteAllCatalogs(removeAll);return;}
+  if(event.target.closest("#comparison-update-catalog")&&!openingExistingCatalog){
+    setTimeout(()=>waitUntil(()=>$("#catalog-generation-modal[open]"),3000).then(resetGenerationIdentity).catch(()=>{}),0);
+  }
   if(event.target.closest("#comparison-catalog-preview-prev")&&previewState.page>1){event.preventDefault();previewState.page--;renderPreview();return;}
   if(event.target.closest("#comparison-catalog-preview-next")&&previewState.page<Number(previewState.pagination.total_pages||1)){event.preventDefault();previewState.page++;renderPreview();}
 },true);
