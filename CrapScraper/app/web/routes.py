@@ -25,6 +25,8 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/catalogs": lambda: services.catalogs.list(query),
         "/api/catalogs/preview": lambda: services.catalogs.preview(query),
         "/api/catalogs/generation": services.catalogs.generation_status,
+        "/api/catalogs/generation/options": services.catalogs.generation_options,
+        "/api/catalogs/generation/search": lambda: services.catalogs.search_products(query),
         "/api/compare": services.comparison.catalogs,
         "/api/comparison/catalogs": services.comparison.catalogs,
         "/api/comparison/approvals": services.comparison.approvals,
