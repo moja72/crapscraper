@@ -5,6 +5,7 @@ import "./collect.js";
 import "./collection-management.js";
 import "./compare.js";
 import "./catalog-management.js";
+import "./catalog-modal-standardization.js";
 import "./update.js";
 import "./plugintheme-update.js";
 import "./add.js";
