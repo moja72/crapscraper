@@ -17,7 +17,7 @@ const sequence=[
   ["completed","success","Atualização concluída",["Atualizando pt_versao para 2.0.","Atualização concluída e validada."]],
 ];
 let reads=0,stageIndex=0;
-const response=()=>{reads+=1;const [stage,state,label,logs]=sequence[stageIndex],running=state==="running",success=state==="success";return{ok:true,items:[{job_id:"upd-progress",woo_product_id:700,product_name:"Produto Progress",current_version:"1.0",source_version:"2.0",source_kind:"ultrapackv2",source_name:"UltraPackV2",source_url:"https://example.test/item",state,stage,attempts:stage==="prepared"?0:1,error:null,logs,execution:{allowed:state==="ready",action:state==="ready"?"execute":"none",blockers:state==="ready"?[]:[{code:running?"job_running":"job_completed",message:running?"Job já está em execução.":"Atualização já concluída."}]},progress:{active:running,complete:success,failed:false,stage,label,step:{prepared:0,validating:1,downloading:3,installing:6,completed:9}[stage],total:9,logs}}],total:1,page:1,page_size:5,pages:1,counts:{total:1,prepared:state==="ready"?1:0,running:running?1:0,success:success?1:0,error:0},batch:{running:false,total:0,processed:0,pending:0}}};
+const response=()=>{reads+=1;const [stage,state,label,logs]=sequence[stageIndex],running=state==="running",success=state==="success";return{ok:true,items:[{job_id:"upd-progress",woo_product_id:700,product_name:"Produto Progress",current_version:"1.0",source_version:"2.0",source_kind:"ultrapackv2",source_name:"UltraPackV2",source_url:"https://example.test/item",state,stage,attempts:stage==="prepared"?0:1,error:null,logs,created_at:"2026-09-03T19:59:00+00:00",updated_at:success?"2026-09-03T20:10:30+00:00":"2026-09-03T20:10:00+00:00",started_at:stage==="prepared"?"":"2026-09-03T20:10:00+00:00",finished_at:success?"2026-09-03T20:10:30+00:00":"",execution:{allowed:state==="ready",action:state==="ready"?"execute":"none",blockers:state==="ready"?[]:[{code:running?"job_running":"job_completed",message:running?"Job já está em execução.":"Atualização já concluída."}]},progress:{active:running,complete:success,failed:false,stage,label,step:{prepared:0,validating:1,downloading:3,installing:6,completed:9}[stage],total:9,logs}}],total:1,page:1,page_size:5,pages:1,counts:{total:1,prepared:state==="ready"?1:0,running:running?1:0,success:success?1:0,error:0},batch:{running:false,total:0,processed:0,pending:0}}};
 const environment={ok:true,checks:[],attention_count:0,plugintheme:{status:"VALIDADA",cookie_count:10}};
 
 let browser;
@@ -32,9 +32,16 @@ try{
   stageIndex=2;await page.click('#update-refresh');await page.waitForFunction(()=>document.querySelector('.update-job-progress strong')?.textContent.includes('Baixando arquivo'));
   if(!String(await page.locator('.update-job-live-log').textContent()).includes('Baixando versão'))throw new Error("Log novo não apareceu no card");
   stageIndex=3;await page.click('#update-refresh');await page.waitForFunction(()=>document.querySelector('.update-job-progress strong')?.textContent.includes('Instalando nova versão'));
-  stageIndex=4;await page.click('#update-refresh');await page.waitForFunction(()=>document.querySelector('.update-job-progress[data-progress-state="complete"]')&&document.querySelector('.update-job-progress strong')?.textContent.includes('Atualização concluída'));
+  stageIndex=4;await page.click('#update-refresh');await page.waitForFunction(()=>document.querySelector('details.update-job-progress[data-progress-state="complete"]')&&document.querySelector('.update-job-progress strong')?.textContent.includes('Atualização concluída'));
+  const accordion=page.locator('details.update-job-progress-accordion');
+  if(await accordion.evaluate(element=>element.open))throw new Error("Log terminal deveria iniciar fechado");
+  if(await page.locator('.update-job-copy-log').count()!==1)throw new Error("Botão de copiar log não apareceu");
+  const stamp=String(await page.locator('.update-status-time').textContent());if(!stamp.includes('Concluído em')||!stamp.includes('03/09/2026'))throw new Error(`Data/hora do status ausente: ${stamp}`);
+  await accordion.locator('summary').click();
+  if(!(await accordion.evaluate(element=>element.open)))throw new Error("Sanfona terminal não abriu");
   const progress=await page.locator('.update-job-progress progress').evaluate(element=>({value:element.value,max:element.max}));if(progress.value!==progress.max)throw new Error(`Barra não finalizou: ${JSON.stringify(progress)}`);
+  if(!String(await page.locator('.update-job-live-log').textContent()).includes('Atualização concluída e validada'))throw new Error("Log terminal completo não apareceu");
   if(reads>10)throw new Error(`Polling duplicado detectado: ${reads} leituras`);
   if(errors.length)throw new Error(errors.join(" | "));
-  console.log(JSON.stringify({ok:true,stages:true,liveLog:true,completed:true,centralPolling:true,reads}));
+  console.log(JSON.stringify({ok:true,stages:true,liveLog:true,completed:true,terminalAccordion:true,statusTimestamp:true,copyLog:true,centralPolling:true,reads}));
 }finally{if(browser)await browser.close();server.kill();await Promise.race([new Promise(resolve=>server.once("exit",resolve)),sleep(5000)]);rmSync(fixture,{recursive:true,force:true,maxRetries:5,retryDelay:200})}
