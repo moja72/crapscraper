@@ -3,7 +3,7 @@ import {polling} from "./polling.js";
 
 const $=selector=>document.querySelector(selector);
 const safe=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-const state={active:false,quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},logs:[],monitorBusy:false,qualityTimer:null,pricingBusy:false,pricingPoll:null};
+const state={active:false,quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},logs:[],monitorBusy:false,qualityTimer:null,pricingBusy:false};
 const formatDate=value=>value?new Date(value).toLocaleString("pt-BR"):"—";
 const money=value=>value?`R$ ${safe(value)}`:"—";
 
@@ -85,6 +85,7 @@ function pricingProgressView(payload={},forceVisible=false){
 }
 
 async function refreshPricingProgress(forceVisible=false){
+  if(!state.active&&!forceVisible)return null;
   try{const payload=await get("/api/store/pricing/status");pricingProgressView(payload,forceVisible);return payload}
   catch(error){if(forceVisible)pricingProgressView({state:"error",message:`Falha ao consultar o status: ${error.message}`,logs:[`Falha ao consultar o status: ${error.message}`]},true);return null}
 }
@@ -141,7 +142,6 @@ async function individualPricing(apply=false){
   const applyButton=$("#store-price-apply"),previewButton=$("#store-price-preview");
   applyButton.disabled=true;previewButton.disabled=true;target.textContent="Aplicando preços…";
   pricingProgressView({state:"running",message:"Iniciando aplicação de preços…",progress:0,current:0,total:0,logs:["Preparando aplicação e aguardando a primeira resposta do servidor…"]},true);
-  state.pricingPoll=setInterval(()=>refreshPricingProgress(true),500);
   try{
     const payload=await post("/api/store/pricing/apply",individualPayload());
     await refreshPricingProgress(true);
@@ -150,9 +150,8 @@ async function individualPricing(apply=false){
   }catch(error){
     target.textContent=`Falha: ${error.message}`;
     const latest=await refreshPricingProgress(true);
-    if(!latest||latest.state==="idle")pricingProgressView({state:"error",message:`Falha ao aplicar preços: ${error.message}`,progress:0,current:0,total:0,logs:[`Falha ao aplicar preços: ${error.message}`]},true);
+    if(!latest||!["error","partial"].includes(latest.state))pricingProgressView({state:"error",message:`Falha ao aplicar preços: ${error.message}`,progress:0,current:0,total:0,logs:[`Falha ao aplicar preços: ${error.message}`]},true);
   }finally{
-    if(state.pricingPoll){clearInterval(state.pricingPoll);state.pricingPoll=null}
     state.pricingBusy=false;applyButton.disabled=false;previewButton.disabled=false;
   }
 }
@@ -175,3 +174,4 @@ document.addEventListener("input",event=>{if(event.target.id==="store-quality-qu
 document.addEventListener("change",event=>{if(event.target.id==="store-quality-field"){state.quality.field=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-status"){state.quality.status=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-category"){state.quality.category=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-page-size"){state.quality.pageSize=Number(event.target.value);state.quality.page=1;refreshQuality()}});
 document.addEventListener("click",async event=>{if(event.target.id==="store-environment-check")await refreshEnvironment(true);if(event.target.id==="store-monitor-toggle")await toggleMonitor();if(event.target.id==="store-monitor-run"){state.monitorBusy=true;event.target.disabled=true;try{const payload=await post("/api/store/monitor/run",{});monitorView(payload.monitor)}catch(error){$("#store-monitor-operation").textContent=`Falha: ${error.message}`;$("#store-monitor-operation").className="operation-band error"}finally{state.monitorBusy=false;event.target.disabled=false;await refreshSummary()}}if(event.target.id==="store-price-preview")await individualPricing(false);if(event.target.id==="store-price-apply")await individualPricing(true);const preview=event.target.closest("[data-bundle-preview]"),apply=event.target.closest("[data-bundle-apply]");if(preview||apply)await bundlePricing(event.target.closest("[data-price-product]"),Boolean(apply));const product=event.target.closest("[data-store-select]")?.dataset.storeSelect;if(product)await selectProduct(product);if(event.target.id==="store-quality-prev"&&state.quality.page>1){state.quality.page--;refreshQuality()}if(event.target.id==="store-quality-next"&&state.quality.page<state.quality.pages){state.quality.page++;refreshQuality()}});
 polling.register("store-state",refreshSummary,1500);
+polling.register("store-pricing-status",refreshPricingProgress,750);
