@@ -1,5 +1,5 @@
 from app.store.woocommerce import is_pack,is_plan
-from app.store.pricing import money
+from app.store.pricing import confirmation_token,money
 
 class StoreBundleService:
     def __init__(self,gateway):self.gateway=gateway
@@ -25,7 +25,7 @@ class StoreBundleService:
         return {"ok":True,"product_id":int(product["id"]),"product_name":product.get("name",""),"product_type":product.get("type",""),"price_group":group,"regular_price":regular,"sale_price":sale,"variation_changes":[],"status":"unchanged" if unchanged else "change"}
     def apply(self,payload,write_enabled):
         if not write_enabled:raise PermissionError("Escrita da Loja desabilitada por SCRAPER_STORE_WRITE_ENABLED")
-        if payload.get("confirmation") not in {"ALTERAR PACK","ALTERAR PRECO"}:raise ValueError('Digite "ALTERAR PRECO" para confirmar')
+        if confirmation_token(payload.get("confirmation")) not in {"ALTERAR PACK","ALTERAR PRECO"}:raise ValueError('Digite "ALTERAR PREÇO" para confirmar')
         preview=self.preview(payload)
         if preview["status"]=="unchanged":return {**preview,"updated":False,"changed":0}
         variation_updates=[{"id":item["id"],"regular_price":item["regular_price"],"sale_price":item["sale_price"]} for item in preview.get("variation_changes",[]) if item["status"]=="change"]
