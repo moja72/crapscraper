@@ -1,0 +1,47 @@
+name: Validate update fix
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: CrapScraper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: CrapScraper/package-lock.json
+      - name: Install Python test dependencies
+        run: python -m pip install --upgrade pip pytest requests paramiko
+      - name: Compile Python
+        run: python -m compileall -q app tests
+      - name: Run update Python tests
+        run: >-
+          python -m pytest -q
+          tests/test_update_execution_preflight_and_live_version.py
+          tests/test_runtime_performance_regressions.py
+          tests/test_update_batch.py
+          tests/test_update_executor.py
+          tests/test_update_target_preflight.py
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Check JavaScript syntax
+        run: |
+          node --check app/static/js/update.js
+          node --check app/static/js/update-selection-fix.js
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run update E2E tests
+        run: |
+          node tests/update_progress_ui.mjs
+          node tests/update_execution_ui.mjs
