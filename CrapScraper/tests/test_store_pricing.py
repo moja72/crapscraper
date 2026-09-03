@@ -29,3 +29,26 @@ def test_individual_failure_does_not_abort_batch(tmp_path):
         return original(pid,rows)
     gateway.update_variations=update;data=payload();data.update(confirmation="ALTERAR PRECOS",annual_regular="100")
     result=StorePricingService(gateway,StoreRepository(tmp_path),True).apply(data,gateway.products());assert result["errors"] and result["changed"]>0
+
+def test_apply_exposes_completed_progress_and_logs(tmp_path):
+    gateway=FixtureStoreGateway();service=StorePricingService(gateway,StoreRepository(tmp_path),True);data=payload();data.update(confirmation="ALTERAR PRECOS",annual_regular="100")
+    result=service.apply(data,gateway.products());status=service.status()
+    assert status["state"]=="success"
+    assert status["stage"]=="completed"
+    assert status["progress"]==100
+    assert status["changed"]==result["changed"]
+    assert status["finished_at"]
+    assert any("Prévia concluída" in line for line in status["logs"])
+    assert any("Concluído:" in line for line in status["logs"])
+
+def test_apply_exposes_partial_status_when_one_product_fails(tmp_path):
+    gateway=FixtureStoreGateway();original=gateway.update_variations
+    def update(pid,rows):
+        if pid==101:raise RuntimeError("produto falhou")
+        return original(pid,rows)
+    gateway.update_variations=update;service=StorePricingService(gateway,StoreRepository(tmp_path),True);data=payload();data.update(confirmation="ALTERAR PRECOS",annual_regular="100")
+    service.apply(data,gateway.products());status=service.status()
+    assert status["state"]=="partial"
+    assert status["progress"]==100
+    assert status["errors"]
+    assert any("ERRO:" in line for line in status["logs"])
