@@ -1,3 +1,3 @@
-from app.catalogs.managed import ManagedCatalogService as CatalogService
+from app.catalogs.runtime import CatalogService
 
 __all__ = ["CatalogService"]
