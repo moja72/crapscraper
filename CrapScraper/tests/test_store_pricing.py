@@ -16,6 +16,10 @@ def test_gate_and_confirmation(tmp_path):
     with pytest.raises(PermissionError):disabled.apply(payload(),gateway.products())
     enabled=StorePricingService(gateway,StoreRepository(tmp_path),True)
     with pytest.raises(ValueError):enabled.apply(payload(),gateway.products())
+def test_accented_confirmation_is_accepted(tmp_path):
+    gateway=FixtureStoreGateway();data=payload();data.update(confirmation="  alterar preços  ",annual_regular="100")
+    result=StorePricingService(gateway,StoreRepository(tmp_path),True).apply(data,gateway.products())
+    assert result["changed"]>0
 def test_unchanged_does_not_write(tmp_path):
     gateway=FixtureStoreGateway();data=payload();data["confirmation"]="ALTERAR PRECOS";result=StorePricingService(gateway,StoreRepository(tmp_path),True).apply(data,gateway.products());assert result["changed"]==0 and not gateway.writes
 def test_individual_failure_does_not_abort_batch(tmp_path):
