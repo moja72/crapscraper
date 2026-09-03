@@ -78,6 +78,9 @@ def test_live_source_version_newer_than_catalog_promotes_job():
             assert source_version == "2.0"
             return dict(refreshed)
 
+        def append_log(self, *args, **kwargs):
+            return None
+
     source = SimpleNamespace(validate_access=lambda _job: {"version": "2.0"})
     service = SimpleNamespace(
         repository=Repo(),
