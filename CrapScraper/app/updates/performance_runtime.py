@@ -67,7 +67,7 @@ def _execution(self: UpdateService, job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _needs_environment_check(self: UpdateService, kinds: set[str]) -> bool:
-    validation = self.environment_validation or {}
+    validation = getattr(self, "environment_validation", None) or {}
     if not validation.get("woocommerce") or not validation.get("storage"):
         return True
     sources = validation.get("sources") or {}
@@ -76,8 +76,9 @@ def _needs_environment_check(self: UpdateService, kinds: set[str]) -> bool:
 
 def _ensure_environment(self: UpdateService, kinds: set[str]) -> None:
     """Executa Verificar pré-requisitos automaticamente uma vez quando necessário."""
-    if _needs_environment_check(self, kinds):
-        self.verify_environment()
+    verifier = getattr(self, "verify_environment", None)
+    if _needs_environment_check(self, kinds) and callable(verifier):
+        verifier()
 
 
 def _refresh_live_target(self: UpdateService, job_id: str) -> dict[str, Any]:
@@ -88,7 +89,11 @@ def _refresh_live_target(self: UpdateService, job_id: str) -> dict[str, Any]:
     origem publicou uma versão mais nova depois da coleta/comparação.
     """
     job = self.repository.get(job_id)
-    source = self.executor.sources.get(str(job.get("source_kind") or ""))
+    kind = str(job.get("source_kind") or "")
+    sources = getattr(getattr(self, "executor", None), "sources", None)
+    if not kind or sources is None or not callable(getattr(sources, "get", None)):
+        return job
+    source = sources.get(kind)
     probe = getattr(source, "validate_access", None)
     details = probe(job) if callable(probe) else None
     live = normalize_version((details or {}).get("version") or source.confirm_version(job))
@@ -101,11 +106,13 @@ def _refresh_live_target(self: UpdateService, job_id: str) -> dict[str, Any]:
             current_version=normalize_version(job.get("current_version")),
             source_version=live,
         )
-        self.repository.append_log(
-            job_id,
-            "",
-            f"Versão live da origem {live} é superior à versão catalogada {catalog or '—'}; objetivo promovido automaticamente para {live}.",
-        )
+        append_log = getattr(self.repository, "append_log", None)
+        if callable(append_log):
+            append_log(
+                job_id,
+                "",
+                f"Versão live da origem {live} é superior à versão catalogada {catalog or '—'}; objetivo promovido automaticamente para {live}.",
+            )
         return refreshed
     return job
 
@@ -205,12 +212,11 @@ def _batch_start(self: UpdateService, job_ids: list[str] | None = None) -> dict[
         raise ValueError("Nenhum job preparado foi selecionado para execução.")
 
     existing: list[dict[str, Any]] = []
-    missing: list[str] = []
     for job_id in requested:
         try:
             existing.append(self.repository.get(job_id))
         except KeyError:
-            missing.append(job_id)
+            pass
 
     _ensure_environment(self, {str(job.get("source_kind") or "") for job in existing})
     self._require_execution_environment()
