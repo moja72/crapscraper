@@ -14,8 +14,8 @@ class CollectionEngine:
         # NameError imediatamente após o login. O bloco em questão só roda para
         # UltraPackV2, portanto o atributo correto é determinístico.
         from app.collection.legacy_core import engine as legacy_engine
-        session_attribute = "ultrapack_http_session"
-        legacy_engine.session_attribute = session_attribute
+        legacy_engine.session_attribute = "ultrapack_http_session"
+        session_attribute = legacy_engine.session_attribute
         # Grava também diretamente no namespace global das funções que são
         # importadas pelo worker. Isso evita divergência caso o módulo legado
         # seja reimportado/aliasado durante a inicialização do runtime.
