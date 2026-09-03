@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import threading
@@ -136,9 +135,18 @@ def discover_safe_update(
     if not target:
         return {"ok": True, "state": "source_version_missing", "message": "Correspondência encontrada, mas a versão da fonte está ausente."}
 
-    comparison_id = "manual:auto:" + hashlib.sha256(
-        f"{product_id}|{selected.get('source_product_url') or selected.get('source_official_url')}".encode("utf-8")
-    ).hexdigest()[:24]
+    comparison_id = matching.build_comparison_item_id(
+        {
+            "site_id": product_id,
+            "site_name": site_name,
+            "site_official_url": site_official_url,
+        },
+        {
+            "source_name": str(selected.get("source_name") or site_name),
+            "source_official_url": str(selected.get("source_official_url") or ""),
+            "source_product_url": str(selected.get("source_product_url") or ""),
+        },
+    )
     approval = {
         "comparison_item_id": comparison_id,
         "woo_product_id": product_id,
