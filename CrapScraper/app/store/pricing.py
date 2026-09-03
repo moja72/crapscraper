@@ -1,4 +1,5 @@
 from __future__ import annotations
+import unicodedata
 from decimal import Decimal,InvalidOperation
 from app.store.woocommerce import is_pack,product_kind
 
@@ -12,6 +13,9 @@ def money(value,required=True):
 def period(variation):
     text=" ".join(str(a.get("option") or "").lower() for a in variation.get("attributes",[]) or [])+" "+str(variation.get("name") or "").lower()
     return "lifetime" if "vital" in text or "lifetime" in text else "annual" if "anual" in text or "annual" in text or "1 ano" in text or "12 meses" in text else ""
+def confirmation_token(value):
+    text=unicodedata.normalize("NFKD",str(value or "")).encode("ascii","ignore").decode().upper()
+    return " ".join(text.split())
 
 class StorePricingService:
     def __init__(self,gateway,repository,write_enabled=False):self.gateway=gateway;self.repository=repository;self.write_enabled=write_enabled
@@ -26,7 +30,7 @@ class StorePricingService:
         return {"ok":True,"affected":sum(x["status"]=="change" for x in changes),"unchanged":sum(x["status"]=="unchanged" for x in changes),"changes":changes,"prices":prices,"kinds":sorted(kinds)}
     def apply(self,payload,products):
         if not self.write_enabled:raise PermissionError("Escrita da Loja desabilitada por SCRAPER_STORE_WRITE_ENABLED")
-        if payload.get("confirmation")!="ALTERAR PRECOS":raise ValueError('Digite "ALTERAR PRECOS" para confirmar')
+        if confirmation_token(payload.get("confirmation"))!="ALTERAR PRECOS":raise ValueError('Digite "ALTERAR PREÇOS" para confirmar')
         preview=self.preview(payload,products);grouped={}
         for row in preview["changes"]:
             if row["status"]=="change":grouped.setdefault(row["product_id"],[]).append({"id":row["variation_id"],"regular_price":row["regular_price"],"sale_price":row["sale_price"]})
