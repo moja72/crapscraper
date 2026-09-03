@@ -1,0 +1,28 @@
+name: Validate update auto preflight
+
+on:
+  push:
+    branches:
+      - fix/update-auto-preflight-live-version
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: CrapScraper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest requests beautifulsoup4 openpyxl playwright
+      - name: Compile Python
+        run: python -m compileall -q app tests/test_update_execution_preflight_and_live_version.py tests/test_runtime_performance_regressions.py tests/test_update_batch.py
+      - name: Check JavaScript syntax
+        run: node --check app/static/js/update-selection-fix.js && node --check app/static/js/app.js
+      - name: Run focused regression tests
+        run: python -m pytest -q tests/test_update_execution_preflight_and_live_version.py tests/test_runtime_performance_regressions.py tests/test_update_batch.py
