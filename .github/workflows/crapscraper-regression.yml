@@ -31,11 +31,14 @@ jobs:
           app/current_app_recovery.py
           app/helper_diagnostic.py
           app/missing_target_recovery.py
+          app/legacy_permission_recovery.py
           app/update_runtime_consistency.py
           app/updates/plugintheme_source_recovery.py
+          app/updates/ultrapack_source_recovery.py
           app/updates/source_filter_runtime.py
           app/updates/target_preflight.py
           app/additions/source_filter_runtime.py
+          ../deploy/crapscraper_zip_permission_helper.py
 
       - name: Targeted Python regressions
         run: >-
@@ -47,6 +50,7 @@ jobs:
           tests/test_update_target_preflight.py
           tests/test_update_target_casefold.py
           tests/test_update_runtime_consistency.py
+          tests/test_retry_error_recovery.py
 
       - name: Current modular app regressions
         run: >-
