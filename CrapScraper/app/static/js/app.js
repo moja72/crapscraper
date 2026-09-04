@@ -1,6 +1,7 @@
 import {get,post} from "./api.js";
 const mascot=document.querySelector(".mascot-crop img"); if(mascot) mascot.src="/static/mascote.webp";
 import {polling} from "./polling.js";
+import "./runtime-fixes.js";
 import "./collect-context-dependency-fix.js";
 import "./collect.js";
 import "./collection-management.js";
