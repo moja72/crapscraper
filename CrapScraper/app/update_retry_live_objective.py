@@ -21,17 +21,11 @@ def _refresh_retry_objective(service: Any, job_id: str) -> dict[str, Any] | None
         live = normalize_version((details or {}).get("version") or source.confirm_version(job))
         if not current or not live:
             return None
-        refreshed = service.repository.refresh_objective(
+        return service.repository.refresh_objective(
             job_id,
             current_version=current,
             source_version=live,
         )
-        service.repository.append_log(
-            job_id,
-            None,
-            f"Retry revalidou objetivo em tempo real: WooCommerce {current}; fonte aprovada {live}.",
-        )
-        return refreshed
     except Exception:
         # A política normal de retry continua responsável por apresentar a falha
         # real de autenticação, origem ou WooCommerce. Esta etapa é apenas uma
