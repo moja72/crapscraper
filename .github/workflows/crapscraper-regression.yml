@@ -40,6 +40,13 @@ jobs:
           tests/test_update_execution_preflight_and_live_version.py
           tests/test_update_target_preflight.py
 
+      - name: Application bootstrap smoke
+        env:
+          SCRAPER_DATA_DIR: ${{ runner.temp }}/crapscraper-smoke
+          SCRAPER_UPDATE_IMPORT_LEGACY: '0'
+          SCRAPER_ADDITION_IMPORT_LEGACY: '0'
+        run: python -c "from app.bootstrap import create_application; app=create_application(); print(type(app).__name__)"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
