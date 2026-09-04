@@ -15,6 +15,8 @@ def create_application() -> Application:
     from app.current_app_recovery import install_current_app_recovery
     from app.update_runtime_consistency import install_update_runtime_consistency
     from app.legacy_permission_recovery import install_legacy_permission_recovery
+    from app.update_retry_live_objective import install_update_retry_live_objective
+    from app.addition_runtime_recovery import install_addition_runtime_recovery
 
     install_missing_target_recovery()
     install_helper_diagnostic()
@@ -29,6 +31,15 @@ def create_application() -> Application:
     # Envolve o backup SFTP já finalizado pelas políticas anteriores e só atua no
     # caso específico de EACCES causado por ZIPs legados com owner/mode antigos.
     install_legacy_permission_recovery()
+
+    # Antes de um retry de atualização, reconcilia a versão atual do WooCommerce
+    # e a versão viva da mesma fonte aprovada. Isso impede que snapshots antigos
+    # bloqueiem a nova tentativa quando a origem avançou após a aprovação.
+    install_update_retry_live_objective()
+
+    # A fila de adição sincroniza aprovações automaticamente e deixa conteúdo e
+    # imagem com fallback seguro quando OPENAI_API_KEY não estiver configurada.
+    install_addition_runtime_recovery()
 
     # Import the domain graph only after load_settings has published the
     # canonical SCRAPER_DATA_DIR. The migrated collection core resolves its
