@@ -1,9 +1,9 @@
 #!/usr/bin/python3 -I
 """Restricted, standalone ZIP deployment helper for CrapScraper.
 
-Production entry points always use DOWNLOAD_ROOT.  ``ZipHelper`` accepts an
+Production entry points always use DOWNLOAD_ROOT. ``ZipHelper`` accepts an
 alternate root and numeric identity only so its filesystem behavior can be
-tested locally without privileges.  This module imports only the stdlib.
+tested locally without privileges. This module imports only the stdlib.
 """
 from __future__ import annotations
 
@@ -93,7 +93,6 @@ class ZipHelper:
         self.posix_semantics = os.name == "posix" if posix_semantics is None else posix_semantics
 
     def _path(self, name: str) -> Path:
-        # All names reaching here originate from artifact_names or a validated basename.
         path = self.root / name
         if path.parent != self.root:
             raise HelperError("path escaped fixed root")
@@ -169,6 +168,18 @@ class ZipHelper:
             "size": info.st_size,
         }
 
+    def _validate_existing_production(self, path: Path, expected_hash: str) -> dict[str, object]:
+        """Validate a legacy production ZIP without trusting its ownership metadata.
+
+        Older WooCommerce download files can legitimately predate the canonical
+        plugi2090:nobody ownership policy.  They are accepted only as the *current*
+        source artifact when the fixed-root basename, regular-file/no-symlink/no-
+        hardlink checks and the caller-supplied SHA-256 all match.  Every helper-
+        created artifact and every newly installed production file remains subject
+        to the strict canonical ownership/group/mode validation.
+        """
+        return self._validate(path, expected_hash, metadata=False)
+
     def _fsync_directory(self) -> None:
         if not self.posix_semantics:
             return
@@ -197,7 +208,6 @@ class ZipHelper:
         return self._result("inspect", name, None, self._validate(self._path(name)))
 
     def probe_setgid(self) -> dict[str, object]:
-        """Create, validate and always remove one fixed disposable probe."""
         name = f"CrapScraperSetgidProbe.zip.crapscraper.{os.getpid()}.probe"
         path = self._path(name)
         fd = -1
@@ -211,13 +221,7 @@ class ZipHelper:
                 raise HelperError("setgid probe did not inherit group nobody")
             self._set_metadata(fd, path)
             os.fsync(fd)
-            details = {
-                "owner": self.owner_name,
-                "group": self.group_name,
-                "mode": f"{EXPECTED_MODE:04o}",
-                "probe": name,
-                "removed": True,
-            }
+            details = {"owner": self.owner_name, "group": self.group_name, "mode": f"{EXPECTED_MODE:04o}", "probe": name, "removed": True}
         finally:
             if fd >= 0:
                 os.close(fd)
@@ -249,13 +253,11 @@ class ZipHelper:
             os.fsync(new_fd)
             if digest.hexdigest() != expected:
                 raise HelperError("SHA-256 mismatch for staging upload")
-            os.close(new_fd)
-            new_fd = -1
+            os.close(new_fd); new_fd = -1
             details = self._validate(new, expected)
         except Exception:
             if new_fd >= 0:
-                os.close(new_fd)
-                new_fd = -1
+                os.close(new_fd); new_fd = -1
             try:
                 if new.exists() and not new.is_symlink():
                     os.unlink(new)
@@ -272,7 +274,7 @@ class ZipHelper:
         names = artifact_names(file_name, job_id)
         expected = validate_sha256(expected_sha256)
         current, backup = self._path(names["production"]), self._path(names["backup"])
-        self._validate(current, expected)
+        self._validate_existing_production(current, expected)
         if backup.exists():
             raise HelperError("backup already exists for job")
         source_fd = self._open_read(current)
@@ -288,13 +290,17 @@ class ZipHelper:
             self.fault("backup_before_fsync")
             os.fsync(backup_fd)
         except Exception:
-            if backup_fd >= 0: os.close(backup_fd); backup_fd = -1
-            try: os.unlink(backup)
-            except OSError: pass
+            if backup_fd >= 0:
+                os.close(backup_fd); backup_fd = -1
+            try:
+                os.unlink(backup)
+            except OSError:
+                pass
             raise
         finally:
             os.close(source_fd)
-            if backup_fd >= 0: os.close(backup_fd)
+            if backup_fd >= 0:
+                os.close(backup_fd)
         self._fsync_directory()
         return self._result("backup", file_name, job_id, self._validate(backup, expected))
 
@@ -305,7 +311,7 @@ class ZipHelper:
             os.rename(current, failed)
         os.rename(backup, current)
         self._fsync_directory()
-        self._validate(current, old_hash)
+        self._validate_existing_production(current, old_hash)
         if failed.exists():
             os.unlink(failed)
             self._fsync_directory()
@@ -315,7 +321,7 @@ class ZipHelper:
         old_hash, new_hash = validate_sha256(expected_old_sha256), validate_sha256(expected_new_sha256)
         current, new = self._path(names["production"]), self._path(names["new"])
         backup, failed = self._path(names["backup"]), self._path(names["failed_new"])
-        self._validate(current, old_hash)
+        self._validate_existing_production(current, old_hash)
         self._validate(new, new_hash)
         prebacked = backup.exists()
         if prebacked:
@@ -339,10 +345,11 @@ class ZipHelper:
         except Exception as original_error:
             try:
                 if prebacked:
-                    if current.exists(): os.unlink(current)
+                    if current.exists():
+                        os.unlink(current)
                     os.rename(failed, current)
                     self._fsync_directory()
-                    self._validate(current, old_hash)
+                    self._validate_existing_production(current, old_hash)
                 else:
                     self._restore_after_install_failure(current, backup, failed, old_hash)
             except Exception as restore_error:
@@ -384,16 +391,19 @@ class ZipHelper:
         except Exception as original_error:
             try:
                 if displaced.exists():
-                    if current.exists(): os.unlink(current)
+                    if current.exists():
+                        os.unlink(current)
                     os.rename(displaced, current)
                     self._fsync_directory()
-                if restore.exists(): os.unlink(restore)
+                if restore.exists():
+                    os.unlink(restore)
             except Exception as recovery_error:
                 raise HelperError(f"rollback failed and current state requires intervention: {recovery_error}") from original_error
             raise HelperError(f"rollback failed; pre-rollback production restored: {original_error}") from None
         finally:
             os.close(source_fd)
-            if restore_fd >= 0: os.close(restore_fd)
+            if restore_fd >= 0:
+                os.close(restore_fd)
         os.unlink(displaced)
         self._fsync_directory()
         backup_details = self._validate(backup, expected)
@@ -475,33 +485,15 @@ def main(argv: list[str] | None = None) -> int:
         elif operation == "probe-setgid":
             result = helper.probe_setgid()
         elif operation == "prepare":
-            result = helper.prepare(
-                file_name=args.file,
-                job_id=args.job_id,
-                expected_new_sha256=args.expected_new_sha256,
-            )
+            result = helper.prepare(file_name=args.file, job_id=args.job_id, expected_new_sha256=args.expected_new_sha256)
         elif operation == "backup":
-            result = helper.backup(file_name=args.file, job_id=args.job_id,
-                                   expected_sha256=args.expected_sha256)
+            result = helper.backup(file_name=args.file, job_id=args.job_id, expected_sha256=args.expected_sha256)
         elif operation == "install":
-            result = helper.install(
-                file_name=args.file,
-                job_id=args.job_id,
-                expected_old_sha256=args.expected_old_sha256,
-                expected_new_sha256=args.expected_new_sha256,
-            )
+            result = helper.install(file_name=args.file, job_id=args.job_id, expected_old_sha256=args.expected_old_sha256, expected_new_sha256=args.expected_new_sha256)
         elif operation == "rollback":
-            result = helper.rollback(
-                file_name=args.file,
-                job_id=args.job_id,
-                expected_sha256=args.expected_sha256,
-            )
+            result = helper.rollback(file_name=args.file, job_id=args.job_id, expected_sha256=args.expected_sha256)
         elif operation == "cleanup":
-            result = helper.cleanup(
-                file_name=args.file,
-                job_id=args.job_id,
-                artifact=args.artifact,
-            )
+            result = helper.cleanup(file_name=args.file, job_id=args.job_id, artifact=args.artifact)
         else:
             raise HelperError("unsupported operation")
         print(json.dumps(result, sort_keys=True))

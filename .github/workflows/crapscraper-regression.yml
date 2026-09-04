@@ -29,6 +29,7 @@ jobs:
           python -m py_compile
           app/updates/plugintheme_source_recovery.py
           app/updates/source_filter_runtime.py
+          app/updates/target_preflight.py
           app/additions/source_filter_runtime.py
 
       - name: Targeted Python regressions
@@ -39,6 +40,11 @@ jobs:
           tests/test_update_sources.py
           tests/test_update_execution_preflight_and_live_version.py
           tests/test_update_target_preflight.py
+          tests/test_update_target_casefold.py
+
+      - name: Privileged ZIP helper regressions
+        working-directory: .
+        run: python -m pytest -q tests/test_zip_helper.py tests/test_zip_helper_legacy_owner.py
 
       - name: Application bootstrap smoke
         env:

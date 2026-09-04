@@ -36,11 +36,7 @@ class TargetZipError(RuntimeError):
                 "Corrija o arquivo associado ao produto antes de tentar a atualização novamente."
             )
         self.diagnosis = diagnosis
-        self.details = {
-            "target_filename": self.filename,
-            "target_path": self.path,
-            "reason": self.reason,
-        }
+        self.details = {"target_filename": self.filename, "target_path": self.path, "reason": self.reason}
         super().__init__(message)
 
 
@@ -70,6 +66,32 @@ def _target_path(installer: Any, job: dict[str, Any]) -> str:
     return str(job.get("target_filename") or "")
 
 
+def _local_casefold_match(target: Path) -> Path | None:
+    """Resolve somente diferença de caixa; nunca faz fuzzy/substring matching."""
+    try:
+        matches = [item for item in target.parent.iterdir() if item.name.casefold() == target.name.casefold()]
+    except OSError:
+        return None
+    regular = [item for item in matches if item.is_file()]
+    return regular[0] if len(regular) == 1 else None
+
+
+def _sftp_casefold_name(sftp: Any, remote: str) -> str | None:
+    """Resolve um único basename idêntico por casefold dentro do mesmo diretório."""
+    root, expected = remote.rsplit("/", 1) if "/" in remote else (".", remote)
+    try:
+        if callable(getattr(sftp, "listdir", None)):
+            names = list(sftp.listdir(root))
+        elif callable(getattr(sftp, "listdir_attr", None)):
+            names = [str(getattr(item, "filename", "")) for item in sftp.listdir_attr(root)]
+        else:
+            return None
+    except OSError:
+        return None
+    matches = [name for name in names if name and name.casefold() == expected.casefold()]
+    return matches[0] if len(matches) == 1 else None
+
+
 def translate_target_exception(installer: Any, job: dict[str, Any], error: BaseException) -> TargetZipError | None:
     """Traduz ENOENT tardio (ex.: corrida entre preflight e backup) sem mascarar outros erros."""
     if not _missing(error):
@@ -87,7 +109,12 @@ def check_target(installer: Any, job: dict[str, Any]) -> dict[str, Any]:
     if callable(local_target):
         target = Path(local_target(job))
         if not target.is_file():
-            raise TargetZipError(filename=filename, path=str(target), reason="missing")
+            resolved = _local_casefold_match(target)
+            if resolved is None:
+                raise TargetZipError(filename=filename, path=str(target), reason="missing")
+            filename = resolved.name
+            job["target_filename"] = filename
+            target = resolved
         try:
             with target.open("rb") as stream:
                 stream.read(1)
@@ -108,9 +135,20 @@ def check_target(installer: Any, job: dict[str, Any]) -> dict[str, Any]:
             try:
                 attrs = sftp.stat(remote)
             except (FileNotFoundError, OSError) as error:
-                if _missing(error):
+                if not _missing(error):
+                    raise TargetZipError(filename=filename, path=remote, reason="unreadable") from error
+                actual_name = _sftp_casefold_name(sftp, remote)
+                if actual_name is None:
                     raise TargetZipError(filename=filename, path=remote, reason="missing") from error
-                raise TargetZipError(filename=filename, path=remote, reason="unreadable") from error
+                filename = actual_name
+                job["target_filename"] = filename
+                remote = str(remote_target(job))
+                try:
+                    attrs = sftp.stat(remote)
+                except (FileNotFoundError, OSError) as retry_error:
+                    if _missing(retry_error):
+                        raise TargetZipError(filename=filename, path=remote, reason="missing") from retry_error
+                    raise TargetZipError(filename=filename, path=remote, reason="unreadable") from retry_error
             mode = getattr(attrs, "st_mode", 0)
             if mode and not stat.S_ISREG(mode):
                 raise TargetZipError(filename=filename, path=remote, reason="unreadable")
@@ -130,5 +168,4 @@ def check_target(installer: Any, job: dict[str, Any]) -> dict[str, Any]:
             client.close()
         return {"ok": True, "checked": True, "target_filename": filename, "target_path": remote}
 
-    # Fakes/adaptadores externos sem contrato de caminho continuam compatíveis.
     return {"ok": True, "checked": False, "target_filename": filename, "target_path": ""}
