@@ -10,7 +10,10 @@ def create_application() -> Application:
     # A pasta CrapScraper/ é a aplicação modular atual. Instala as correções
     # sobre este grafo antes de construir os serviços; a raiz do repositório
     # continua apenas como legado e não é usada pelo launcher atual.
+    from app.missing_target_recovery import install_missing_target_recovery
     from app.current_app_recovery import install_current_app_recovery
+
+    install_missing_target_recovery()
     install_current_app_recovery()
 
     # Import the domain graph only after load_settings has published the
