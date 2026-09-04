@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-for %%I in ("%~dp0..") do set "CRAPSCRAPER_ROOT=%%~fI"
+for %%I in ("%~dp0.") do set "CRAPSCRAPER_ROOT=%%~fI"
 cd /d "%CRAPSCRAPER_ROOT%"
 
 set "CRAPSCRAPER_PORT=%SCRAPER_PORT%"
