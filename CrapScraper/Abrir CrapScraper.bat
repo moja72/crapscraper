@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions
 
-rem Este BAT fica em CrapScraper\, mas a aplicacao atual vive na raiz do repositorio.
-for %%I in ("%~dp0..") do set "CRAPSCRAPER_ROOT=%%~fI"
+rem A aplicacao atual vive nesta propria pasta CrapScraper\.
+for %%I in ("%~dp0.") do set "CRAPSCRAPER_ROOT=%%~fI"
 cd /d "%CRAPSCRAPER_ROOT%"
 
 set "CRAPSCRAPER_PORT=%SCRAPER_PORT%"
@@ -11,21 +11,23 @@ set "CRAPSCRAPER_URL=http://127.0.0.1:%CRAPSCRAPER_PORT%"
 set "CRAPSCRAPER_RUNTIME=%CRAPSCRAPER_ROOT%\.runtime"
 set "CRAPSCRAPER_PID=%CRAPSCRAPER_RUNTIME%\server.pid"
 
-rem O launcher local habilita escrita da Loja e adicoes reais por padrao.
+rem Defaults locais da aplicacao atual. Variaveis persistidas do Windows continuam
+rem sendo carregadas por CrapScraper\main.py e podem sobrescrever estes defaults.
 if not defined SCRAPER_STORE_WRITE_ENABLED set "SCRAPER_STORE_WRITE_ENABLED=1"
 if not defined SCRAPER_ADDITION_EXECUTION_ENABLED set "SCRAPER_ADDITION_EXECUTION_ENABLED=1"
+if not defined SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED set "SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED=1"
 
-rem Sempre reinicia uma instancia CrapScraper ja ativa. Assim o BAT nunca reaproveita
-rem um processo antigo iniciado pela pasta CrapScraper\app legada.
+rem Nunca reaproveitar uma instancia antiga na porta. O erro anterior ocorreu
+rem justamente porque um main.py da raiz legada permaneceu ativo.
 call :health
 if errorlevel 1 goto start_server
 
-echo [CrapScraper] Instancia existente encontrada. Reiniciando com o codigo atual da raiz...
+echo [CrapScraper] Instancia existente encontrada. Reiniciando com a aplicacao atual...
 call :stop_existing
 if errorlevel 1 (
   echo.
   echo [CrapScraper] Nao foi possivel reiniciar a instancia existente com seguranca.
-  echo Feche manualmente o processo que esta usando a porta %CRAPSCRAPER_PORT% e tente novamente.
+  echo Feche manualmente o processo Python que estiver usando a porta %CRAPSCRAPER_PORT% e tente novamente.
   echo.
   pause
   exit /b 1
@@ -44,7 +46,7 @@ if errorlevel 1 (
 )
 
 if not exist "%CRAPSCRAPER_RUNTIME%" mkdir "%CRAPSCRAPER_RUNTIME%" >nul 2>nul
-echo [CrapScraper] Raiz atual: %CRAPSCRAPER_ROOT%
+echo [CrapScraper] Aplicacao atual: %CRAPSCRAPER_ROOT%\main.py
 echo [CrapScraper] Iniciando servidor em %CRAPSCRAPER_URL% ...
 python.exe -c "import os,subprocess,sys; root=r'%CRAPSCRAPER_ROOT%'; runtime=r'%CRAPSCRAPER_RUNTIME%'; os.makedirs(runtime,exist_ok=True); out=open(os.path.join(runtime,'server.stdout.log'),'ab'); err=open(os.path.join(runtime,'server.stderr.log'),'ab'); process=subprocess.Popen([sys.executable,os.path.join(root,'main.py')],cwd=root,stdin=subprocess.DEVNULL,stdout=out,stderr=err,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.DETACHED_PROCESS); print(process.pid)" > "%CRAPSCRAPER_PID%"
 if errorlevel 1 (
@@ -54,12 +56,12 @@ if errorlevel 1 (
 )
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$url='%CRAPSCRAPER_URL%/api/health'; for($i=0;$i -lt 80;$i++){ try { $r=Invoke-RestMethod -Uri $url -TimeoutSec 1; if($r.ok -and $r.store_write_enabled -eq $true){exit 0} } catch {}; Start-Sleep -Milliseconds 500 }; exit 1"
+  "$url='%CRAPSCRAPER_URL%/api/health'; for($i=0;$i -lt 80;$i++){ try { $r=Invoke-RestMethod -Uri $url -TimeoutSec 1; if($r.ok -and $r.app -eq 'CrapScraper' -and $r.edition -eq 'modular-current'){exit 0} } catch {}; Start-Sleep -Milliseconds 500 }; exit 1"
 if errorlevel 1 (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$pidFile='%CRAPSCRAPER_PID%'; if(Test-Path -LiteralPath $pidFile){ $serverPid=[int](Get-Content -LiteralPath $pidFile | Select-Object -First 1); $process=Get-Process -Id $serverPid -ErrorAction SilentlyContinue; if($process -and $process.ProcessName -in @('python','pythonw')){Stop-Process -Id $serverPid -Force}; Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue }"
+    "$pidFile='%CRAPSCRAPER_PID%'; if(Test-Path -LiteralPath $pidFile){ try{$serverPid=[int](Get-Content -LiteralPath $pidFile | Select-Object -First 1)}catch{$serverPid=0}; if($serverPid){$process=Get-Process -Id $serverPid -ErrorAction SilentlyContinue; if($process -and $process.ProcessName -in @('python','pythonw')){Stop-Process -Id $serverPid -Force}}; Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue }"
   echo.
-  echo [CrapScraper] O servidor atual nao iniciou corretamente.
+  echo [CrapScraper] A aplicacao modular atual nao iniciou corretamente.
   echo Consulte: "%CRAPSCRAPER_RUNTIME%\server.stderr.log"
   echo.
   pause
@@ -67,7 +69,7 @@ if errorlevel 1 (
 )
 
 :open_browser
-echo [CrapScraper] Interface atual disponivel em %CRAPSCRAPER_URL%
+echo [CrapScraper] Aplicacao modular atual disponivel em %CRAPSCRAPER_URL%
 if /I "%CRAPSCRAPER_NO_BROWSER%"=="1" goto done
 start "" "%CRAPSCRAPER_URL%"
 
