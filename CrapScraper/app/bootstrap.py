@@ -17,6 +17,9 @@ def create_application() -> Application:
     from app.legacy_permission_recovery import install_legacy_permission_recovery
     from app.update_retry_live_objective import install_update_retry_live_objective
     from app.addition_runtime_recovery import install_addition_runtime_recovery
+    from app.addition_decision_sync import install_addition_decision_sync
+    from app.comparison_live_reconciliation import install_comparison_live_reconciliation
+    from app.plugintheme_access_fallback import install_plugintheme_access_fallback
 
     install_missing_target_recovery()
     install_helper_diagnostic()
@@ -37,9 +40,20 @@ def create_application() -> Application:
     # bloqueiem a nova tentativa quando a origem avançou após a aprovação.
     install_update_retry_live_objective()
 
+    # Quando o check-access do PluginTheme responde falso, ainda permitimos uma
+    # única prova no endpoint de arquivo. Só há sucesso se o retorno final for um
+    # ZIP válido ou uma URL assinada válida; autenticação real continua obrigatória.
+    install_plugintheme_access_fallback()
+
     # A fila de adição sincroniza aprovações automaticamente e deixa conteúdo e
     # imagem com fallback seguro quando OPENAI_API_KEY não estiver configurada.
     install_addition_runtime_recovery()
+    install_addition_decision_sync()
+
+    # Um catálogo PluginTema é um snapshot. Para linhas marcadas como produto novo,
+    # o resultado visível é reconciliado com o WooCommerce ao vivo antes de permitir
+    # que uma aprovação de cadastro novo continue ativa.
+    install_comparison_live_reconciliation()
 
     # Import the domain graph only after load_settings has published the
     # canonical SCRAPER_DATA_DIR. The migrated collection core resolves its
