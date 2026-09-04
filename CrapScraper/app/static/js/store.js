@@ -3,9 +3,43 @@ import {polling} from "./polling.js";
 
 const $=selector=>document.querySelector(selector);
 const safe=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-const state={active:false,quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},logs:[],monitorBusy:false,qualityTimer:null,pricingBusy:false};
+const state={
+  active:false,
+  quality:{query:"",field:"",status:"all",category:"",page:1,pageSize:10,pages:1},
+  pricing:{query:"",kind:"",page:1,pageSize:10,pages:1,total:0,timer:null},
+  logs:[],monitorBusy:false,qualityTimer:null,pricingBusy:false,
+};
 const formatDate=value=>value?new Date(value).toLocaleString("pt-BR"):"—";
-const money=value=>value?`R$ ${safe(value)}`:"—";
+const money=value=>value!==undefined&&value!==null&&String(value)!==""?`R$ ${safe(value)}`:"—";
+
+function injectPricingStyles(){
+  if($("#store-current-pricing-style"))return;
+  const style=document.createElement("style");
+  style.id="store-current-pricing-style";
+  style.textContent=`
+    .store-current-pricing-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 170px 130px auto;gap:10px;align-items:end;margin:12px 0 14px}
+    .store-current-pricing-toolbar label{display:grid;gap:5px;font-size:12px;font-weight:700}
+    .store-current-pricing-toolbar input,.store-current-pricing-toolbar select{width:100%}
+    .store-current-pricing-summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
+    .store-current-pricing-summary span{padding:6px 9px;border:1px solid var(--line,#334155);border-radius:999px;font-size:11px}
+    .store-current-pricing-list{display:grid;gap:10px}
+    .store-current-price-card{border:1px solid var(--line,#334155);border-radius:12px;padding:12px;background:rgba(255,255,255,.02)}
+    .store-current-price-card>header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}
+    .store-current-price-card>header small{display:block;margin-top:3px}
+    .store-current-price-kind{font-size:11px;font-weight:800;border:1px solid var(--line,#334155);border-radius:999px;padding:4px 7px}
+    .store-current-price-fields{display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:9px;margin-top:8px}
+    .store-current-price-fields label{display:grid;gap:4px;font-size:11px;font-weight:700}
+    .store-current-variation{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.7fr) minmax(120px,.7fr);gap:9px;align-items:end;padding:8px 0;border-top:1px solid rgba(148,163,184,.14)}
+    .store-current-variation:first-child{border-top:0}
+    .store-current-variation small{display:block;margin-top:3px}
+    .store-current-price-actions{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:8px;align-items:end;margin-top:10px}
+    .store-current-price-actions label{display:grid;gap:4px;font-size:11px;font-weight:700}
+    .store-current-price-status{min-height:18px;margin-top:8px;font-size:12px}
+    .store-current-pricing-pagination{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px}
+    @media(max-width:900px){.store-current-pricing-toolbar{grid-template-columns:1fr 1fr}.store-current-variation{grid-template-columns:1fr 1fr}.store-current-variation>div:first-child{grid-column:1/-1}.store-current-price-actions{grid-template-columns:1fr 1fr}.store-current-price-actions label{grid-column:1/-1}}
+  `;
+  document.head.appendChild(style);
+}
 
 function environmentView(payload){
   $("#store-environment-chips").innerHTML=(payload.checks||[]).map(item=>`<article class="environment-chip" data-state="${safe(item.state)}" title="${safe(item.detail||"")}"><div><strong>${safe(item.label)}</strong><span>${safe(item.value)}</span></div></article>`).join("");
@@ -37,7 +71,7 @@ function monitorView(monitor={}){
   $("#store-current-version").textContent=monitor.current_version||"—";
   $("#store-found-version").textContent=monitor.found_version||"—";
   $("#store-request-state").textContent=monitor.request_state||"—";
-  const status=monitor.error?.message?`Falha: ${monitor.error.message}`:running?"Consulta em andamento.":enabled?`Próxima consulta automática em intervalos de ${monitor.interval_seconds||30}s.`:"Monitor automático desativado.";
+  const status=monitor.error?.message?`Falha: ${monitor.error.message}`:running?"Consulta em andamento.":enabled?`CrapScraper aberto: pedidos do MU-plugin são consultados automaticamente a cada ${monitor.interval_seconds||30}s.`:"Monitor automático desativado.";
   $("#store-monitor-operation").textContent=status;
   $("#store-monitor-operation").className=`operation-band ${monitor.error?"error":running?"loading":"info"}`;
   const logs=[...(monitor.logs||[])];
@@ -53,10 +87,37 @@ async function refreshSummary(){
   catch(error){$("#store-monitor-operation").textContent=`Falha ao consultar monitor: ${error.message}`;$("#store-monitor-operation").className="operation-band error"}
 }
 
-const variationPrices=items=>items.map(item=>`<li>${safe(item.product_name)} · ${safe(item.period)} · ${money(item.regular_price)} / ${money(item.sale_price)}</li>`).join("");
 function priceGroup(items,group){
   if(!items.length)return`<p class="empty">Nenhum ${group==="pack"?"pacote":"plano"} configurado.</p>`;
-  return items.map(item=>{const variations=item.variations||[],priceFields=variations.length?`<div class="store-variation-prices">${variations.map(row=>`<div data-price-variation="${row.id}"><strong>${safe(row.name||`Variação #${row.id}`)}</strong><label>Regular<input data-variation-regular inputmode="decimal" value="${safe(row.regular_price)}"></label><label>Promocional<input data-variation-sale inputmode="decimal" value="${safe(row.sale_price)}"></label></div>`).join("")}</div>`:`<div class="form-row"><label>Regular<input data-bundle-regular inputmode="decimal" value="${safe(item.regular_price)}"></label><label>Promocional<input data-bundle-sale inputmode="decimal" value="${safe(item.sale_price)}"></label></div>`;return`<article class="store-price-item" data-price-product="${item.product_id}" data-price-group="${group}"><header><div><strong>${safe(item.product_name)}</strong><small>Woo #${item.product_id} · ${safe(item.product_type)}</small></div><span>${variations.length?`${variations.length} variação(ões)`:money(item.regular_price)+" / "+money(item.sale_price)}</span></header>${priceFields}<div class="form-row"><label>Confirmação<input data-bundle-confirmation placeholder="ALTERAR PRECO"></label><button data-bundle-preview>Prévia</button><button data-bundle-apply class="primary">Aplicar</button></div><div data-bundle-status class="action-message" aria-live="polite"></div></article>`}).join("");
+  return items.map(item=>{
+    const variations=item.variations||[];
+    const priceFields=variations.length?`<div class="store-variation-prices">${variations.map(row=>`<div data-price-variation="${row.id}"><strong>${safe(row.name||`Variação #${row.id}`)}</strong><label>Regular<input data-variation-regular inputmode="decimal" value="${safe(row.regular_price)}"></label><label>Promocional<input data-variation-sale inputmode="decimal" value="${safe(row.sale_price)}"></label></div>`).join("")}</div>`:`<div class="form-row"><label>Regular<input data-bundle-regular inputmode="decimal" value="${safe(item.regular_price)}"></label><label>Promocional<input data-bundle-sale inputmode="decimal" value="${safe(item.sale_price)}"></label></div>`;
+    return`<article class="store-price-item" data-price-product="${item.product_id}" data-price-group="${group}"><header><div><strong>${safe(item.product_name)}</strong><small>Woo #${item.product_id} · ${safe(item.product_type)}</small></div><span>${variations.length?`${variations.length} variação(ões)`:money(item.regular_price)+" / "+money(item.sale_price)}</span></header>${priceFields}<div class="form-row"><label>Confirmação<input data-bundle-confirmation placeholder="ALTERAR PRECO"></label><button data-bundle-preview>Prévia</button><button data-bundle-apply class="primary">Aplicar</button></div><div data-bundle-status class="action-message" aria-live="polite"></div></article>`;
+  }).join("");
+}
+
+function productPriceCard(item){
+  const variations=item.variations||[];
+  const fields=variations.length?`<div>${variations.map(row=>`<div class="store-current-variation" data-product-price-variation="${row.id}"><div><strong>${safe(row.name||`Variação #${row.id}`)}</strong><small>${row.period==="annual"?"Anual":row.period==="lifetime"?"Vitalícia":"Variação"} · #${row.id}</small></div><label>Valor original<input data-product-price-regular inputmode="decimal" value="${safe(row.regular_price)}"></label><label>Valor promocional<input data-product-price-sale inputmode="decimal" value="${safe(row.sale_price)}"></label></div>`).join("")}</div>`:`<div class="store-current-price-fields"><label>Valor original<input data-product-price-direct-regular inputmode="decimal" value="${safe(item.regular_price)}"></label><label>Valor promocional<input data-product-price-direct-sale inputmode="decimal" value="${safe(item.sale_price)}"></label></div>`;
+  return `<article class="store-current-price-card" data-product-price-card="${item.product_id}" data-product-price-mode="${safe(item.pricing_mode)}"><header><div><strong>${safe(item.product_name)}</strong><small>Woo #${item.product_id} · ${safe(item.product_type)}</small></div><span class="store-current-price-kind">${item.kind==="theme"?"Tema":"Plugin"}</span></header>${fields}<div class="store-current-price-actions"><label>Confirmação<input data-product-price-confirmation placeholder="ALTERAR PRECO"></label><button data-product-price-preview>Prévia</button><button data-product-price-apply class="primary">Salvar preços</button></div><div data-product-price-status class="store-current-price-status" role="status"></div></article>`;
+}
+
+function renderIndividualPricing(individual,writeEnabled){
+  injectPricingStyles();
+  const root=$("#store-individual-current");
+  if(!root)return;
+  const items=individual.items||[],available=individual.available_products||{};
+  state.pricing.page=Number(individual.page||1);state.pricing.pages=Number(individual.pages||1);state.pricing.total=Number(individual.total||0);
+  root.innerHTML=`
+    <div class="store-current-pricing-toolbar">
+      <label>Buscar produto<input id="store-product-price-query" type="search" value="${safe(state.pricing.query)}" placeholder="Nome ou WooCommerce ID"></label>
+      <label>Tipo<select id="store-product-price-kind"><option value="">Todos</option><option value="plugin"${state.pricing.kind==="plugin"?" selected":""}>Plugins</option><option value="theme"${state.pricing.kind==="theme"?" selected":""}>Temas</option></select></label>
+      <label>Itens por página<select id="store-product-price-size">${[5,10,20,50].map(size=>`<option value="${size}"${state.pricing.pageSize===size?" selected":""}>${size}</option>`).join("")}</select></label>
+      <button id="store-product-price-refresh" type="button">Atualizar lista</button>
+    </div>
+    <div class="store-current-pricing-summary"><span><strong>${state.pricing.total}</strong> no filtro</span><span><strong>${available.plugin||0}</strong> plugins</span><span><strong>${available.theme||0}</strong> temas</span><span>${writeEnabled?"Escrita habilitada":"Somente leitura"}</span></div>
+    <div class="store-current-pricing-list">${items.map(productPriceCard).join("")||'<div class="empty">Nenhum produto corresponde aos filtros.</div>'}</div>
+    <div class="store-current-pricing-pagination"><span>Mostrando ${state.pricing.total?((state.pricing.page-1)*state.pricing.pageSize)+1:0}–${Math.min(state.pricing.total,state.pricing.page*state.pricing.pageSize)} de ${state.pricing.total}</span><div class="row"><button id="store-product-price-prev"${state.pricing.page<=1?" disabled":""}>← Anterior</button><span>Página ${state.pricing.page} de ${state.pricing.pages}</span><button id="store-product-price-next"${state.pricing.page>=state.pricing.pages?" disabled":""}>Próxima →</button></div></div>`;
 }
 
 function ensurePricingProgress(){
@@ -69,19 +130,14 @@ function ensurePricingProgress(){
 }
 
 function pricingProgressView(payload={},forceVisible=false){
-  const panel=ensurePricingProgress();
-  if(!panel)return;
+  const panel=ensurePricingProgress();if(!panel)return;
   const terminal=["success","partial","error"].includes(payload.state),running=payload.state==="running";
   panel.hidden=!(forceVisible||running||terminal);
   const status=$("#store-pricing-progress-status"),progress=Math.max(0,Math.min(100,Number(payload.progress||0))),current=Number(payload.current||0),total=Number(payload.total||0);
   status.textContent=payload.message||"Processando preços…";
   status.className=`operation-band ${running?"loading":payload.state==="success"?"success":payload.state==="partial"||payload.state==="error"?"error":"info"}`;
-  $("#store-pricing-progress-bar").value=progress;
-  $("#store-pricing-progress-percent").textContent=`${progress}%`;
-  $("#store-pricing-progress-count").textContent=total?`${current} de ${total}`:"Aguardando dados";
-  const output=$("#store-pricing-progress-log"),logs=[...(payload.logs||[])];
-  output.textContent=logs.join("\n")||"Aguardando logs da aplicação…";
-  output.scrollTop=output.scrollHeight;
+  $("#store-pricing-progress-bar").value=progress;$("#store-pricing-progress-percent").textContent=`${progress}%`;$("#store-pricing-progress-count").textContent=total?`${current} de ${total}`:"Aguardando dados";
+  const output=$("#store-pricing-progress-log"),logs=[...(payload.logs||[])];output.textContent=logs.join("\n")||"Aguardando logs da aplicação…";output.scrollTop=output.scrollHeight;
 }
 
 async function refreshPricingProgress(forceVisible=false){
@@ -90,15 +146,38 @@ async function refreshPricingProgress(forceVisible=false){
   catch(error){if(forceVisible)pricingProgressView({state:"error",message:`Falha ao consultar o status: ${error.message}`,logs:[`Falha ao consultar o status: ${error.message}`]},true);return null}
 }
 
-async function loadPricing(){
+function pricingQuery(refresh=false){
+  return new URLSearchParams({query:state.pricing.query,type:state.pricing.kind,page:state.pricing.page,page_size:state.pricing.pageSize,refresh:refresh?"1":"0"});
+}
+
+async function loadPricing(refresh=false){
   try{
-    const payload=await get("/api/store/pricing/catalog"),individual=payload.individual?.items||[];
+    const payload=await get(`/api/store/pricing/catalog?${pricingQuery(refresh)}`);
     $("#store-pricing-gate").textContent=payload.write_enabled?"Escrita habilitada":"Somente leitura";
     $("#store-pricing-gate").dataset.status=payload.write_enabled?"success":"ready";
-    const sampled=payload.individual?.sampled_products||{},available=payload.individual?.available_products||{};$("#store-individual-current").innerHTML=`<p>Amostra real: ${sampled.plugin||0} de ${available.plugin||0} plugins e ${sampled.theme||0} de ${available.theme||0} temas.</p><ul>${variationPrices(individual.slice(0,12))}</ul><small>A prévia de alteração valida o conjunto selecionado completo antes de qualquer escrita.</small>`;
+    renderIndividualPricing(payload.individual||{},payload.write_enabled);
     $("#store-bundles").innerHTML=priceGroup(payload.packs?.items||[],"pack");
     $("#store-plans").innerHTML=priceGroup(payload.plans?.items||[],"plan");
-  }catch(error){$("#store-pricing-gate").textContent=`Falha: ${error.message}`;$("#store-bundles").textContent=$("#store-plans").textContent="Não foi possível carregar preços."}
+  }catch(error){
+    $("#store-pricing-gate").textContent=`Falha: ${error.message}`;
+    const current=$("#store-individual-current");if(current)current.innerHTML=`<div class="operation-band error">Não foi possível carregar os preços: ${safe(error.message)}</div>`;
+    $("#store-bundles").textContent=$("#store-plans").textContent="Não foi possível carregar preços.";
+  }
+}
+
+async function productPricing(card,apply=false){
+  if(!card)return;
+  const status=card.querySelector("[data-product-price-status]"),button=card.querySelector(apply?"[data-product-price-apply]":"[data-product-price-preview]");
+  const variations=[...card.querySelectorAll("[data-product-price-variation]")].map(row=>({id:Number(row.dataset.productPriceVariation),regular_price:row.querySelector("[data-product-price-regular]").value,sale_price:row.querySelector("[data-product-price-sale]").value}));
+  const payload={product_id:Number(card.dataset.productPriceCard),regular_price:card.querySelector("[data-product-price-direct-regular]")?.value||"",sale_price:card.querySelector("[data-product-price-direct-sale]")?.value||"",variations,confirmation:card.querySelector("[data-product-price-confirmation]").value};
+  const label=button.textContent;button.disabled=true;button.textContent=apply?"Salvando…":"Validando…";status.textContent=apply?"Aplicando preços no WooCommerce…":"Gerando prévia…";
+  try{
+    const result=await post(apply?"/api/store/pricing/product/apply":"/api/store/pricing/product/preview",payload);
+    if(result.status==="unchanged")status.textContent="Os preços já correspondem aos valores informados.";
+    else if(apply){status.textContent=`Preço atualizado com sucesso: ${result.changed||0} alteração(ões).`;await loadPricing(true)}
+    else status.textContent="Prévia validada. Há alteração de preço pendente.";
+  }catch(error){status.textContent=`Falha: ${error.message}`}
+  finally{if(button.isConnected){button.disabled=false;button.textContent=label}}
 }
 
 async function loadCategories(){
@@ -108,13 +187,11 @@ async function loadCategories(){
 
 function qualityQuery(){return new URLSearchParams({query:state.quality.query,field:state.quality.field,status:state.quality.status,category:state.quality.category,page:state.quality.page,page_size:state.quality.pageSize})}
 function qualityView(payload){
-  state.quality.pages=payload.pages;
-  $("#store-quality-count").textContent=`${payload.total} produto(s)`;
+  state.quality.pages=payload.pages;$("#store-quality-count").textContent=`${payload.total} produto(s)`;
   $("#store-quality-status-band").textContent=payload.analysis_complete?"Auditoria completa sobre o conjunto filtrado.":"Metadados básicos carregados; validação de variações em andamento.";
   $("#store-quality-status-band").className=`operation-band ${payload.analysis_error?"error":payload.analysis_complete?"success":"loading"}`;
   $("#store-quality").innerHTML=(payload.items||[]).map(item=>`<tr data-store-select="${item.product_id}"><td><button class="store-product-link" data-store-select="${item.product_id}">${safe(item.product_name)}</button><small>Woo #${item.product_id}</small></td><td>${safe(item.type||"—")}</td><td>${safe(item.version||"Ausente")}</td><td>${safe(item.developer||"Ausente")}</td><td>${item.official_url?`<a href="${safe(item.official_url)}" target="_blank" rel="noopener">Abrir</a>`:"Ausente"}</td><td>${item.short_description?"OK":"Ausente"}</td><td>${(item.categories||[]).map(name=>`<span class="category-chip">${safe(name)}</span>`).join(" ")||"Ausente"}</td><td>${(item.problems||[]).map(problem=>`<span class="quality-problem">${safe(problem.message)}</span>`).join("")||'<span class="quality-ok">Completo</span>'}</td></tr>`).join("")||'<tr><td colspan="8">Nenhum produto neste filtro.</td></tr>';
-  $("#store-quality-page").textContent=`Página ${payload.page} de ${payload.pages}`;
-  $("#store-quality-prev").disabled=payload.page<=1;$("#store-quality-next").disabled=payload.page>=payload.pages;
+  $("#store-quality-page").textContent=`Página ${payload.page} de ${payload.pages}`;$("#store-quality-prev").disabled=payload.page<=1;$("#store-quality-next").disabled=payload.page>=payload.pages;
 }
 
 async function refreshQuality(){
@@ -131,34 +208,18 @@ async function selectProduct(id){
 const individualPayload=()=>({kinds:[$("#store-price-plugin").checked?"plugin":"",$("#store-price-theme").checked?"theme":""].filter(Boolean),annual_regular:$("#store-annual-regular").value,annual_sale:$("#store-annual-sale").value,lifetime_regular:$("#store-lifetime-regular").value,lifetime_sale:$("#store-lifetime-sale").value,confirmation:$("#store-price-confirmation").value});
 async function individualPricing(apply=false){
   const target=$("#store-pricing-preview");
-  if(!apply){
-    target.textContent="Gerando prévia…";
-    try{const payload=await post("/api/store/pricing/preview",individualPayload());target.textContent=`${payload.affected} alteração(ões); ${payload.unchanged} inalterada(s).`}
-    catch(error){target.textContent=`Falha: ${error.message}`}
-    return;
-  }
-  if(state.pricingBusy)return;
-  state.pricingBusy=true;
-  const applyButton=$("#store-price-apply"),previewButton=$("#store-price-preview");
-  applyButton.disabled=true;previewButton.disabled=true;target.textContent="Aplicando preços…";
+  if(!apply){target.textContent="Gerando prévia…";try{const payload=await post("/api/store/pricing/preview",individualPayload());target.textContent=`${payload.affected} alteração(ões); ${payload.unchanged} inalterada(s).`}catch(error){target.textContent=`Falha: ${error.message}`}return}
+  if(state.pricingBusy)return;state.pricingBusy=true;
+  const applyButton=$("#store-price-apply"),previewButton=$("#store-price-preview");applyButton.disabled=true;previewButton.disabled=true;target.textContent="Aplicando preços…";
   pricingProgressView({state:"running",message:"Iniciando aplicação de preços…",progress:0,current:0,total:0,logs:["Preparando aplicação e aguardando a primeira resposta do servidor…"]},true);
-  try{
-    const payload=await post("/api/store/pricing/apply",individualPayload());
-    await refreshPricingProgress(true);
-    target.textContent=`${payload.changed} preço(s) alterado(s); ${payload.unchanged} inalterado(s).`;
-    await loadPricing();
-  }catch(error){
-    target.textContent=`Falha: ${error.message}`;
-    const latest=await refreshPricingProgress(true);
-    if(!latest||!["error","partial"].includes(latest.state))pricingProgressView({state:"error",message:`Falha ao aplicar preços: ${error.message}`,progress:0,current:0,total:0,logs:[`Falha ao aplicar preços: ${error.message}`]},true);
-  }finally{
-    state.pricingBusy=false;applyButton.disabled=false;previewButton.disabled=false;
-  }
+  try{const payload=await post("/api/store/pricing/apply",individualPayload());await refreshPricingProgress(true);target.textContent=`${payload.changed} preço(s) alterado(s); ${payload.unchanged} inalterado(s).`;await loadPricing(true)}
+  catch(error){target.textContent=`Falha: ${error.message}`;const latest=await refreshPricingProgress(true);if(!latest||!["error","partial"].includes(latest.state))pricingProgressView({state:"error",message:`Falha ao aplicar preços: ${error.message}`,progress:0,current:0,total:0,logs:[`Falha ao aplicar preços: ${error.message}`]},true)}
+  finally{state.pricingBusy=false;applyButton.disabled=false;previewButton.disabled=false}
 }
 
 async function bundlePricing(card,apply=false){
   const variations=[...card.querySelectorAll("[data-price-variation]")].map(row=>({id:Number(row.dataset.priceVariation),regular_price:row.querySelector("[data-variation-regular]").value,sale_price:row.querySelector("[data-variation-sale]").value})),target=card.querySelector("[data-bundle-status]"),payload={product_id:Number(card.dataset.priceProduct),price_group:card.dataset.priceGroup,regular_price:card.querySelector("[data-bundle-regular]")?.value||"",sale_price:card.querySelector("[data-bundle-sale]")?.value||"",variations,confirmation:card.querySelector("[data-bundle-confirmation]").value};target.textContent=apply?"Aplicando…":"Validando…";
-  try{const result=await post(apply?"/api/store/bundles/apply":"/api/store/bundles/preview",payload);target.textContent=result.status==="unchanged"?"Preço já corresponde ao solicitado.":apply?"Preço atualizado.":"Alteração confirmada na prévia.";if(apply)await loadPricing()}
+  try{const result=await post(apply?"/api/store/bundles/apply":"/api/store/bundles/preview",payload);target.textContent=result.status==="unchanged"?"Preço já corresponde ao solicitado.":apply?"Preço atualizado.":"Alteração confirmada na prévia.";if(apply)await loadPricing(true)}
   catch(error){target.textContent=`Falha: ${error.message}`}
 }
 
@@ -170,8 +231,33 @@ async function toggleMonitor(){
 }
 
 document.addEventListener("app:tab",event=>{state.active=event.detail==="store";if(state.active){refreshEnvironment();refreshSummary();loadPricing();ensurePricingProgress();refreshPricingProgress();loadCategories();refreshQuality()}});
-document.addEventListener("input",event=>{if(event.target.id==="store-quality-query"){state.quality.query=event.target.value;state.quality.page=1;clearTimeout(state.qualityTimer);state.qualityTimer=setTimeout(refreshQuality,250)}});
-document.addEventListener("change",event=>{if(event.target.id==="store-quality-field"){state.quality.field=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-status"){state.quality.status=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-category"){state.quality.category=event.target.value;state.quality.page=1;refreshQuality()}if(event.target.id==="store-quality-page-size"){state.quality.pageSize=Number(event.target.value);state.quality.page=1;refreshQuality()}});
-document.addEventListener("click",async event=>{if(event.target.id==="store-environment-check")await refreshEnvironment(true);if(event.target.id==="store-monitor-toggle")await toggleMonitor();if(event.target.id==="store-monitor-run"){state.monitorBusy=true;event.target.disabled=true;try{const payload=await post("/api/store/monitor/run",{});monitorView(payload.monitor)}catch(error){$("#store-monitor-operation").textContent=`Falha: ${error.message}`;$("#store-monitor-operation").className="operation-band error"}finally{state.monitorBusy=false;event.target.disabled=false;await refreshSummary()}}if(event.target.id==="store-price-preview")await individualPricing(false);if(event.target.id==="store-price-apply")await individualPricing(true);const preview=event.target.closest("[data-bundle-preview]"),apply=event.target.closest("[data-bundle-apply]");if(preview||apply)await bundlePricing(event.target.closest("[data-price-product]"),Boolean(apply));const product=event.target.closest("[data-store-select]")?.dataset.storeSelect;if(product)await selectProduct(product);if(event.target.id==="store-quality-prev"&&state.quality.page>1){state.quality.page--;refreshQuality()}if(event.target.id==="store-quality-next"&&state.quality.page<state.quality.pages){state.quality.page++;refreshQuality()}});
+document.addEventListener("input",event=>{
+  if(event.target.id==="store-quality-query"){state.quality.query=event.target.value;state.quality.page=1;clearTimeout(state.qualityTimer);state.qualityTimer=setTimeout(refreshQuality,250)}
+  if(event.target.id==="store-product-price-query"){state.pricing.query=event.target.value;state.pricing.page=1;clearTimeout(state.pricing.timer);state.pricing.timer=setTimeout(()=>loadPricing(),300)}
+});
+document.addEventListener("change",event=>{
+  if(event.target.id==="store-quality-field"){state.quality.field=event.target.value;state.quality.page=1;refreshQuality()}
+  if(event.target.id==="store-quality-status"){state.quality.status=event.target.value;state.quality.page=1;refreshQuality()}
+  if(event.target.id==="store-quality-category"){state.quality.category=event.target.value;state.quality.page=1;refreshQuality()}
+  if(event.target.id==="store-quality-page-size"){state.quality.pageSize=Number(event.target.value);state.quality.page=1;refreshQuality()}
+  if(event.target.id==="store-product-price-kind"){state.pricing.kind=event.target.value;state.pricing.page=1;loadPricing()}
+  if(event.target.id==="store-product-price-size"){state.pricing.pageSize=Number(event.target.value)||10;state.pricing.page=1;loadPricing()}
+});
+document.addEventListener("click",async event=>{
+  if(event.target.id==="store-environment-check")await refreshEnvironment(true);
+  if(event.target.id==="store-monitor-toggle")await toggleMonitor();
+  if(event.target.id==="store-monitor-run"){state.monitorBusy=true;event.target.disabled=true;try{const payload=await post("/api/store/monitor/run",{});monitorView(payload.monitor)}catch(error){$("#store-monitor-operation").textContent=`Falha: ${error.message}`;$("#store-monitor-operation").className="operation-band error"}finally{state.monitorBusy=false;event.target.disabled=false;await refreshSummary()}}
+  if(event.target.id==="store-price-preview")await individualPricing(false);
+  if(event.target.id==="store-price-apply")await individualPricing(true);
+  const productPreview=event.target.closest("[data-product-price-preview]"),productApply=event.target.closest("[data-product-price-apply]");
+  if(productPreview||productApply)await productPricing(event.target.closest("[data-product-price-card]"),Boolean(productApply));
+  if(event.target.id==="store-product-price-refresh")await loadPricing(true);
+  if(event.target.id==="store-product-price-prev"&&state.pricing.page>1){state.pricing.page--;await loadPricing()}
+  if(event.target.id==="store-product-price-next"&&state.pricing.page<state.pricing.pages){state.pricing.page++;await loadPricing()}
+  const preview=event.target.closest("[data-bundle-preview]"),apply=event.target.closest("[data-bundle-apply]");if(preview||apply)await bundlePricing(event.target.closest("[data-price-product]"),Boolean(apply));
+  const product=event.target.closest("[data-store-select]")?.dataset.storeSelect;if(product)await selectProduct(product);
+  if(event.target.id==="store-quality-prev"&&state.quality.page>1){state.quality.page--;refreshQuality()}
+  if(event.target.id==="store-quality-next"&&state.quality.page<state.quality.pages){state.quality.page++;refreshQuality()}
+});
 polling.register("store-state",refreshSummary,1500);
 polling.register("store-pricing-status",refreshPricingProgress,750);
