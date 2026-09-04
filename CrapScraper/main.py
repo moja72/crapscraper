@@ -1,26 +1,42 @@
 from __future__ import annotations
 
-"""Compatibilidade para atalhos antigos.
-
-A aplicação canônica vive em ``../main.py``. Este arquivo existe apenas para que
-atalhos/comandos antigos não iniciem acidentalmente a árvore ``CrapScraper/app``
-legada.
-"""
-
 import os
-from pathlib import Path
-import runpy
 import sys
+from pathlib import Path
+
+from app.bootstrap import create_application
+from app.configuration import WINDOWS_USER_ENVIRONMENT_KEYS
+
+
+def load_windows_user_environment() -> dict[str, bool]:
+    """Carrega a configuração persistida do usuário sem registrar valores."""
+    presence = {key: bool(os.getenv(key, "").strip()) for key in WINDOWS_USER_ENVIRONMENT_KEYS}
+    if sys.platform != "win32":
+        return presence
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as environment:
+            for key in WINDOWS_USER_ENVIRONMENT_KEYS:
+                if presence[key]:
+                    continue
+                try:
+                    value, _kind = winreg.QueryValueEx(environment, key)
+                except FileNotFoundError:
+                    continue
+                normalized = str(value or "").strip()
+                if normalized:
+                    os.environ[key] = normalized
+                    presence[key] = True
+    except OSError:
+        pass
+    return presence
+
+
+def main() -> None:
+    load_windows_user_environment()
+    print(f"[CrapScraper] Aplicação modular atual: {Path(__file__).resolve()}", flush=True)
+    create_application().serve()
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[1]
-    root_main = root / "main.py"
-    # O diretório desta cópia legada também possui um pacote chamado app. A raiz
-    # precisa vir primeiro no sys.path para que imports ``app.*`` usem a aplicação
-    # atual e não a árvore antiga.
-    root_text = str(root)
-    sys.path[:] = [item for item in sys.path if str(Path(item or ".").resolve()) != str(Path(__file__).resolve().parent)]
-    sys.path.insert(0, root_text)
-    os.chdir(root)
-    runpy.run_path(str(root_main), run_name="__main__")
+    main()
