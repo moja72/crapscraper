@@ -7,11 +7,7 @@ from app.helper_diagnostic import (
 
 
 def test_legacy_helper_capabilities_failure_is_classified():
-    message = (
-        '{"error": "argument operation: invalid choice: \'capabilities\' '
-        "(choose from 'inspect', 'probe-setgid', 'prepare', 'backup', 'install', 'rollback', 'cleanup')", '
-        '"ok": false, "operation": "parse"}'
-    )
+    message = """{"error": "argument operation: invalid choice: 'capabilities' (choose from 'inspect', 'probe-setgid', 'prepare', 'backup', 'install', 'rollback', 'cleanup')", "ok": false, "operation": "parse"}"""
 
     assert is_legacy_helper_capabilities_failure(message) is True
     result = normalize_helper_check({"ok": False, "message": message})
