@@ -61,6 +61,7 @@ jobs:
         run: |
           node --check app/static/js/runtime-fixes.js
           node --check app/static/js/app.js
+          node --check tests/compare_loading_ui.mjs
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
@@ -68,5 +69,5 @@ jobs:
       - name: Update UI E2E
         run: npm run e2e:updates
 
-      - name: Compare UI E2E
-        run: node tests/compare_ui.mjs
+      - name: Compare loading UI E2E
+        run: node tests/compare_loading_ui.mjs
