@@ -122,11 +122,5 @@ def install_startup_runtime_gate_policy() -> None:
     web.PTThreadingHTTPServer = _server_factory
     _INSTALLED = True
 
-    # Esta é deliberadamente a última policy instalada por main.py. A camada de
-    # observabilidade precisa envolver o job_public/render finais para não ser
-    # sobrescrita pelas políticas de UI carregadas antes dela.
-    from app.update_reliability_observability_policy import install_update_reliability_observability_policy
-    install_update_reliability_observability_policy()
-
 
 __all__ = ["install_startup_runtime_gate_policy", "_must_gate_post"]
