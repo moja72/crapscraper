@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import io
+import zipfile
 
 import requests
 from app.updates.sources import classify_source_error, PluginThemeSource, UltraPackSource
@@ -7,21 +9,28 @@ from app.updates.source_auth import register_source_session, clear_source_sessio
 
 
 def test_ultrapack_preflight_authenticates_on_demand_without_collection(monkeypatch):
+    from app.updates import ultrapack_source_recovery as recovery
+
     calls=[]
     session=requests.Session()
-    monkeypatch.setattr(
-        "app.updates.sources.ensure_source_session",
-        lambda kind, url: calls.append((kind,url)) or register_source_session(kind,session),
-    )
+    account="coproducaolancamentos"
+
+    def ensure(kind,url,account_key=""):
+        calls.append((kind,url,account_key))
+        register_source_session(kind,session,account_key or account)
+        return get_source_session(kind,account_key or account)
+
+    monkeypatch.setattr(recovery,"get_source_account",lambda _kind:account)
+    monkeypatch.setattr(recovery,"ensure_source_session",ensure)
     source=UltraPackSource()
     monkeypatch.setattr(source,"_inspect",lambda job:(job["source_url"]+"?f=token","2.0"))
     job={"source_url":"https://www.ultrapackv2.com/item/demo/","source_version":"2.0"}
     try:
         result=source.validate_access(job)
-        assert calls==[("ultrapackv2",job["source_url"])]
+        assert calls==[("ultrapackv2",job["source_url"],account)]
         assert result["version"]=="2.0" and "?f=token" in result["download_url"]
     finally:
-        clear_source_session("ultrapackv2",session)
+        clear_source_session("ultrapackv2",account_key=account)
 
 
 def test_source_sessions_are_isolated_by_account():
@@ -135,18 +144,39 @@ def test_shared_auth_survives_closing_collection_session():
 
 def test_plugintheme_final_download_reuses_shared_session(monkeypatch, tmp_path):
     shared=requests.Session();register_source_session("plugintheme",shared)
+    published=get_source_session("plugintheme")
     source=PluginThemeSource()
     monkeypatch.setattr(source,"_product",lambda _job:{"id":"product-id","version":"2.0"})
+
     class Meta:
-        def __init__(self,payload):self.payload=payload;self.url="https://api.plugintheme.net/file";self.text="";self.status_code=200;self.headers={}
+        def __init__(self,payload):
+            self.payload=payload;self.url="https://api.plugintheme.net/file";self.text="";self.status_code=200;self.headers={"Content-Type":"application/json"};self.content=b""
         def json(self):return self.payload
+
     responses=iter([Meta({"data":{"allowed":True}}),Meta({"data":{"downloadUrl":"https://files.example/product.zip"}})])
     monkeypatch.setattr(source,"_get",lambda url: next(responses))
+
+    stream=io.BytesIO()
+    with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("plugin/readme.txt",b"ok")
+    zip_body=stream.getvalue()
     calls=[]
-    def download(self,**kwargs):
-        calls.append(self.session);kwargs["target"].write_bytes(b"zip");return object()
-    monkeypatch.setattr("app.updates.sources.HttpDownloadTransport.download",download)
+
+    class ZipResponse:
+        status_code=200
+        url="https://files.example/product.zip"
+        headers={"Content-Type":"application/octet-stream","Content-Disposition":"attachment; filename=product.zip"}
+        text=""
+        content=zip_body
+
+    def signed_get(url,**kwargs):
+        calls.append((published,url,kwargs))
+        return ZipResponse()
+
+    monkeypatch.setattr(published,"get",signed_get)
     try:
-        source.download({"source_url":"https://plugintheme.net/product/item","source_version":"2.0"},tmp_path/"artifact.zip")
-        assert calls and calls[0] is not source.transport.session
-    finally:clear_source_session("plugintheme",shared)
+        artifact=source.download({"source_url":"https://plugintheme.net/product/item","source_version":"2.0"},tmp_path/"artifact.zip")
+        assert calls and calls[0][0] is published
+        assert calls[0][1]=="https://files.example/product.zip"
+        assert artifact.size==len(zip_body) and zipfile.is_zipfile(artifact.path)
+    finally:clear_source_session("plugintheme",account_key=source_auth.get_source_account("plugintheme"))
