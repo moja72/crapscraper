@@ -1,5 +1,9 @@
 # Validate with visudo -cf before installing. Install as root:root mode 0440.
-# The helper itself must be /usr/local/sbin/crapscraper-zip-helper, root:root,
-# mode 0755, and must not be writable by adminpt or plugi2090.
+# Both helpers must be root:root mode 0755 and must not be writable by adminpt
+# or plugi2090. The ZIP helper executes as plugi2090. The permission helper is a
+# narrowly-scoped root helper that only chowns/chmods one fixed-root ZIP after
+# confirming the exact SHA-256 supplied by CrapScraper.
 Cmnd_Alias CRAPSCRAPER_ZIP_HELPER = /usr/local/sbin/crapscraper-zip-helper
+Cmnd_Alias CRAPSCRAPER_ZIP_PERMISSION_HELPER = /usr/local/sbin/crapscraper-zip-permission-helper
 adminpt ALL=(plugi2090) NOPASSWD: NOSETENV: CRAPSCRAPER_ZIP_HELPER
+adminpt ALL=(root) NOPASSWD: NOSETENV: CRAPSCRAPER_ZIP_PERMISSION_HELPER

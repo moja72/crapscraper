@@ -29,11 +29,39 @@ def _error_requires_session_refresh(error: SourceFailure) -> bool:
     technical = str(getattr(detail, "technical_message", "") or "").strip().lower()
     content_type = str(getattr(detail, "content_type", "") or "").strip().lower()
     final_url = str(getattr(detail, "final_url", "") or "").strip().lower()
+    status = getattr(detail, "http_status", None)
 
     if code == "authentication_access":
         return True
     if code == "source_download_failed" and "html" in content_type:
         return True
+
+    # O UltraPack usa um token ``data-f`` temporário/one-shot. Em alguns itens a
+    # URL expira ou é consumida e o servidor continua respondendo HTTP 2xx, porém
+    # entrega uma página/payload que não é ZIP. O downloader canônico valida os
+    # bytes e classifica isso como source_download_failed. Uma única renovação de
+    # sessão + redescoberta do data-f é segura e evita o falso terminal observado
+    # em itens como Aoki. Créditos insuficientes têm código próprio e nunca entram
+    # neste caminho.
+    try:
+        successful_http = status is not None and 200 <= int(status) < 300
+    except (TypeError, ValueError):
+        successful_http = False
+    non_zip_markers = (
+        "não é um zip válido",
+        "nao e um zip valido",
+        "não contém um zip válido",
+        "nao contem um zip valido",
+        "resposta da origem incompatível com um arquivo zip",
+        "resposta da origem incompativel com um arquivo zip",
+    )
+    if (
+        code == "source_download_failed"
+        and successful_http
+        and any(marker in technical for marker in non_zip_markers)
+    ):
+        return True
+
     if any(
         marker in technical
         for marker in (
@@ -141,7 +169,7 @@ def _download(self: UltraPackSource, job: dict[str, Any], target: Path) -> Downl
 
     A segunda tentativa sempre redescobre o ``data-f`` em uma nova sessão. Isso evita
     reutilizar uma URL temporária/one-shot e também evita gastar crédito novamente
-    quando a primeira falha não tem natureza de autenticação.
+    quando a primeira falha não tem natureza de autenticação/token temporário.
     """
     url, _version = _inspect_with_recovery(self, job)
     try:
