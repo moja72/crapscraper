@@ -31,6 +31,7 @@ jobs:
           app/current_app_recovery.py
           app/helper_diagnostic.py
           app/missing_target_recovery.py
+          app/update_runtime_consistency.py
           app/updates/plugintheme_source_recovery.py
           app/updates/source_filter_runtime.py
           app/updates/target_preflight.py
@@ -45,6 +46,7 @@ jobs:
           tests/test_update_execution_preflight_and_live_version.py
           tests/test_update_target_preflight.py
           tests/test_update_target_casefold.py
+          tests/test_update_runtime_consistency.py
 
       - name: Current modular app regressions
         run: >-
@@ -86,6 +88,7 @@ jobs:
           node --check app/static/js/runtime-fixes.js
           node --check app/static/js/app.js
           node --check app/static/js/catalog-context-updated-at.js
+          node --check app/static/js/update-manual-origin.js
           node --check app/static/js/store.js
           node --check app/static/js/update-metrics.js
           node --check tests/compare_loading_ui.mjs
