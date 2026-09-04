@@ -1,0 +1,5 @@
+# Scripts executados diretamente em Linux precisam manter LF mesmo quando o
+# repositório é clonado/atualizado a partir do Windows.
+deploy/crapscraper_zip_helper.py text eol=lf
+deploy/*.sh text eol=lf
+deploy/*sudoers* text eol=lf
