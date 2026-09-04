@@ -21,9 +21,12 @@ DOWNLOAD_ROOT = Path("/home/plugintema.com/downloads")
 EXPECTED_OWNER = "plugi2090"
 EXPECTED_GROUP = "nobody"
 EXPECTED_MODE = 0o674
+HELPER_VERSION = 2
 JOB_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 SHA_RE = re.compile(r"\A[0-9a-f]{64}\Z")
-FILE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.zip\Z", re.IGNORECASE)
+# Spaces and parentheses are required by real WooCommerce filenames such as
+# ``AutomatorWP BuddyPress (1).zip``. Path separators and ``..`` remain blocked.
+FILE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9 ._()-]{0,199}\.zip\Z", re.IGNORECASE)
 
 
 class HelperError(RuntimeError):
@@ -97,6 +100,10 @@ class ZipHelper:
         if path.parent != self.root:
             raise HelperError("path escaped fixed root")
         return path
+
+    @staticmethod
+    def _lexists(path: Path) -> bool:
+        return os.path.lexists(path)
 
     def _lstat_regular(self, path: Path, *, metadata: bool = False) -> os.stat_result:
         try:
@@ -172,11 +179,8 @@ class ZipHelper:
         """Validate a legacy production ZIP without trusting its ownership metadata.
 
         Older WooCommerce download files can legitimately predate the canonical
-        plugi2090:nobody ownership policy.  They are accepted only as the *current*
-        source artifact when the fixed-root basename, regular-file/no-symlink/no-
-        hardlink checks and the caller-supplied SHA-256 all match.  Every helper-
-        created artifact and every newly installed production file remains subject
-        to the strict canonical ownership/group/mode validation.
+        plugi2090:nobody ownership policy. They are accepted only as the current
+        source artifact when fixed-root, regular-file and SHA-256 checks match.
         """
         return self._validate(path, expected_hash, metadata=False)
 
@@ -202,6 +206,17 @@ class ZipHelper:
             os.chmod(path, EXPECTED_MODE)
         else:
             raise HelperError("fchmod is unavailable")
+
+    def capabilities(self) -> dict[str, object]:
+        return {
+            "ok": True,
+            "operation": "capabilities",
+            "helper_version": HELPER_VERSION,
+            "operations": [
+                "inspect", "probe-setgid", "prepare", "backup", "install",
+                "install-missing", "rollback", "rollback-missing", "cleanup",
+            ],
+        }
 
     def inspect(self, file_name: str) -> dict[str, object]:
         name = validate_file_name(file_name)
@@ -238,13 +253,23 @@ class ZipHelper:
         upload, new = self._path(names["upload"]), self._path(names["new"])
         source_fd = self._open_read(upload)
         new_fd = -1
+        created_here = False
         try:
+            upload_hash = self._hash_fd(source_fd)
+            if upload_hash != expected:
+                raise HelperError("SHA-256 mismatch for staging upload")
+            if self._lexists(new):
+                details = self._validate(new, expected)
+                details["reused"] = True
+                return self._result("prepare", file_name, job_id, details)
             self.fault("prepare_before_create")
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
             new_fd = os.open(new, flags, 0o600)
+            created_here = True
             created = os.fstat(new_fd)
             if created.st_uid != self.expected_uid or created.st_nlink != 1:
                 raise HelperError("helper-created temporary has wrong owner or links")
+            os.lseek(source_fd, 0, os.SEEK_SET)
             digest = hashlib.sha256()
             while chunk := os.read(source_fd, 1024 * 1024):
                 self._write_all(new_fd, chunk)
@@ -258,11 +283,13 @@ class ZipHelper:
         except Exception:
             if new_fd >= 0:
                 os.close(new_fd); new_fd = -1
-            try:
-                if new.exists() and not new.is_symlink():
-                    os.unlink(new)
-            except OSError:
-                pass
+            if created_here:
+                try:
+                    if self._lexists(new) and not new.is_symlink():
+                        os.unlink(new)
+                        self._fsync_directory()
+                except OSError:
+                    pass
             raise
         finally:
             os.close(source_fd)
@@ -357,6 +384,31 @@ class ZipHelper:
             raise HelperError(f"install failed; original restored: {original_error}") from None
         return self._result("install", file_name, job_id, details)
 
+    def install_missing(self, file_name: str, job_id: str, expected_new_sha256: str) -> dict[str, object]:
+        names = artifact_names(file_name, job_id)
+        new_hash = validate_sha256(expected_new_sha256)
+        current, new = self._path(names["production"]), self._path(names["new"])
+        if self._lexists(current):
+            raise HelperError("production target already exists; missing-target install refused")
+        self._validate(new, new_hash)
+        self.fault("install_missing_before_rename")
+        try:
+            os.rename(new, current)
+            self._fsync_directory()
+            self.fault("install_missing_after_rename")
+            details = self._validate(current, new_hash)
+        except Exception as original_error:
+            try:
+                if self._lexists(current) and not self._lexists(new):
+                    self._validate(current, new_hash)
+                    os.rename(current, new)
+                    self._fsync_directory()
+            except Exception as restore_error:
+                raise HelperError(f"missing-target install failed and missing state could not be restored: {restore_error}") from original_error
+            raise HelperError(f"missing-target install failed; original missing state restored: {original_error}") from None
+        details["original_target_missing"] = True
+        return self._result("install-missing", file_name, job_id, details)
+
     def rollback(self, file_name: str, job_id: str, expected_sha256: str) -> dict[str, object]:
         names = artifact_names(file_name, job_id)
         expected = validate_sha256(expected_sha256)
@@ -411,6 +463,41 @@ class ZipHelper:
         details["backup_sha256"] = backup_details["sha256"]
         return self._result("rollback", file_name, job_id, details)
 
+    def rollback_missing(self, file_name: str, job_id: str, expected_new_sha256: str) -> dict[str, object]:
+        names = artifact_names(file_name, job_id)
+        expected = validate_sha256(expected_new_sha256)
+        current = self._path(names["production"])
+        displaced = self._path(names["rollback_current"])
+        self._validate(current, expected)
+        if self._lexists(displaced):
+            raise HelperError("missing-target rollback temporary already exists")
+        self.fault("rollback_missing_before_rename")
+        try:
+            os.rename(current, displaced)
+            self._fsync_directory()
+            self.fault("rollback_missing_after_rename")
+            self._validate(displaced, expected)
+        except Exception as original_error:
+            try:
+                if self._lexists(displaced) and not self._lexists(current):
+                    os.rename(displaced, current)
+                    self._fsync_directory()
+                    self._validate(current, expected)
+            except Exception as restore_error:
+                raise HelperError(f"missing-target rollback failed and installed state could not be restored: {restore_error}") from original_error
+            raise HelperError(f"missing-target rollback failed; installed state restored: {original_error}") from None
+        cleanup_pending = False
+        try:
+            os.unlink(displaced)
+            self._fsync_directory()
+        except OSError:
+            cleanup_pending = True
+        return self._result("rollback-missing", file_name, job_id, {
+            "restored_missing": not self._lexists(current),
+            "expected_new_sha256": expected,
+            "cleanup_pending": cleanup_pending,
+        })
+
     def cleanup(self, file_name: str, job_id: str, artifact: str) -> dict[str, object]:
         names = artifact_names(file_name, job_id)
         allowed = {"upload", "new", "backup", "rollback_current", "rollback_restore", "failed_new"}
@@ -454,6 +541,7 @@ def parser() -> argparse.ArgumentParser:
     job.add_argument("--job-id", required=True)
     root = JsonArgumentParser(prog="crapscraper-zip-helper")
     sub = root.add_subparsers(dest="operation", required=True)
+    sub.add_parser("capabilities")
     sub.add_parser("inspect", parents=[common])
     sub.add_parser("probe-setgid")
     prepare = sub.add_parser("prepare", parents=[job])
@@ -463,8 +551,12 @@ def parser() -> argparse.ArgumentParser:
     install = sub.add_parser("install", parents=[job])
     install.add_argument("--expected-old-sha256", required=True)
     install.add_argument("--expected-new-sha256", required=True)
+    install_missing = sub.add_parser("install-missing", parents=[job])
+    install_missing.add_argument("--expected-new-sha256", required=True)
     rollback = sub.add_parser("rollback", parents=[job])
     rollback.add_argument("--expected-sha256", required=True)
+    rollback_missing = sub.add_parser("rollback-missing", parents=[job])
+    rollback_missing.add_argument("--expected-new-sha256", required=True)
     cleanup = sub.add_parser("cleanup", parents=[job])
     cleanup.add_argument("--artifact", required=True, choices=["upload", "new", "backup", "rollback_current", "rollback_restore", "failed_new"])
     return root
@@ -480,7 +572,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         helper = production_helper()
         operation = args.operation
-        if operation == "inspect":
+        if operation == "capabilities":
+            result = helper.capabilities()
+        elif operation == "inspect":
             result = helper.inspect(file_name=args.file)
         elif operation == "probe-setgid":
             result = helper.probe_setgid()
@@ -490,8 +584,12 @@ def main(argv: list[str] | None = None) -> int:
             result = helper.backup(file_name=args.file, job_id=args.job_id, expected_sha256=args.expected_sha256)
         elif operation == "install":
             result = helper.install(file_name=args.file, job_id=args.job_id, expected_old_sha256=args.expected_old_sha256, expected_new_sha256=args.expected_new_sha256)
+        elif operation == "install-missing":
+            result = helper.install_missing(file_name=args.file, job_id=args.job_id, expected_new_sha256=args.expected_new_sha256)
         elif operation == "rollback":
             result = helper.rollback(file_name=args.file, job_id=args.job_id, expected_sha256=args.expected_sha256)
+        elif operation == "rollback-missing":
+            result = helper.rollback_missing(file_name=args.file, job_id=args.job_id, expected_new_sha256=args.expected_new_sha256)
         elif operation == "cleanup":
             result = helper.cleanup(file_name=args.file, job_id=args.job_id, artifact=args.artifact)
         else:

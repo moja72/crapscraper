@@ -7,7 +7,6 @@ import app.web as web
 from app.store_custom_fields_quality_policy import install_store_custom_fields_quality_policy
 from app.store_quality_unified_policy import install_store_quality_unified_policy
 from app.store_manual_monitor_control_policy import install_store_manual_monitor_control_policy
-from app.store_management_policy import install_store_management_policy
 
 _INSTALLED = False
 _BASE_RENDER: Callable[..., str] | None = None
@@ -35,6 +34,3 @@ def install_store_category_table_policy() -> None:
     install_store_custom_fields_quality_policy()
     install_store_quality_unified_policy()
     install_store_manual_monitor_control_policy()
-    # A UI unificada de preços reutiliza os endpoints atuais da Loja e permite
-    # editar Plugins, Temas e Packs individualmente, incluindo anual/vitalícia.
-    install_store_management_policy()

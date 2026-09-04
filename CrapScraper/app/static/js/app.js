@@ -8,6 +8,7 @@ import "./collection-management.js";
 import "./compare.js";
 import "./catalog-modal-standardization.js";
 import "./catalog-management.js";
+import "./update-metrics.js";
 import "./update.js";
 import "./update-selection-fix.js";
 import "./plugintheme-update.js";

@@ -7,7 +7,13 @@ from app.web.api import ApplicationServices
 def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | None=None) -> dict[str, Any]:
     query=query or {}
     routes = {
-        "/api/health": lambda: {"ok": True, "app": "CrapScraper", "store_write_enabled": bool(services.store.write_enabled)},
+        "/api/health": lambda: {
+            "ok": True,
+            "app": "CrapScraper",
+            "edition": "modular-current",
+            "entrypoint": "CrapScraper/main.py",
+            "store_write_enabled": bool(services.store.write_enabled),
+        },
         "/api/credits": lambda: services.credits.get(
             str(query.get("site_key") or ""),
             str(query.get("account_key") or ""),
@@ -53,7 +59,7 @@ def get_route(services: ApplicationServices, path: str, query: dict[str,Any] | N
         "/api/store/monitor/logs": services.store.monitor,
         "/api/store/bundles": services.store.bundles,
         "/api/store/plans": services.store.plans,
-        "/api/store/pricing/catalog": services.store.pricing_catalog,
+        "/api/store/pricing/catalog": lambda: services.store.pricing_catalog(query),
         "/api/store/pricing/status": lambda: services.store.pricing.status(),
         "/api/store/categories": services.store.categories,
         "/api/store/quality": lambda: services.store.quality(query),
@@ -107,6 +113,8 @@ def post_route(services: ApplicationServices, path: str, payload: dict[str, Any]
     if path == "/api/store/monitor": return services.store.monitor_enable(bool(payload.get("enabled")))
     if path == "/api/store/pricing/preview": return services.store.pricing_preview(payload)
     if path == "/api/store/pricing/apply": return services.store.pricing_apply(payload)
+    if path == "/api/store/pricing/product/preview": return services.store.product_price_preview(payload)
+    if path == "/api/store/pricing/product/apply": return services.store.product_price_apply(payload)
     if path == "/api/store/bundles/preview": return services.store.bundle_preview(payload)
     if path == "/api/store/bundles/apply": return services.store.bundle_apply(payload)
     if path == "/api/sync/resolve": return services.sync.resolve(payload)

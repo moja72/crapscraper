@@ -5,7 +5,15 @@ biblioteca padrao, nao importa o CrapScraper e opera exclusivamente por basename
 sob `/home/plugintema.com/downloads`. A copia instalada deve ficar fora de todo
 diretorio gravavel por `adminpt`.
 
-Instalacao futura (nao executar durante o desenvolvimento local):
+A versao atual do contrato e **helper v2**. Ela adiciona:
+
+- nomes ZIP reais com espacos e parenteses, como `AutomatorWP BuddyPress (1).zip`;
+- staging idempotente para retry quando o `.new` existente tem o mesmo SHA-256;
+- `install-missing` para recriar de forma atomica um ZIP que ja estava ausente;
+- `rollback-missing` para restaurar com seguranca o estado original "arquivo ausente";
+- `capabilities`, usado pelo CrapScraper para bloquear atualizacoes quando o helper do servidor esta desatualizado.
+
+Instalacao/atualizacao no servidor:
 
 ```sh
 sudo install -o root -g root -m 0755 deploy/crapscraper_zip_helper.py /usr/local/sbin/crapscraper-zip-helper
@@ -23,8 +31,13 @@ sudo -u plugi2090 test ! -w /usr/local/sbin/crapscraper-zip-helper
 sudo visudo -cf deploy/crapscraper-sudoers.example
 sudo install -o root -g root -m 0440 deploy/crapscraper-sudoers.example /etc/sudoers.d/crapscraper-zip-helper
 sudo visudo -cf /etc/sudoers.d/crapscraper-zip-helper
+sudo -u adminpt sudo -n -u plugi2090 /usr/local/sbin/crapscraper-zip-helper capabilities
 sudo -u adminpt sudo -n -u plugi2090 /usr/local/sbin/crapscraper-zip-helper probe-setgid
 ```
+
+A saida de `capabilities` deve informar `"helper_version": 2` e listar
+`install-missing` e `rollback-missing`. Se isso nao ocorrer, a validacao de
+armazenamento no CrapScraper permanece bloqueada por seguranca.
 
 Antes da instalacao, confirme que o interpretador do shebang e os diretorios de
 importacao da biblioteca padrao nao sao gravaveis por `adminpt`. Nao copie o
