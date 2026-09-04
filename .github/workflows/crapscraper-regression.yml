@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python test dependencies
-        run: python -m pip install --upgrade pip pytest requests psutil
+        run: python -m pip install --upgrade pip pytest requests psutil beautifulsoup4
 
       - name: Python syntax checks
         run: >-
