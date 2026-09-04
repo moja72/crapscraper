@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 import requests
 
 _INSTALLED = False
+_ACTIVE_ADDITION_SERVICE: Any | None = None
 
 
 def _fallback_content(job: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +186,12 @@ def _patch_addition_service() -> None:
 
     if getattr(AdditionService, "_crapscraper_auto_materialize", False):
         return
+    original_init = AdditionService.__init__
+
+    def init(self: Any, *args: Any, **kwargs: Any) -> None:
+        global _ACTIVE_ADDITION_SERVICE
+        original_init(self, *args, **kwargs)
+        _ACTIVE_ADDITION_SERVICE = self
 
     def list_items(self: Any, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         p = payload or {}
@@ -207,8 +214,46 @@ def _patch_addition_service() -> None:
             "auto_sync": sync,
         }
 
+    AdditionService.__init__ = init
     AdditionService.list = list_items
     AdditionService._crapscraper_auto_materialize = True
+
+
+def _sync_after_new_product_approval() -> None:
+    service = _ACTIVE_ADDITION_SERVICE
+    if service is None:
+        return
+    try:
+        service.materialize()
+    except Exception:
+        # A decisão já foi persistida. Se a materialização imediata falhar por
+        # bloqueio transitório, a própria leitura da fila repete o sync.
+        pass
+
+
+def _patch_comparison_approval_sync() -> None:
+    from app.comparison.service import ComparisonService
+
+    if getattr(ComparisonService, "_crapscraper_addition_auto_sync", False):
+        return
+    original_save = ComparisonService.save_decision
+    original_bulk = ComparisonService.save_decisions_bulk
+
+    def save_decision(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        result = original_save(self, payload)
+        if str(payload.get("decision") or "") == "approve_new_product":
+            _sync_after_new_product_approval()
+        return result
+
+    def save_bulk(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        result = original_bulk(self, payload)
+        if str(payload.get("decision") or "") == "approve_new_product":
+            _sync_after_new_product_approval()
+        return result
+
+    ComparisonService.save_decision = save_decision
+    ComparisonService.save_decisions_bulk = save_bulk
+    ComparisonService._crapscraper_addition_auto_sync = True
 
 
 def install_addition_runtime_recovery() -> None:
@@ -218,6 +263,7 @@ def install_addition_runtime_recovery() -> None:
     _patch_content_and_images()
     _patch_repository_listing()
     _patch_addition_service()
+    _patch_comparison_approval_sync()
     _INSTALLED = True
 
 
