@@ -5,6 +5,7 @@ import "./runtime-fixes.js";
 import "./collect-context-dependency-fix.js";
 import "./collect.js";
 import "./collection-management.js";
+import "./catalog-context-updated-at.js";
 import "./compare.js";
 import "./catalog-modal-standardization.js";
 import "./catalog-management.js";
