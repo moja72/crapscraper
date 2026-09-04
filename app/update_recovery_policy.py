@@ -33,13 +33,21 @@ def _patched_render_panel_page(*args: Any, **kwargs: Any) -> str:
 
 
 def install_update_recovery_policy() -> None:
-    """Instala recuperação e o diagnóstico final da aba Atualizar."""
+    """Instala recuperação, retry executável e observabilidade final da aba Atualizar."""
     global _INSTALLED
     if _INSTALLED:
         return
 
-    # Corrige mensagens herdadas de download e propaga falta de créditos para o log.
     install_update_credit_diagnostics_policy()
-
     web.render_panel_page = _patched_render_panel_page
     _INSTALLED = True
+
+    # A aplicação atual já contém as políticas de recuperação e metadados, mas elas
+    # precisam estar ativas no mesmo runtime usado pelo painel principal.
+    from app.update_recoverability_policy import install_update_recoverability_policy
+    from app.update_metadata_preflight_policy import install_update_metadata_preflight_policy
+    from app.update_reliability_observability_policy import install_update_reliability_observability_policy
+
+    install_update_recoverability_policy()
+    install_update_metadata_preflight_policy()
+    install_update_reliability_observability_policy()
