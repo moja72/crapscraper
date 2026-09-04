@@ -253,6 +253,7 @@ class ZipHelper:
         upload, new = self._path(names["upload"]), self._path(names["new"])
         source_fd = self._open_read(upload)
         new_fd = -1
+        created_here = False
         try:
             upload_hash = self._hash_fd(source_fd)
             if upload_hash != expected:
@@ -264,6 +265,7 @@ class ZipHelper:
             self.fault("prepare_before_create")
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
             new_fd = os.open(new, flags, 0o600)
+            created_here = True
             created = os.fstat(new_fd)
             if created.st_uid != self.expected_uid or created.st_nlink != 1:
                 raise HelperError("helper-created temporary has wrong owner or links")
@@ -281,10 +283,13 @@ class ZipHelper:
         except Exception:
             if new_fd >= 0:
                 os.close(new_fd); new_fd = -1
-            # Never remove a pre-existing retry staging artifact here. Only a
-            # file created by this call can have new_fd assigned.
-            if not self._lexists(new) or new_fd < 0:
-                pass
+            if created_here:
+                try:
+                    if self._lexists(new) and not new.is_symlink():
+                        os.unlink(new)
+                        self._fsync_directory()
+                except OSError:
+                    pass
             raise
         finally:
             os.close(source_fd)
