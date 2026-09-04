@@ -1,10 +1,12 @@
 @echo off
 setlocal EnableExtensions
-cd /d "%~dp0"
+
+for %%I in ("%~dp0..") do set "CRAPSCRAPER_ROOT=%%~fI"
+cd /d "%CRAPSCRAPER_ROOT%"
 
 set "CRAPSCRAPER_PORT=%SCRAPER_PORT%"
 if not defined CRAPSCRAPER_PORT set "CRAPSCRAPER_PORT=8766"
-set "CRAPSCRAPER_PID=%~dp0.runtime\server.pid"
+set "CRAPSCRAPER_PID=%CRAPSCRAPER_ROOT%\.runtime\server.pid"
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$port=[int]'%CRAPSCRAPER_PORT%'; $pidFile='%CRAPSCRAPER_PID%'; $serverPid=$null;" ^
