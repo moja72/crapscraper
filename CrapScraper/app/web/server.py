@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -46,5 +49,11 @@ class Application:
             def log_message(self, format: str, *args: object) -> None: pass
 
         server = ThreadingHTTPServer((settings.host, settings.port), Handler)
-        print(f"CrapScraper consolidado em http://{settings.host}:{settings.port}", flush=True)
+        url = f"http://{settings.host}:{settings.port}"
+        print(f"CrapScraper consolidado em {url}", flush=True)
+        auto_open = os.getenv("SCRAPER_OPEN_BROWSER", "1").strip().lower() not in {"0", "false", "no", "off"}
+        if auto_open and os.name == "nt" and settings.host in {"127.0.0.1", "localhost", "::1"}:
+            timer = threading.Timer(0.35, lambda: webbrowser.open(url, new=2))
+            timer.daemon = True
+            timer.start()
         server.serve_forever()
