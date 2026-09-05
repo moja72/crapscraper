@@ -66,6 +66,7 @@ jobs:
           tests/test_addition_runtime_recovery.py
           tests/test_addition_execution_recovery.py
           tests/test_addition_media_fallback.py
+          tests/test_addition_term_resolution.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
@@ -110,6 +111,7 @@ jobs:
           node --check app/static/js/runtime-fixes.js
           node --check app/static/js/app.js
           node --check app/static/js/add-queue-standardization.js
+          node --check app/static/js/add-live-progress.js
           node --check app/static/js/catalog-context-updated-at.js
           node --check app/static/js/update-manual-origin.js
           node --check app/static/js/store.js
