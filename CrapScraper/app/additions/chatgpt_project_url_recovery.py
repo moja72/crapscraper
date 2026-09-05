@@ -13,14 +13,7 @@ _ORIGINAL_OPEN_PROJECT = compat.open_project
 
 
 def is_project_candidate_url(value: str) -> bool:
-    """Return True only for a concrete ChatGPT page, never the site root.
-
-    A project chat can currently use /c/, /g/ or project-specific routes.  The
-    important contract for persistence is that https://chatgpt.com/ itself is
-    not a project URL.  The previous bootstrap stored the root URL and the
-    doctor later treated its visible composer as proof that the project had
-    opened, which made headless runs search the sidebar again and fail.
-    """
+    """Return True only for a concrete ChatGPT page, never the site root."""
     text = str(value or "").strip()
     if not text:
         return False
@@ -31,6 +24,23 @@ def is_project_candidate_url(value: str) -> bool:
     if parsed.scheme != "https" or parsed.netloc.casefold() not in {"chatgpt.com", "www.chatgpt.com"}:
         return False
     return bool((parsed.path or "").strip("/"))
+
+
+def saved_project_url(state: dict[str, Any] | None = None) -> str:
+    """Return the last concrete project/chat URL without destroying it on failures.
+
+    project_url used to be cleared by doctor/open_project when a transient browser
+    navigation failed.  Keep a second durable copy so a diagnostic run can never
+    erase a bootstrap that the user already completed successfully.
+    """
+    payload = state if isinstance(state, dict) else legacy._read_state()
+    current = str(payload.get("project_url") or "").strip()
+    if is_project_candidate_url(current):
+        return current
+    backup = str(payload.get("last_good_project_url") or "").strip()
+    if is_project_candidate_url(backup):
+        return backup
+    return ""
 
 
 def _remember_current_page(page: Any) -> str:
@@ -53,6 +63,7 @@ def _remember_current_page(page: Any) -> str:
 
     legacy._update_state(
         project_url=current,
+        last_good_project_url=current,
         project_name=legacy.project_name(),
         profile_dir=str(compat.profile_dir()),
         bootstrap_ok=True,
@@ -63,28 +74,36 @@ def _remember_current_page(page: Any) -> str:
 
 def open_project(page: Any) -> None:
     state = legacy._read_state()
-    saved = str(state.get("project_url") or "").strip()
+    raw_saved = str(state.get("project_url") or "").strip()
+    saved = saved_project_url(state)
 
-    # Direct navigation is the most reliable headless path.  Once bootstrap has
-    # captured the exact project/conversation URL, do not depend on the sidebar.
-    if is_project_candidate_url(saved):
+    # Direct navigation is preferred, but a transient failure must never erase a
+    # URL that was captured from a successful visible bootstrap.
+    if saved:
         try:
             page.goto(saved, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(1200)
             compat._dismiss_common_dialogs(page)
             compat.ensure_authenticated(page)
             if compat.composer(page, 7000) is not None or compat._try_new_chat(page):
+                current = str(getattr(page, "url", "") or saved).strip()
+                if is_project_candidate_url(current):
+                    legacy._update_state(project_url=current, last_good_project_url=current)
                 return
         except legacy.ChatGPTPlaywrightError:
             raise
         except Exception:
             pass
 
-    # Root URLs written by the previous bootstrap are explicitly invalid. Clear
-    # them before delegating to the automatic sidebar discovery.
-    if saved:
+    # Only clear an explicitly invalid root URL left by very old versions. Never
+    # clear a concrete saved URL merely because browser navigation failed.
+    if raw_saved and not is_project_candidate_url(raw_saved):
         legacy._update_state(project_url="")
+
     _ORIGINAL_OPEN_PROJECT(page)
+    current = str(getattr(page, "url", "") or "").strip()
+    if is_project_candidate_url(current):
+        legacy._update_state(project_url=current, last_good_project_url=current)
 
 
 def bootstrap() -> dict[str, Any]:
@@ -142,6 +161,7 @@ def doctor() -> dict[str, Any]:
                 "ok": False,
                 "error": str(error),
                 "url": str(getattr(page, "url", "") or ""),
+                "saved_project_url": saved_project_url(),
                 "profile_dir": str(compat.profile_dir()),
                 "diagnostic": diagnostic,
             }
@@ -176,8 +196,12 @@ def main() -> None:
         return
     if command == "status":
         payload = legacy.status()
+        durable = saved_project_url(payload)
+        if durable and not is_project_candidate_url(str(payload.get("project_url") or "")):
+            payload["project_url"] = durable
+            payload["project_url_recovered_from_backup"] = True
         payload["profile_dir"] = str(compat.profile_dir())
-        payload["project_url_valid"] = is_project_candidate_url(str(payload.get("project_url") or ""))
+        payload["project_url_valid"] = bool(durable)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     raise SystemExit("Use: python -m app.additions.chatgpt_project_url_recovery [bootstrap|doctor|status]")
