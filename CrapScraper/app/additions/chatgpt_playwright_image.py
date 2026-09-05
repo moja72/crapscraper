@@ -103,13 +103,7 @@ def _candidate_hash(page: Any, candidate: dict[str, Any]) -> tuple[str, bytes]:
 
 
 def _candidate_is_after_marker(candidate: dict[str, Any], marker: str) -> bool:
-    """Prove that an image belongs to the assistant turn after this image request.
-
-    Byte hashes alone are insufficient when the previous product finishes rendering
-    just after the next prompt is sent. The previous artwork is still located before
-    the new user message in DOM order, so reject every image that is not physically
-    after the unique marker embedded in the current user prompt.
-    """
+    """Prove that an image belongs to the assistant turn after this image request."""
     locator = candidate.get("locator")
     if locator is None:
         return False
@@ -125,7 +119,6 @@ def _candidate_is_after_marker(candidate: dict[str, Any], marker: str) -> bool:
                     ...document.querySelectorAll('main article')
                   ];
                   let anchors = scopes.filter(node => textOf(node).includes(marker));
-
                   if (!anchors.length) {
                     const all = [...document.querySelectorAll('main *')];
                     anchors = all.filter(node => {
@@ -134,7 +127,6 @@ def _candidate_is_after_marker(candidate: dict[str, Any], marker: str) -> bool:
                       return ![...node.children].some(child => textOf(child).includes(marker));
                     });
                   }
-
                   const anchor = anchors[anchors.length - 1];
                   if (!anchor) return false;
                   const relation = anchor.compareDocumentPosition(img);
@@ -160,16 +152,51 @@ def _marker_visible(page: Any, marker: str) -> bool:
             return False
 
 
+def _candidate_generation_complete(candidate: dict[str, Any]) -> bool:
+    """Check the candidate's own response turn for loading/generation UI."""
+    locator = candidate.get("locator")
+    if locator is None:
+        return False
+    try:
+        return bool(
+            locator.evaluate(
+                """
+                img => {
+                  const turn = img.closest(
+                    '[data-testid^="conversation-turn-"], article, [data-message-author-role="assistant"]'
+                  ) || img.parentElement;
+                  if (!turn) return false;
+                  const selectors = [
+                    'button[data-testid*="stop"]',
+                    'button[aria-label*="Stop" i]',
+                    'button[aria-label*="Parar" i]',
+                    '[aria-busy="true"]',
+                    '[data-loading="true"]',
+                    '[class*="animate-spin"]',
+                    '[class*="loading"]'
+                  ];
+                  if (selectors.some(selector => turn.querySelector(selector))) return false;
+                  const rect = img.getBoundingClientRect();
+                  return Boolean(img.complete && (img.naturalWidth || 0) >= 256 && (img.naturalHeight || 0) >= 256 && rect.width > 0 && rect.height > 0);
+                }
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
 def generate_image(job: dict[str, Any], root: Path) -> Path:
     """Generate a product-specific image and prove it belongs to this exact prompt.
 
-    We require three independent signals before persisting an image:
-    1. its bytes did not exist before this prompt;
-    2. its DOM position is after this prompt's unique user-message marker;
-    3. the bytes are stable and ChatGPT has finished generating (Stop is gone).
+    Acceptance requires all of the following:
+    - bytes were not present before the request;
+    - DOM position is after the unique marker of the current user prompt;
+    - bytes stay identical for multiple polling cycles;
+    - the image's own assistant turn is no longer loading;
+    - ChatGPT's global Stop control is gone.
 
-    This prevents the next product from inheriting an image that was still finishing
-    for the previous product.
+    A timeout is preferable to assigning the previous product's image.
     """
     with _LOCK, _browser() as page:
         _open_job_conversation(page, str(job["job_id"]))
@@ -244,15 +271,16 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
                     stable_hash = current_hash
                     stable_cycles = 0
 
-                # Do not accept an image while ChatGPT is still generating. Waiting
-                # for Stop to disappear is intentionally strict: a timeout is safer
-                # than assigning the previous/intermediate artwork to this product.
-                if stable_cycles >= 3 and not _stop_visible(page):
+                if (
+                    stable_cycles >= 4
+                    and _candidate_generation_complete(current_candidate)
+                    and not _stop_visible(page)
+                ):
                     selected = current_candidate
                     selected_raw = current_raw
                     break
 
-            time.sleep(0.8)
+            time.sleep(0.9)
 
         if selected is None or not selected_raw:
             diagnostic = _diagnostic(page, "image_response_timeout")
@@ -287,4 +315,5 @@ __all__ = [
     "image_reusable",
     "image_valid",
     "_candidate_is_after_marker",
+    "_candidate_generation_complete",
 ]
