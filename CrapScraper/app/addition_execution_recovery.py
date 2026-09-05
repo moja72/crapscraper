@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from typing import Any
@@ -17,6 +18,10 @@ _FIXED_ERROR_MARKERS = (
     "403 client error: forbidden for url:",
     "desenvolvedor não confirmado por fonte confiável",
     "desenvolvedor nao confirmado por fonte confiavel",
+    "destino de download não configurado",
+    "destino de download nao configurado",
+    "configuração ssh incompleta",
+    "configuracao ssh incompleta",
 )
 
 
@@ -24,6 +29,32 @@ def _slug(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")[:190]
+
+
+def _configure_addition_download_destination() -> None:
+    """Make Adicionar use the same canonical destination as Atualizar.
+
+    The update SFTP adapter already accepts SCRAPER_SSH_USERNAME and defaults the
+    production directory to /home/plugintema.com/downloads.  ArtifactPublisher
+    historically required SCRAPER_SSH_USER *and* SCRAPER_SSH_DOWNLOAD_ROOT,
+    causing Adicionar to fail although Ambiente correctly reported storage as
+    validated.  Normalize the aliases/defaults once at startup so both flows use
+    one destination contract.
+    """
+    username = (os.getenv("SCRAPER_SSH_USERNAME") or os.getenv("SCRAPER_SSH_USER") or "").strip()
+    if username:
+        os.environ.setdefault("SCRAPER_SSH_USER", username)
+        os.environ.setdefault("SCRAPER_SSH_USERNAME", username)
+
+    if os.getenv("SCRAPER_SSH_HOST", "").strip():
+        os.environ.setdefault("SCRAPER_SSH_DOWNLOAD_ROOT", "/home/plugintema.com/downloads")
+
+    if not os.getenv("SCRAPER_DOWNLOAD_PUBLIC_BASE_URL", "").strip():
+        site = (os.getenv("SCRAPER_WP_BASE_URL") or os.getenv("SCRAPER_WOOCOMMERCE_URL") or "").strip().rstrip("/")
+        if "/wp-json/" in site:
+            site = site.split("/wp-json/", 1)[0].rstrip("/")
+        if site:
+            os.environ["SCRAPER_DOWNLOAD_PUBLIC_BASE_URL"] = site + "/downloads"
 
 
 def _patch_research() -> None:
@@ -124,10 +155,16 @@ def install_addition_execution_recovery() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    _configure_addition_download_destination()
     _patch_research()
     _patch_store_reconcile()
     _patch_service_startup()
     _INSTALLED = True
 
 
-__all__ = ["install_addition_execution_recovery", "_slug", "_reset_obsolete_errors"]
+__all__ = [
+    "install_addition_execution_recovery",
+    "_slug",
+    "_reset_obsolete_errors",
+    "_configure_addition_download_destination",
+]
