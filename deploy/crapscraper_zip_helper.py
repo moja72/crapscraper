@@ -24,9 +24,10 @@ EXPECTED_MODE = 0o674
 HELPER_VERSION = 2
 JOB_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 SHA_RE = re.compile(r"\A[0-9a-f]{64}\Z")
-# Spaces and parentheses are required by real WooCommerce filenames such as
-# ``AutomatorWP BuddyPress (1).zip``. Path separators and ``..`` remain blocked.
-FILE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9 ._()-]{0,199}\.zip\Z", re.IGNORECASE)
+# WooCommerce legado pode ter basenames com &, +, colchetes, apóstrofos e
+# outros caracteres comuns. Continuamos bloqueando controles, separadores de
+# caminho, nomes absolutos e ``..`` antes de qualquer acesso ao filesystem.
+FILE_RE = re.compile(r"\A[^\x00-\x1f\x7f/\\]{1,200}\.zip\Z", re.IGNORECASE)
 
 
 class HelperError(RuntimeError):
