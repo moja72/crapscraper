@@ -16,6 +16,13 @@ def install_addition_chatgpt_playwright() -> None:
     if _INSTALLED:
         return
 
+    # Corrige descoberta do compositor, reaproveita o perfil persistente legado
+    # e separa autenticação de presença do campo de mensagem antes de instalar os
+    # adapters de conteúdo/imagem usados pelo executor.
+    from app.additions.chatgpt_playwright_compat import install as install_compat
+
+    install_compat()
+
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
     import app.additions.executor as executor_module
