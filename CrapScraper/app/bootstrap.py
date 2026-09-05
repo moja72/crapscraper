@@ -19,6 +19,7 @@ def create_application() -> Application:
     from app.addition_runtime_recovery import install_addition_runtime_recovery
     from app.addition_decision_sync import install_addition_decision_sync
     from app.addition_execution_recovery import install_addition_execution_recovery
+    from app.additions.chatgpt_playwright_runtime import install_addition_chatgpt_playwright
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
 
@@ -46,11 +47,13 @@ def create_application() -> Application:
     # ZIP válido ou uma URL assinada válida; autenticação real continua obrigatória.
     install_plugintheme_access_fallback()
 
-    # A fila de adição sincroniza aprovações automaticamente e deixa conteúdo e
-    # imagem com fallback seguro quando OPENAI_API_KEY não estiver configurada.
+    # A fila de adição sincroniza aprovações automaticamente. Primeiro instalamos
+    # as recuperações legadas; em seguida o runtime Playwright assume conteúdo e
+    # imagem para que ambos sejam gerados no projeto [CS] Automação do ChatGPT.
     install_addition_runtime_recovery()
     install_addition_decision_sync()
     install_addition_execution_recovery()
+    install_addition_chatgpt_playwright()
 
     # Um catálogo PluginTema é um snapshot. Para linhas marcadas como produto novo,
     # o resultado visível é reconciliado com o WooCommerce ao vivo antes de permitir
