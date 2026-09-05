@@ -52,6 +52,7 @@ jobs:
           app/additions/chatgpt_project_url_recovery.py
           app/additions/chatgpt_background_project_runtime.py
           app/additions/chatgpt_content_response_runtime.py
+          app/additions/chatgpt_image_detection_runtime.py
           app/additions/chatgpt_playwright_image.py
           app/additions/chatgpt_playwright_runtime.py
           app/additions/taxonomy_waf_runtime.py
@@ -85,6 +86,7 @@ jobs:
           tests/test_chatgpt_playwright_compat.py
           tests/test_chatgpt_content_response_runtime.py
           tests/test_chatgpt_rendered_response_and_research.py
+          tests/test_chatgpt_image_detection_runtime.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
