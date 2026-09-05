@@ -14,11 +14,12 @@ from typing import Any
 import requests
 
 
+_VARIATION_ITEM = re.compile(r"^/products/\d+/variations/\d+$")
 _ALLOWED = (
     re.compile(r"^/products$"),
     re.compile(r"^/products/\d+$"),
     re.compile(r"^/products/\d+/variations$"),
-    re.compile(r"^/products/\d+/variations/\d+$"),
+    _VARIATION_ITEM,
     re.compile(r"^/products/categories$"),
     re.compile(r"^/products/tags$"),
     re.compile(r"^/media$"),
@@ -74,7 +75,7 @@ def _bridge_error(response: requests.Response, method: str, path: str) -> Runtim
 
 
 def install_addition_woocommerce_bridge() -> None:
-    """Fallback HMAC para namespace próprio quando REST/WAF não é confiável."""
+    """Fallback HMAC for WooCommerce operations when direct REST/WAF is unreliable."""
 
     from app.additions.wordpress import AdditionStoreGateway
 
@@ -111,7 +112,17 @@ def install_addition_woocommerce_bridge() -> None:
             hashlib.sha256,
         ).hexdigest()
         envelope = {"t": timestamp, "s": signature, "p": encoded}
-        url = base + "/wp-json/crapscraper/v2/bridge"
+
+        # The proven V2 bridge handles collection/product/media operations.
+        # Existing variation repair needs a tiny dedicated MU endpoint because
+        # the original V2 plugin predates PUT /products/{p}/variations/{v}.
+        if str(method).upper() == "PUT" and _VARIATION_ITEM.fullmatch(str(path or "")):
+            url = base + "/wp-json/crapscraper/v2/variation-update"
+            missing_message = "Bridge de correção de variações ainda não está instalado no WordPress."
+        else:
+            url = base + "/wp-json/crapscraper/v2/bridge"
+            missing_message = "WooCommerce REST está bloqueado pelo servidor e o bridge CrapScraper V2 ainda não está instalado no WordPress."
+
         try:
             response = self.session.post(
                 url,
@@ -128,9 +139,7 @@ def install_addition_woocommerce_bridge() -> None:
                 f"Bridge CrapScraper não conseguiu conectar a {url}: {type(error).__name__}: {error}"
             ) from error
         if response.status_code == 404:
-            raise RuntimeError(
-                "WooCommerce REST está bloqueado pelo servidor e o bridge CrapScraper V2 ainda não está instalado no WordPress."
-            )
+            raise RuntimeError(missing_message)
         if response.status_code >= 400:
             raise _bridge_error(response, method, path)
 
