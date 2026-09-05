@@ -3,6 +3,7 @@ from pathlib import Path
 from app.addition_execution_recovery import _configure_addition_download_destination
 from app.additions.catalog_taxonomy_runtime import canonicalize_job_taxonomy
 from app.additions.chatgpt_playwright_image import (
+    _candidate_generation_complete,
     _candidate_is_after_marker,
     image_fingerprint,
     image_reusable,
@@ -133,8 +134,8 @@ class _MarkerLocator:
         self.result = result
         self.seen_marker = ""
 
-    def evaluate(self, _script, marker):
-        self.seen_marker = marker
+    def evaluate(self, _script, marker=None):
+        self.seen_marker = marker or ""
         return self.result
 
 
@@ -146,3 +147,11 @@ def test_image_candidate_must_be_after_current_prompt_marker():
     assert not _candidate_is_after_marker({"locator": previous}, marker)
     assert _candidate_is_after_marker({"locator": current}, marker)
     assert current.seen_marker == marker
+
+
+def test_image_candidate_must_report_its_turn_as_complete():
+    loading = _MarkerLocator(False)
+    ready = _MarkerLocator(True)
+
+    assert not _candidate_generation_complete({"locator": loading})
+    assert _candidate_generation_complete({"locator": ready})
