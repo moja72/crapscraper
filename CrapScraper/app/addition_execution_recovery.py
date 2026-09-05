@@ -42,22 +42,24 @@ def _slug(value: str) -> str:
 
 
 def _configure_addition_download_destination() -> None:
-    """Make Adicionar use the same canonical destination as Atualizar.
+    """Make Adicionar use the same canonical remote destination as Atualizar.
 
-    The update SFTP adapter already accepts SCRAPER_SSH_USERNAME and defaults the
-    production directory to /home/plugintema.com/downloads. ArtifactPublisher
-    historically required SCRAPER_SSH_USER *and* SCRAPER_SSH_DOWNLOAD_ROOT,
-    causing Adicionar to fail although Ambiente correctly reported storage as
-    validated. Normalize the aliases/defaults once at startup so both flows use
-    one destination contract.
+    When SSH is configured, a legacy SCRAPER_ADDITION_DOWNLOAD_DIR must never
+    win over the production server: that would copy a ZIP only on Windows while
+    returning a plugintema.com.br URL. Force SFTP in that situation and verify
+    the file remotely before a job can finish.
     """
     username = (os.getenv("SCRAPER_SSH_USERNAME") or os.getenv("SCRAPER_SSH_USER") or "").strip()
+    host = os.getenv("SCRAPER_SSH_HOST", "").strip()
     if username:
         os.environ.setdefault("SCRAPER_SSH_USER", username)
         os.environ.setdefault("SCRAPER_SSH_USERNAME", username)
 
-    if os.getenv("SCRAPER_SSH_HOST", "").strip():
+    if host:
         os.environ.setdefault("SCRAPER_SSH_DOWNLOAD_ROOT", "/home/plugintema.com/downloads")
+        if username:
+            # Production remote wins over any old local cache destination.
+            os.environ.pop("SCRAPER_ADDITION_DOWNLOAD_DIR", None)
 
     if not os.getenv("SCRAPER_DOWNLOAD_PUBLIC_BASE_URL", "").strip():
         site = (os.getenv("SCRAPER_WP_BASE_URL") or os.getenv("SCRAPER_WOOCOMMERCE_URL") or "").strip().rstrip("/")
