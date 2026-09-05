@@ -31,6 +31,17 @@ def _status(error: BaseException) -> int:
     return int(getattr(response, "status_code", 0) or 0)
 
 
+def _transport_failure(error: BaseException) -> bool:
+    return isinstance(
+        error,
+        (
+            requests.exceptions.SSLError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ),
+    )
+
+
 def _allowed(method: str, path: str) -> bool:
     verb = str(method or "").upper()
     if verb not in {"GET", "POST", "PUT"}:
@@ -62,11 +73,12 @@ def _bridge_error(response: requests.Response, method: str, path: str) -> Runtim
 
 
 def install_addition_woocommerce_bridge() -> None:
-    """Fallback HMAC para namespace próprio quando o WAF bloqueia /wc/v3.
+    """Fallback HMAC para namespace próprio quando REST/WAF não é confiável.
 
-    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Além das operações
-    WooCommerce, o bridge aceita somente um upload de mídia já validado pelo
-    CrapScraper, evitando depender de /wp/v2/media ou de sideload por URL.
+    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Além de HTTP 401/403,
+    também usamos o bridge quando a conexão REST morre antes de existir resposta
+    HTTP (TLS EOF, ConnectionError ou timeout). Isso é especialmente importante
+    para /wp/v2/media neste servidor.
     """
 
     from app.additions.wordpress import AdditionStoreGateway
@@ -105,16 +117,21 @@ def install_addition_woocommerce_bridge() -> None:
         ).hexdigest()
         envelope = {"t": timestamp, "s": signature, "p": encoded}
         url = base + "/wp-json/crapscraper/v2/bridge"
-        response = self.session.post(
-            url,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36",
-            },
-            json=envelope,
-            timeout=max(int(getattr(self, "timeout", 60) or 60), 120),
-        )
+        try:
+            response = self.session.post(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36",
+                },
+                json=envelope,
+                timeout=max(int(getattr(self, "timeout", 60) or 60), 120),
+            )
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as error:
+            raise RuntimeError(
+                f"Bridge CrapScraper não conseguiu conectar a {url}: {type(error).__name__}: {error}"
+            ) from error
         if response.status_code == 404:
             raise RuntimeError(
                 "WooCommerce REST está bloqueado pelo servidor e o bridge CrapScraper V2 ainda não está instalado no WordPress."
@@ -135,6 +152,10 @@ def install_addition_woocommerce_bridge() -> None:
             return original_wc(self, method, path, **kwargs)
         except requests.HTTPError as error:
             if _status(error) not in {401, 403} or not _allowed(method, path):
+                raise
+            return bridge_wc(self, method, path, **kwargs)
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as error:
+            if not _allowed(method, path):
                 raise
             return bridge_wc(self, method, path, **kwargs)
 
