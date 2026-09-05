@@ -47,6 +47,7 @@ jobs:
           app/additions/source_preflight_runtime.py
           app/additions/woocommerce_bridge_runtime.py
           app/additions/chatgpt_playwright.py
+          app/additions/chatgpt_playwright_image.py
           app/additions/chatgpt_playwright_runtime.py
           app/additions/taxonomy_waf_runtime.py
           app/additions/wordpress.py
