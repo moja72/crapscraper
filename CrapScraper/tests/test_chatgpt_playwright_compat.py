@@ -3,6 +3,7 @@ from pathlib import Path
 from app.additions import chatgpt_playwright as legacy
 from app.additions import chatgpt_playwright_compat as compat
 from app.additions import chatgpt_project_url_recovery as project_recovery
+from app.additions import chatgpt_background_project_runtime as background_runtime
 
 
 def _touch(path: Path, content: bytes = b"x") -> None:
@@ -92,3 +93,30 @@ def test_project_url_recovery_install_patches_compat_and_legacy(monkeypatch):
         legacy._open_project = original_legacy_open_project
         legacy.bootstrap = original_legacy_bootstrap
         project_recovery._INSTALLED = False
+
+
+def test_background_mode_is_default_on_windows(monkeypatch):
+    monkeypatch.delenv("SCRAPER_CHATGPT_BROWSER_MODE", raising=False)
+    monkeypatch.setattr(background_runtime.sys, "platform", "win32")
+    assert background_runtime.browser_mode(True) == "background"
+    assert background_runtime.browser_mode(None) == "background"
+
+
+def test_background_mode_can_be_forced_to_headless(monkeypatch):
+    monkeypatch.setenv("SCRAPER_CHATGPT_BROWSER_MODE", "headless")
+    monkeypatch.setattr(background_runtime.sys, "platform", "win32")
+    assert background_runtime.browser_mode(True) == "headless"
+
+
+def test_bootstrap_requests_visible_browser_even_on_windows(monkeypatch):
+    monkeypatch.delenv("SCRAPER_CHATGPT_BROWSER_MODE", raising=False)
+    monkeypatch.setattr(background_runtime.sys, "platform", "win32")
+    assert background_runtime.browser_mode(False) == "visible"
+
+
+def test_project_route_matching_accepts_same_project_chat():
+    saved = "https://chatgpt.com/g/g-p-abc123/c/old-chat"
+    current = "https://chatgpt.com/g/g-p-abc123/c/new-chat"
+    assert background_runtime._same_project_route(saved, current) is True
+    assert background_runtime._same_project_route(saved, "https://chatgpt.com/") is False
+    assert background_runtime._same_project_route(saved, "https://chatgpt.com/g/g-p-other/c/new-chat") is False
