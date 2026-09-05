@@ -31,10 +31,12 @@ from app.additions.chatgpt_playwright import (
 )
 
 _CACHE_SECONDS = 30 * 24 * 60 * 60
+_IMAGE_BINDING_VERSION = 2
 
 
 def image_fingerprint(job: dict[str, Any]) -> str:
     payload = {
+        "binding_version": _IMAGE_BINDING_VERSION,
         "job_id": str(job.get("job_id") or ""),
         "product_name": str(job.get("product_name") or ""),
         "source_version": str(job.get("source_version") or ""),
