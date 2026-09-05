@@ -20,8 +20,10 @@ def install_addition_chatgpt_playwright() -> None:
     # e separa autenticação de presença do campo de mensagem antes de instalar os
     # adapters de conteúdo/imagem usados pelo executor.
     from app.additions.chatgpt_playwright_compat import install as install_compat
+    from app.additions.chatgpt_project_url_recovery import install as install_project_url_recovery
 
     install_compat()
+    install_project_url_recovery()
 
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
