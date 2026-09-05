@@ -45,6 +45,8 @@ jobs:
           app/updates/target_preflight.py
           app/additions/source_filter_runtime.py
           app/additions/source_preflight_runtime.py
+          app/additions/wordpress.py
+          app/additions/executor.py
           ../deploy/crapscraper_zip_permission_helper.py
 
       - name: Targeted Python regressions
@@ -63,6 +65,7 @@ jobs:
           tests/test_update_retry_live_objective.py
           tests/test_addition_runtime_recovery.py
           tests/test_addition_execution_recovery.py
+          tests/test_addition_media_fallback.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
