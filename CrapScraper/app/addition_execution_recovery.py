@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from typing import Any
@@ -88,7 +89,12 @@ def _reset_obsolete_errors(repository: Any) -> int:
             "SELECT job_id,current_error FROM addition_jobs WHERE public_state='error'"
         ).fetchall()
         for row in rows:
-            text = str(row["current_error"] or "").lower()
+            raw = str(row["current_error"] or "")
+            try:
+                decoded = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                decoded = raw
+            text = json.dumps(decoded, ensure_ascii=False).lower() if not isinstance(decoded, str) else decoded.lower()
             if not any(marker in text for marker in _FIXED_ERROR_MARKERS):
                 continue
             db.execute(
