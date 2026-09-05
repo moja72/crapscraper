@@ -19,14 +19,6 @@ _ORIGINAL_OPEN_PROJECT = project_recovery.open_project
 
 
 def browser_mode(requested_headless: bool | None = None) -> str:
-    """Choose a browser mode that keeps ChatGPT project routes reliable.
-
-    On Windows, ChatGPT project deep links have proved unreliable in Chromium
-    headless even with a valid persistent session. The legacy flow worked in a
-    normal browser, so the default runtime uses a real browser window minimized
-    in the background. Set SCRAPER_CHATGPT_BROWSER_MODE=headless to force true
-    headless operation, or visible to keep the window visible.
-    """
     if requested_headless is False:
         return "visible"
     configured = (os.getenv("SCRAPER_CHATGPT_BROWSER_MODE") or "").strip().lower()
@@ -42,10 +34,7 @@ def _minimize(page: Any) -> bool:
         window_id = info.get("windowId")
         if window_id is None:
             return False
-        session.send(
-            "Browser.setWindowBounds",
-            {"windowId": window_id, "bounds": {"windowState": "minimized"}},
-        )
+        session.send("Browser.setWindowBounds", {"windowId": window_id, "bounds": {"windowState": "minimized"}})
         return True
     except Exception:
         return False
@@ -62,10 +51,6 @@ def browser(headless: bool | None = None):
         with _ORIGINAL_BROWSER(headless=False) as page:
             yield page
         return
-
-    # Background mode deliberately uses the same headful browser behavior that
-    # succeeds during bootstrap, but minimizes the window immediately. This is
-    # materially different from Chromium headless for ChatGPT project routes.
     with _ORIGINAL_BROWSER(headless=False) as page:
         _minimize(page)
         yield page
@@ -109,9 +94,6 @@ def _ready_on_saved_route(page: Any, saved: str, timeout_ms: int = 7000) -> bool
 
 
 def _navigate_saved(page: Any, saved: str) -> bool:
-    # First try a lightweight commit navigation. ChatGPT may abort the original
-    # navigation while its SPA takes over, so an ERR_ABORTED is not considered
-    # fatal until we inspect the resulting page.
     try:
         page.goto(saved, wait_until="commit", timeout=60000)
     except Exception:
@@ -125,9 +107,6 @@ def _navigate_saved(page: Any, saved: str) -> bool:
     except Exception:
         pass
 
-    # If direct navigation was redirected to the home page, enter through the
-    # authenticated origin first and assign the exact project/chat URL inside
-    # the page. This avoids a second sidebar discovery dependency.
     try:
         page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(1200)
@@ -146,20 +125,25 @@ def _navigate_saved(page: Any, saved: str) -> bool:
 
 def open_project(page: Any) -> None:
     state = legacy._read_state()
-    saved = str(state.get("project_url") or "").strip()
-    if project_recovery.is_project_candidate_url(saved):
-        if _navigate_saved(page, saved):
-            legacy._update_state(
-                project_url=str(getattr(page, "url", "") or saved),
-                project_name=legacy.project_name(),
-                profile_dir=str(compat.profile_dir()),
-                background_route_ok=True,
-                background_route_at=int(time.time()),
-            )
-            return
+    saved = project_recovery.saved_project_url(state)
+    if saved and _navigate_saved(page, saved):
+        current = str(getattr(page, "url", "") or saved)
+        durable = current if project_recovery.is_project_candidate_url(current) else saved
+        legacy._update_state(
+            project_url=durable,
+            last_good_project_url=durable,
+            project_name=legacy.project_name(),
+            profile_dir=str(compat.profile_dir()),
+            background_route_ok=True,
+            background_route_at=int(time.time()),
+        )
+        return
 
     try:
         _ORIGINAL_OPEN_PROJECT(page)
+        current = str(getattr(page, "url", "") or "").strip()
+        if project_recovery.is_project_candidate_url(current):
+            legacy._update_state(project_url=current, last_good_project_url=current)
         return
     except Exception as error:
         diagnostic = compat._diagnostic(page, "background_project_navigation_failed")
@@ -179,6 +163,7 @@ def doctor() -> dict[str, Any]:
                 "ok": True,
                 "project": legacy.project_name(),
                 "project_url": str(getattr(page, "url", "") or ""),
+                "saved_project_url": project_recovery.saved_project_url(),
                 "profile_dir": str(compat.profile_dir()),
                 "composer_found": compat.composer(page, 2000) is not None,
                 "browser_mode": browser_mode(True),
@@ -189,6 +174,7 @@ def doctor() -> dict[str, Any]:
                 "ok": False,
                 "error": str(error),
                 "url": str(getattr(page, "url", "") or ""),
+                "saved_project_url": project_recovery.saved_project_url(),
                 "profile_dir": str(compat.profile_dir()),
                 "browser_mode": browser_mode(True),
                 "diagnostic": diagnostic,
@@ -224,14 +210,16 @@ def main() -> None:
         return
     if command == "status":
         payload = legacy.status()
+        durable = project_recovery.saved_project_url(payload)
+        if durable and not project_recovery.is_project_candidate_url(str(payload.get("project_url") or "")):
+            payload["project_url"] = durable
+            payload["project_url_recovered_from_backup"] = True
         payload["profile_dir"] = str(compat.profile_dir())
-        payload["project_url_valid"] = project_recovery.is_project_candidate_url(str(payload.get("project_url") or ""))
+        payload["project_url_valid"] = bool(durable)
         payload["browser_mode"] = browser_mode(True)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
-    raise SystemExit(
-        "Use: python -m app.additions.chatgpt_background_project_runtime [bootstrap|doctor|status]"
-    )
+    raise SystemExit("Use: python -m app.additions.chatgpt_background_project_runtime [bootstrap|doctor|status]")
 
 
 if __name__ == "__main__":
