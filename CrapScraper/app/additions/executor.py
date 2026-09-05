@@ -61,11 +61,24 @@ class AdditionExecutor:
             if not product_id:
                 if not download_ref:
                     progress("uploading_file","Publicando ZIP validado no destino de downloads.");download_ref=self.publisher.publish(job,artifact);job=self.repository.patch(job_id,published_download_url=download_ref)
-                media_id=int(job.get("media_id") or 0)
+                media_id=int(job.get("media_id") or 0);image_url=""
                 if not media_id:
-                    progress("uploading_image","Enviando imagem à Biblioteca de Mídia.");media_id=self.store.upload_media(Path(job["image_path"]),job["product_name"]);job=self.repository.patch(job_id,media_id=media_id)
-                progress("creating_woocommerce","Criando produto pai variável inicialmente como rascunho.");product=self.store.create_parent(job,media_id,download_ref);product_id=int(product.get("id") or 0)
+                    progress("uploading_image","Enviando imagem à Biblioteca de Mídia.")
+                    try:
+                        media_id=self.store.upload_media(Path(job["image_path"]),job["product_name"]);job=self.repository.patch(job_id,media_id=media_id)
+                    except Exception as exc:
+                        fallback=getattr(self.store,"media_upload_fallback_allowed",lambda _error:False)(exc)
+                        if not fallback:raise
+                        progress("uploading_image","REST de mídia bloqueado; publicando imagem no destino validado para importação pelo WooCommerce.")
+                        image_url=self.publisher.publish_image(job,Path(job["image_path"]))
+                progress("creating_woocommerce","Criando produto pai variável inicialmente como rascunho.")
+                product=self.store.create_parent(job,media_id,download_ref,image_url=image_url) if image_url else self.store.create_parent(job,media_id,download_ref)
+                product_id=int(product.get("id") or 0)
                 if not product_id:raise RuntimeError("WooCommerce não retornou o ID do produto")
+                if not media_id:
+                    created_images=product.get("images") or []
+                    created_media_id=int(created_images[0].get("id") or 0) if created_images and isinstance(created_images[0],dict) else 0
+                    if created_media_id:job=self.repository.patch(job_id,media_id=created_media_id)
                 job=self.repository.patch(job_id,woo_product_id=product_id)
             else:
                 job=self.repository.patch(job_id,woo_product_id=product_id);progress("creating_woocommerce",f"Produto WooCommerce #{product_id} reconciliado; criação não repetida.")
