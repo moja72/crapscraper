@@ -130,3 +130,47 @@ def test_project_route_matching_accepts_same_project_chat():
     assert background_runtime._same_project_route(saved, current) is True
     assert background_runtime._same_project_route(saved, "https://chatgpt.com/") is False
     assert background_runtime._same_project_route(saved, "https://chatgpt.com/g/g-p-other/c/new-chat") is False
+
+
+def test_project_href_reads_ancestor_anchor_without_pointer_click():
+    class Locator:
+        def evaluate(self, _script):
+            return "https://chatgpt.com/g/g-p-abc123/project"
+
+    assert background_runtime._project_href(Locator(), object()) == "https://chatgpt.com/g/g-p-abc123/project"
+
+
+def test_sidebar_navigation_uses_href_when_overlay_blocks_pointer(monkeypatch):
+    saved = "https://chatgpt.com/g/g-p-abc123/c/old-chat"
+
+    class Locator:
+        def evaluate(self, script):
+            if "closest" in script:
+                return "https://chatgpt.com/g/g-p-abc123/c/new-chat"
+            raise AssertionError("DOM click should not be required when href exists")
+
+    class Page:
+        def __init__(self):
+            self.url = "https://chatgpt.com/"
+            self.visited = []
+
+        def goto(self, url, **_kwargs):
+            self.url = url
+            self.visited.append(url)
+
+        def wait_for_timeout(self, _ms):
+            return None
+
+        def evaluate(self, _script, *_args):
+            return None
+
+    page = Page()
+    monkeypatch.setattr(compat, "_dismiss_common_dialogs", lambda _page: None)
+    monkeypatch.setattr(compat, "ensure_authenticated", lambda _page: None)
+    monkeypatch.setattr(compat, "_open_sidebar", lambda _page: None)
+    monkeypatch.setattr(compat, "_project_locator", lambda _page: Locator())
+    monkeypatch.setattr(compat, "composer", lambda _page, _timeout=0: object())
+    monkeypatch.setattr(compat, "_try_new_chat", lambda _page: False)
+
+    assert background_runtime._open_project_from_sidebar(page, saved) is True
+    assert "https://chatgpt.com/g/g-p-abc123/c/new-chat" in page.visited
