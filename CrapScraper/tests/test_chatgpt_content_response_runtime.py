@@ -51,10 +51,15 @@ def test_htmlize_never_leaves_plain_wall_of_text():
     assert html.count("<p>") >= 2
 
 
-def test_strict_prompt_requires_envelope_html_and_unescaped_keys():
+def test_strict_prompt_requires_fenced_json_html_and_unescaped_keys():
     prompt = _strict_prompt(job())
-    assert _BEGIN in prompt and _END in prompt
+    assert "```json" in prompt
     assert "product_name" in prompt
-    assert "nunca product\\_name" in prompt
+    assert "Não escape underscores" in prompt
     assert "<h2>Principais recursos</h2>" in prompt
-    assert "URL pura" in prompt
+    assert "não reformate URL em Markdown" in prompt
+
+
+def test_legacy_envelope_remains_supported_as_fallback():
+    body = f"assistant {_BEGIN} {{\"short_description\": \"x\", \"content\": \"y\"}} {_END}"
+    assert "short_description" in _extract_last_marked(body)
