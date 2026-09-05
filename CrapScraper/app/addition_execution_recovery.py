@@ -22,6 +22,10 @@ _FIXED_ERROR_MARKERS = (
     "destino de download nao configurado",
     "configuração ssh incompleta",
     "configuracao ssh incompleta",
+    "imagem inválida: sem permissão para enviar esse tipo de arquivo",
+    "imagem invalida: sem permissao para enviar esse tipo de arquivo",
+    "um termo com o nome fornecido já existe com este ascendente",
+    "um termo com o nome fornecido ja existe com este ascendente",
 )
 
 
@@ -35,10 +39,10 @@ def _configure_addition_download_destination() -> None:
     """Make Adicionar use the same canonical destination as Atualizar.
 
     The update SFTP adapter already accepts SCRAPER_SSH_USERNAME and defaults the
-    production directory to /home/plugintema.com/downloads.  ArtifactPublisher
+    production directory to /home/plugintema.com/downloads. ArtifactPublisher
     historically required SCRAPER_SSH_USER *and* SCRAPER_SSH_DOWNLOAD_ROOT,
     causing Adicionar to fail although Ambiente correctly reported storage as
-    validated.  Normalize the aliases/defaults once at startup so both flows use
+    validated. Normalize the aliases/defaults once at startup so both flows use
     one destination contract.
     """
     username = (os.getenv("SCRAPER_SSH_USERNAME") or os.getenv("SCRAPER_SSH_USER") or "").strip()
@@ -66,8 +70,6 @@ def _patch_research() -> None:
 
     def resolve(self: Any, job: dict[str, Any]) -> dict[str, str]:
         result = dict(original(self, job))
-        # Ausência de um autor extraível não deve impedir o cadastro inteiro.
-        # Não inventamos um nome: persistimos um marcador explícito de revisão.
         if not str(result.get("developer") or "").strip():
             result["developer"] = str(job.get("developer") or "").strip() or "Não identificado"
         return result
@@ -94,9 +96,6 @@ def _patch_store_reconcile() -> None:
         except requests.HTTPError as error:
             response = getattr(error, "response", None)
             if response is not None and int(getattr(response, "status_code", 0) or 0) == 403:
-                # Alguns WAFs recusam filtros de listagem. Isso não prova que a
-                # criação esteja bloqueada; o job idempotente ainda será gravado
-                # assim que create_parent retornar o ID.
                 return 0
             raise
         for product in products or []:
