@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -41,11 +42,25 @@ def _site_base() -> str:
     return value
 
 
-def install_addition_woocommerce_bridge() -> None:
-    """Fallback HMAC para o namespace próprio quando o WAF bloqueia /wc/v3.
+def _bridge_error(response: requests.Response, method: str, path: str) -> RuntimeError:
+    detail = ""
+    try:
+        body = response.json()
+        detail = str(body.get("message") or body.get("error") or "").strip()
+    except Exception:
+        detail = str(response.text or "").strip()[:300]
+    return RuntimeError(
+        f"Bridge CrapScraper recusou {method} {path}: HTTP {response.status_code}"
+        + (f" - {detail}" if detail else "")
+    )
 
-    O caminho normal continua sendo a API WooCommerce. Só 401/403 em operações
-    estritamente permitidas são desviados para o bridge WordPress do CrapScraper.
+
+def install_addition_woocommerce_bridge() -> None:
+    """Fallback HMAC para namespace próprio quando o WAF bloqueia /wc/v3.
+
+    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Isso evita que WAFs
+    inspecionem strings como `/products`, `method=GET` ou o payload completo do
+    WooCommerce antes de a requisição chegar ao WordPress.
     """
 
     from app.additions.wordpress import AdditionStoreGateway
@@ -68,45 +83,43 @@ def install_addition_woocommerce_bridge() -> None:
                 "WooCommerce REST foi bloqueado e SCRAPER_WORDPRESS_MANUAL_SECRET não está configurado para o bridge CrapScraper."
             )
 
-        payload = {
+        command = {
             "method": str(method).upper(),
             "path": str(path),
             "params": dict(kwargs.get("params") or {}),
             "json": kwargs.get("json") if isinstance(kwargs.get("json"), dict) else {},
         }
-        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        command_raw = json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        encoded = base64.b64encode(command_raw).decode("ascii")
         timestamp = str(int(time.time()))
-        signature = hmac.new(secret.encode("utf-8"), timestamp.encode("utf-8") + b"\n" + raw, hashlib.sha256).hexdigest()
-        url = base + "/wp-json/crapscraper/v1/store-command"
+        signature = hmac.new(
+            secret.encode("utf-8"),
+            timestamp.encode("ascii") + b"\n" + encoded.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        envelope = {"t": timestamp, "s": signature, "p": encoded}
+        url = base + "/wp-json/crapscraper/v2/bridge"
         response = self.session.post(
             url,
             headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "X-CrapScraper-Timestamp": timestamp,
-                "X-CrapScraper-Signature": signature,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36",
             },
-            data=raw,
+            json=envelope,
             timeout=max(int(getattr(self, "timeout", 60) or 60), 90),
         )
         if response.status_code == 404:
             raise RuntimeError(
-                "WooCommerce REST está bloqueado pelo servidor e o bridge CrapScraper ainda não está instalado no WordPress."
+                "WooCommerce REST está bloqueado pelo servidor e o bridge CrapScraper V2 ainda não está instalado no WordPress."
             )
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as error:
-            detail = ""
-            try:
-                body = response.json()
-                detail = str(body.get("message") or body.get("error") or "").strip()
-            except Exception:
-                detail = str(response.text or "").strip()[:300]
-            raise RuntimeError(
-                f"Bridge CrapScraper recusou {method} {path}: HTTP {response.status_code}"
-                + (f" - {detail}" if detail else "")
-            ) from error
+        if response.status_code >= 400:
+            raise _bridge_error(response, method, path)
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as error:
+            raise RuntimeError("Bridge CrapScraper retornou resposta inválida em vez de JSON.") from error
         if not bool(data.get("ok")):
             raise RuntimeError(str(data.get("message") or data.get("error") or "Falha no bridge WooCommerce do CrapScraper."))
         return data.get("data")
