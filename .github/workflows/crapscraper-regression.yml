@@ -43,6 +43,7 @@ jobs:
           app/updates/source_filter_runtime.py
           app/updates/target_preflight.py
           app/additions/source_filter_runtime.py
+          app/additions/source_preflight_runtime.py
           ../deploy/crapscraper_zip_permission_helper.py
 
       - name: Targeted Python regressions
@@ -59,6 +60,7 @@ jobs:
           tests/test_retry_error_recovery.py
           tests/test_update_retry_live_objective.py
           tests/test_addition_runtime_recovery.py
+          tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
       - name: Current modular app regressions
