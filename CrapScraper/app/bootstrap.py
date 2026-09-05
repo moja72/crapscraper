@@ -18,6 +18,7 @@ def create_application() -> Application:
     from app.update_retry_live_objective import install_update_retry_live_objective
     from app.addition_runtime_recovery import install_addition_runtime_recovery
     from app.addition_decision_sync import install_addition_decision_sync
+    from app.addition_execution_recovery import install_addition_execution_recovery
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
 
@@ -49,6 +50,7 @@ def create_application() -> Application:
     # imagem com fallback seguro quando OPENAI_API_KEY não estiver configurada.
     install_addition_runtime_recovery()
     install_addition_decision_sync()
+    install_addition_execution_recovery()
 
     # Um catálogo PluginTema é um snapshot. Para linhas marcadas como produto novo,
     # o resultado visível é reconciliado com o WooCommerce ao vivo antes de permitir
