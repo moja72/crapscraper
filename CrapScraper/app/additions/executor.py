@@ -62,7 +62,7 @@ class AdditionExecutor:
             raise ValueError("Job já está em execução")
         attempt = self.repository.begin(job_id)
         aid = attempt["attempt_id"]
-        stage = "validating"
+        stage = "resolving_source"
 
         def progress(current_stage, message):
             nonlocal stage
@@ -71,17 +71,16 @@ class AdditionExecutor:
 
         try:
             self.authorize(job)
-            progress("validating", f"Validando adição de {job['product_name']}.")
             if not job["source_url"] or not job["source_version"]:
                 raise ValueError("Fonte e versão aprovadas são obrigatórias")
 
+            progress("resolving_source", f"Confirmando fonte, desenvolvedor e página oficial de {job['product_name']}.")
             resolved = self.research.resolve(job)
             if not resolved.get("official_url"):
                 raise RuntimeError("Página oficial não confirmada")
             if not resolved.get("developer"):
                 raise RuntimeError("Desenvolvedor não confirmado por fonte confiável")
             job = self.repository.patch(job_id, official_url=resolved["official_url"], developer=resolved["developer"])
-            progress("resolving_source", f"Desenvolvedor e página oficial confirmados: {job['developer']}.")
 
             source = self.sources.source(job)
             if source.kind != job["source_kind"]:
@@ -113,10 +112,12 @@ class AdditionExecutor:
                     refresh_credits_after_download(source.kind)
                 except ImportError:
                     pass
+            else:
+                progress("downloading", "ZIP já baixado e reutilizável; download não repetido.")
 
             progress("validating_zip", f"ZIP íntegro e SHA-256 confirmado: {job['artifact_sha256'][:12]}…")
             if not valid_content(job):
-                progress("generating_description", "Gerando breve descrição, conteúdo, categorias e tags no ChatGPT.")
+                progress("generating_description", "Gerando descrição, conteúdo, categorias e tags no projeto [CS] Automação do ChatGPT via Playwright.")
                 generated = self.content.generate(job)
                 job = self.repository.patch(
                     job_id,
@@ -127,72 +128,67 @@ class AdditionExecutor:
                     tags=generated["tags"],
                 )
             else:
-                progress("generating_description", "Conteúdo válido já persistido; etapa reutilizada.")
+                progress("generating_description", "Conteúdo do ChatGPT já persistido para este produto e versão; etapa reutilizada.")
 
-            if not self.images.valid(job.get("image_path", "")):
-                progress("generating_image", "Gerando imagem principal em etapa isolada.")
+            image_path = str(job.get("image_path") or "")
+            if not self.images.valid(image_path):
+                progress("generating_image", "Gerando imagem no projeto [CS] Automação do ChatGPT via Playwright.")
                 try:
                     image = self.images.generate(job)
+                    progress("saving_image", f"Salvando a imagem gerada localmente: {Path(image).name}.")
                     job = self.repository.patch(job_id, image_state="ready", image_path=str(image), image_error="")
                 except Exception as exc:
                     self.repository.patch(job_id, image_state="error", image_error=safe_message(exc))
                     raise
             else:
-                progress("generating_image", "Imagem válida já persistida; etapa reutilizada.")
+                progress("generating_image", "Imagem do ChatGPT já persistida; geração não repetida.")
+                progress("saving_image", f"Arquivo de imagem já salvo: {Path(image_path).name}.")
 
-            progress("reconciling_woocommerce", "Reconciliando o job antes de criar qualquer produto.")
+            image_path = str(job.get("image_path") or "")
+            progress("validating_image", "Validando bytes e formato real da imagem antes de qualquer envio ao WordPress.")
+            if not self.images.valid(image_path):
+                raise RuntimeError("Arquivo salvo não é PNG/JPEG/WebP válido")
+
+            progress("preparing_payload", "Reconciliando WooCommerce e preparando ZIP, metadados, taxonomias e payload do produto.")
             product_id = int(job.get("woo_product_id") or self.store.reconcile(job) or 0)
             download_ref = str(job.get("published_download_url") or "")
 
-            if not product_id:
-                if not download_ref:
-                    progress("uploading_file", "Publicando ZIP validado no destino de downloads.")
-                    download_ref = self.publisher.publish(job, artifact)
-                    job = self.repository.patch(job_id, published_download_url=download_ref)
+            if not download_ref:
+                download_ref = self.publisher.publish(job, artifact)
+                job = self.repository.patch(job_id, published_download_url=download_ref)
+                progress("preparing_payload", "ZIP validado publicado no destino de downloads; payload pronto para o WooCommerce.")
 
+            if not product_id:
                 media_id = int(job.get("media_id") or 0)
-                image_url = ""
                 if not media_id:
-                    progress("uploading_image", "Enviando imagem à Biblioteca de Mídia.")
+                    progress("uploading_image", "Enviando imagem validada para a Biblioteca de Mídia.")
                     try:
                         media_id = self.store.upload_media(Path(job["image_path"]), job["product_name"])
-                        job = self.repository.patch(job_id, media_id=media_id)
                     except Exception as exc:
                         fallback = getattr(self.store, "media_upload_fallback_allowed", lambda _error: False)(exc)
                         if not fallback:
                             raise
-                        progress(
-                            "uploading_image",
-                            "REST de mídia bloqueado; publicando imagem no destino validado para importação pelo WooCommerce.",
-                        )
-                        image_url = self.publisher.publish_image(job, Path(job["image_path"]))
+                        bridge_upload = getattr(self.store, "upload_media_bridge", None)
+                        if not callable(bridge_upload):
+                            raise RuntimeError("REST de mídia bloqueado e bridge de mídia CrapScraper indisponível") from exc
+                        progress("uploading_image", "REST de mídia bloqueado; enviando os bytes da imagem validada pelo Bridge CrapScraper.")
+                        media_id = int(bridge_upload(Path(job["image_path"]), job["product_name"]) or 0)
+                    if not media_id:
+                        raise RuntimeError("WordPress não retornou ID para a imagem principal")
+                    job = self.repository.patch(job_id, media_id=media_id)
+                else:
+                    progress("uploading_image", f"Imagem WordPress #{media_id} já persistida; upload não repetido.")
 
                 progress("creating_woocommerce", "Criando produto pai variável inicialmente como rascunho.")
-                product = (
-                    self.store.create_parent(job, media_id, download_ref, image_url=image_url)
-                    if image_url
-                    else self.store.create_parent(job, media_id, download_ref)
-                )
+                product = self.store.create_parent(job, media_id, download_ref)
                 product_id = int(product.get("id") or 0)
                 if not product_id:
                     raise RuntimeError("WooCommerce não retornou o ID do produto")
-                if not media_id:
-                    created_images = product.get("images") or []
-                    created_media_id = (
-                        int(created_images[0].get("id") or 0)
-                        if created_images and isinstance(created_images[0], dict)
-                        else 0
-                    )
-                    if created_media_id:
-                        job = self.repository.patch(job_id, media_id=created_media_id)
                 job = self.repository.patch(job_id, woo_product_id=product_id)
             else:
                 job = self.repository.patch(job_id, woo_product_id=product_id)
+                progress("uploading_image", "Produto já reconciliado; mídia não precisa ser enviada novamente.")
                 progress("creating_woocommerce", f"Produto WooCommerce #{product_id} reconciliado; criação não repetida.")
-                if not download_ref:
-                    progress("uploading_file", "Produto reconciliado sem URL de ZIP persistida; publicando o artefato validado.")
-                    download_ref = self.publisher.publish(job, artifact)
-                    job = self.repository.patch(job_id, published_download_url=download_ref)
 
             progress("creating_variations", "Criando ou reconciliando as variações Anual e Vitalício.")
             variation_ids = self.store.ensure_variations(product_id, job, download_ref)
