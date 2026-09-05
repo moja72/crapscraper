@@ -67,6 +67,38 @@ def test_products_post_uses_opaque_signed_bridge_after_waf_403(monkeypatch):
     assert kwargs["headers"]["User-Agent"].startswith("Mozilla/5.0")
 
 
+def test_wc_transport_ssl_eof_uses_signed_bridge(monkeypatch):
+    configure(monkeypatch)
+
+    class SslBrokenSession(BridgeSession):
+        def request(self, method, url, **kwargs):
+            raise requests.exceptions.SSLError("EOF occurred in violation of protocol")
+
+    session = SslBrokenSession()
+    gateway = AdditionStoreGateway(session=session)
+    result = gateway._wc("GET", "/products", params={"per_page": 100})
+
+    assert result["id"] == 123
+    assert session.bridge_call is not None
+    url, kwargs = session.bridge_call
+    assert url.endswith("/wp-json/crapscraper/v2/bridge")
+    decoded = json.loads(base64.b64decode(kwargs["json"]["p"]).decode("utf-8"))
+    assert decoded["method"] == "GET"
+    assert decoded["path"] == "/products"
+
+
+def test_media_upload_tls_connection_failures_allow_bridge_fallback():
+    for error in (
+        requests.exceptions.SSLError("EOF occurred in violation of protocol"),
+        requests.exceptions.ConnectionError("connection reset"),
+        requests.exceptions.Timeout("timed out"),
+    ):
+        assert AdditionStoreGateway.media_upload_fallback_allowed(error) is True
+
+    server_error = requests.HTTPError("HTTP 500", response=FakeResponse(500, {"message": "boom"}))
+    assert AdditionStoreGateway.media_upload_fallback_allowed(server_error) is False
+
+
 def test_v2_mu_plugin_uses_opaque_body_envelope():
     plugin = Path(__file__).resolve().parents[2] / "deploy" / "wordpress" / "crapscraper-woocommerce-bridge-v2.php"
     text = plugin.read_text(encoding="utf-8")
