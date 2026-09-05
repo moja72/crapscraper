@@ -28,6 +28,10 @@ _FIXED_ERROR_MARKERS = (
     "a imagem publicada pelo crapscraper nao e png, jpeg ou webp valido",
     "um termo com o nome fornecido já existe com este ascendente",
     "um termo com o nome fornecido ja existe com este ascendente",
+    "não foi possível localizar o campo de mensagem do chatgpt",
+    "nao foi possivel localizar o campo de mensagem do chatgpt",
+    "campo de mensagem do chatgpt não encontrado",
+    "campo de mensagem do chatgpt nao encontrado",
 )
 
 
