@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from app.addition_execution_recovery import _configure_addition_download_destination
-from app.additions.chatgpt_playwright_image import image_fingerprint, image_reusable
+from app.additions.catalog_taxonomy_runtime import canonicalize_job_taxonomy
+from app.additions.chatgpt_playwright_image import (
+    _candidate_is_after_marker,
+    image_fingerprint,
+    image_reusable,
+)
 from app.additions.wordpress import AdditionStoreGateway, ArtifactPublisher
 
 
@@ -111,3 +116,33 @@ def test_image_cache_requires_exact_product_fingerprint(monkeypatch, tmp_path):
     other = dict(current)
     other["product_name"] = "Outro Produto"
     assert not image_reusable(other)
+
+
+def test_taxonomy_is_exactly_one_type_category_and_no_tags():
+    theme = canonicalize_job_taxonomy({"kind": "theme", "categories": ["Marketing", "Plugin"], "tags": ["SEO"]})
+    plugin = canonicalize_job_taxonomy({"kind": "plugin", "categories": ["Tema", "WooCommerce"], "tags": ["Loja"]})
+
+    assert theme["categories"] == ["Tema"]
+    assert theme["tags"] == []
+    assert plugin["categories"] == ["Plugin"]
+    assert plugin["tags"] == []
+
+
+class _MarkerLocator:
+    def __init__(self, result):
+        self.result = result
+        self.seen_marker = ""
+
+    def evaluate(self, _script, marker):
+        self.seen_marker = marker
+        return self.result
+
+
+def test_image_candidate_must_be_after_current_prompt_marker():
+    marker = "CSIMG-911THEME"
+    previous = _MarkerLocator(False)
+    current = _MarkerLocator(True)
+
+    assert not _candidate_is_after_marker({"locator": previous}, marker)
+    assert _candidate_is_after_marker({"locator": current}, marker)
+    assert current.seen_marker == marker
