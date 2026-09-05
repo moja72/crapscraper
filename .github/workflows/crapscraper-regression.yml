@@ -72,6 +72,7 @@ jobs:
           tests/test_addition_term_resolution.py
           tests/test_addition_taxonomy_blocked.py
           tests/test_addition_woocommerce_bridge.py
+          tests/test_addition_bridge_v2_media_taxonomy_contract.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
