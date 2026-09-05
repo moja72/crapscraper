@@ -108,9 +108,26 @@ class AdditionStoreGateway:
 
     @staticmethod
     def media_upload_fallback_allowed(error):
+        """Return True when /wp/v2/media should fall back to the signed bridge.
+
+        This WordPress is known to terminate some REST-media connections at the
+        TLS/WAF layer. In that case requests raises SSLError/ConnectionError
+        before an HTTP status exists, so limiting fallback to HTTP 401/403 leaves
+        valid images stuck at stage 9. Transport-level failures are safe to retry
+        through the HMAC bridge because the image bytes were already validated.
+        """
         if isinstance(error, requests.HTTPError):
             response = getattr(error, "response", None)
             return int(getattr(response, "status_code", 0) or 0) in {401, 403}
+        if isinstance(
+            error,
+            (
+                requests.exceptions.SSLError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ),
+        ):
+            return True
         return isinstance(error, RuntimeError) and "Credenciais WordPress não configuradas" in str(error)
 
     def upload_media(self, path: Path, title: str):
@@ -121,13 +138,23 @@ class AdditionStoreGateway:
         response = self.session.post(self.wp + "/media", auth=self.wp_auth, headers=headers, data=path.read_bytes(), timeout=120)
         response.raise_for_status()
         media = response.json()
-        self.session.post(
-            self.wp + f"/media/{media['id']}",
-            auth=self.wp_auth,
-            json={"title": title, "alt_text": title},
-            timeout=60,
-        ).raise_for_status()
-        return int(media["id"])
+        media_id = int(media.get("id") or 0)
+        if not media_id:
+            raise RuntimeError("WordPress não retornou ID após upload da mídia")
+        try:
+            self.session.post(
+                self.wp + f"/media/{media_id}",
+                auth=self.wp_auth,
+                json={"title": title, "alt_text": title},
+                timeout=60,
+            ).raise_for_status()
+        except Exception as error:
+            # O arquivo já existe no WordPress. Uma falha de transporte/401/403
+            # apenas ao atualizar metadados não deve gerar um segundo attachment
+            # pelo bridge; seguimos com o ID que o WordPress acabou de criar.
+            if not self.media_upload_fallback_allowed(error):
+                raise
+        return media_id
 
     def create_parent(self, job, media_id, download_ref, image_url=""):
         category_names = list(job.get("categories") or []) or (["Temas"] if job["kind"] == "theme" else ["Plugins"])
