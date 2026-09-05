@@ -102,12 +102,74 @@ def _candidate_hash(page: Any, candidate: dict[str, Any]) -> tuple[str, bytes]:
     return hashlib.sha256(raw).hexdigest(), raw
 
 
-def generate_image(job: dict[str, Any], root: Path) -> Path:
-    """Generate a product-specific image and prove it is new before persisting it.
+def _candidate_is_after_marker(candidate: dict[str, Any], marker: str) -> bool:
+    """Prove that an image belongs to the assistant turn after this image request.
 
-    DOM/src changes are not enough: ChatGPT can re-render an older image and make
-    it look like a fresh candidate. We hash the actual bytes visible before the
-    prompt and reject any post-prompt candidate with the same content hash.
+    Byte hashes alone are insufficient when the previous product finishes rendering
+    just after the next prompt is sent. The previous artwork is still located before
+    the new user message in DOM order, so reject every image that is not physically
+    after the unique marker embedded in the current user prompt.
+    """
+    locator = candidate.get("locator")
+    if locator is None:
+        return False
+    try:
+        return bool(
+            locator.evaluate(
+                """
+                (img, marker) => {
+                  const textOf = node => String(node?.innerText || node?.textContent || '');
+                  const scopes = [
+                    ...document.querySelectorAll('main [data-message-author-role="user"]'),
+                    ...document.querySelectorAll('main [data-testid^="conversation-turn-"]'),
+                    ...document.querySelectorAll('main article')
+                  ];
+                  let anchors = scopes.filter(node => textOf(node).includes(marker));
+
+                  if (!anchors.length) {
+                    const all = [...document.querySelectorAll('main *')];
+                    anchors = all.filter(node => {
+                      const own = textOf(node);
+                      if (!own.includes(marker)) return false;
+                      return ![...node.children].some(child => textOf(child).includes(marker));
+                    });
+                  }
+
+                  const anchor = anchors[anchors.length - 1];
+                  if (!anchor) return false;
+                  const relation = anchor.compareDocumentPosition(img);
+                  return Boolean(relation & Node.DOCUMENT_POSITION_FOLLOWING);
+                }
+                """,
+                marker,
+            )
+        )
+    except Exception:
+        return False
+
+
+def _marker_visible(page: Any, marker: str) -> bool:
+    try:
+        node = page.get_by_text(marker, exact=False).last
+        return bool(node.count() and node.is_visible())
+    except Exception:
+        try:
+            body = page.locator("main").inner_text(timeout=1500) or ""
+            return marker in body
+        except Exception:
+            return False
+
+
+def generate_image(job: dict[str, Any], root: Path) -> Path:
+    """Generate a product-specific image and prove it belongs to this exact prompt.
+
+    We require three independent signals before persisting an image:
+    1. its bytes did not exist before this prompt;
+    2. its DOM position is after this prompt's unique user-message marker;
+    3. the bytes are stable and ChatGPT has finished generating (Stop is gone).
+
+    This prevents the next product from inheriting an image that was still finishing
+    for the previous product.
     """
     with _LOCK, _browser() as page:
         _open_job_conversation(page, str(job["job_id"]))
@@ -126,11 +188,14 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
             if digest:
                 before_hashes.add(digest)
 
+        marker_seed = f"{job.get('job_id')}|{job.get('product_name')}|{job.get('source_version')}|{time.time_ns()}"
+        marker = "CSIMG-" + hashlib.sha256(marker_seed.encode("utf-8")).hexdigest()[:16].upper()
         prompt = (
             f"Continuando o cadastro de {job['product_name']} no projeto {project_name()}, gere AGORA a imagem principal.\n\n"
             + image_prompt(job)
             + "\n\nIMPORTANTE: esta imagem é EXCLUSIVA deste produto. Não reutilize imagem de outro item ou de uma resposta anterior. "
-            + "Use a ferramenta de geração de imagens do ChatGPT. Não responda apenas com uma descrição; produza a imagem de fato."
+            + "Use a ferramenta de geração de imagens do ChatGPT. Não responda apenas com uma descrição; produza a imagem de fato.\n"
+            + f"Identificador interno desta solicitação: {marker}. Não repita esse identificador na resposta."
         )
         _submit_image_prompt(page, prompt)
 
@@ -140,7 +205,7 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
         selected_raw = b""
         stable_hash = ""
         stable_cycles = 0
-        first_new_at: float | None = None
+        marker_seen = False
 
         while time.monotonic() < deadline:
             if _looks_like_auth_wall(page) and _composer(page, 1000) is None:
@@ -148,21 +213,21 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
                     "Sessão ChatGPT expirou durante a geração da imagem. Execute o bootstrap novamente."
                 )
 
+            marker_seen = marker_seen or _marker_visible(page, marker)
             candidates = _candidate_images(page)
             last_candidates = candidates
             fresh = [item for item in candidates if _image_candidate_key(item) not in before_keys]
             if not fresh and len(candidates) > before_count:
                 fresh = candidates[before_count:]
 
-            # Prefer larger candidates, but accept only bytes that did not exist
-            # before this prompt. This blocks the exact stale-image failure seen
-            # when the next product inherited the previous product's artwork.
             fresh = sorted(fresh, key=candidate_render_area, reverse=True)
             current_hash = ""
             current_raw = b""
             current_candidate = None
             for candidate in fresh:
                 if candidate.get("complete") is False:
+                    continue
+                if not marker_seen or not _candidate_is_after_marker(candidate, marker):
                     continue
                 digest, raw = _candidate_hash(page, candidate)
                 if not digest or digest in before_hashes:
@@ -173,18 +238,16 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
                 break
 
             if current_candidate is not None:
-                if first_new_at is None:
-                    first_new_at = time.monotonic()
                 if current_hash == stable_hash:
                     stable_cycles += 1
                 else:
                     stable_hash = current_hash
                     stable_cycles = 0
 
-                grace = time.monotonic() - first_new_at
-                # Require repeated identical bytes. Prefer generation fully idle,
-                # but never wait forever on a stale Stop button.
-                if stable_cycles >= 2 and (not _stop_visible(page) or grace >= 10):
+                # Do not accept an image while ChatGPT is still generating. Waiting
+                # for Stop to disappear is intentionally strict: a timeout is safer
+                # than assigning the previous/intermediate artwork to this product.
+                if stable_cycles >= 3 and not _stop_visible(page):
                     selected = current_candidate
                     selected_raw = current_raw
                     break
@@ -195,8 +258,9 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
             diagnostic = _diagnostic(page, "image_response_timeout")
             suffix = f" Diagnóstico salvo em {diagnostic}." if diagnostic else ""
             raise ChatGPTPlaywrightError(
-                "ChatGPT não entregou uma imagem NOVA confirmada para este produto. "
-                f"Imagens grandes detectadas no fim: {len(last_candidates)}; imagens anteriores protegidas: {len(before_hashes)}."
+                "ChatGPT não entregou uma imagem NOVA concluída e vinculada ao prompt deste produto. "
+                f"Marcador do prompt localizado: {'sim' if marker_seen else 'não'}; "
+                f"imagens grandes detectadas no fim: {len(last_candidates)}; imagens anteriores protegidas: {len(before_hashes)}."
                 + suffix
             )
 
@@ -211,9 +275,16 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
             image_fingerprint=image_fingerprint(job),
             image_sha256=hashlib.sha256(Path(target).read_bytes()).hexdigest(),
             image_candidate_src=str(selected.get("src") or "")[:1000],
+            image_prompt_marker=marker,
             cache_until=now + _CACHE_SECONDS,
         )
         return target
 
 
-__all__ = ["generate_image", "image_fingerprint", "image_reusable", "image_valid"]
+__all__ = [
+    "generate_image",
+    "image_fingerprint",
+    "image_reusable",
+    "image_valid",
+    "_candidate_is_after_marker",
+]
