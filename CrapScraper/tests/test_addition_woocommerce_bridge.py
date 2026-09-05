@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+from pathlib import Path
 
 import pytest
 import requests
@@ -64,6 +65,15 @@ def test_products_post_uses_opaque_signed_bridge_after_waf_403(monkeypatch):
     assert envelope["s"] == expected
     assert "X-CrapScraper-Signature" not in kwargs["headers"]
     assert kwargs["headers"]["User-Agent"].startswith("Mozilla/5.0")
+
+
+def test_v2_mu_plugin_uses_opaque_body_envelope():
+    plugin = Path(__file__).resolve().parents[2] / "deploy" / "wordpress" / "crapscraper-woocommerce-bridge-v2.php"
+    text = plugin.read_text(encoding="utf-8")
+    assert "register_rest_route('crapscraper/v2', '/bridge'" in text
+    assert "base64_decode($envelope['encoded'], true)" in text
+    assert "hash_hmac('sha256', $envelope['timestamp'] . \"\\n\" . $envelope['encoded']" in text
+    assert "x-crapscraper-signature" not in text.lower()
 
 
 def test_bridge_missing_secret_is_actionable(monkeypatch):
