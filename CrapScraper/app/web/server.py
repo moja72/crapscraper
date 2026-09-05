@@ -14,6 +14,9 @@ from app.web.api import ApplicationServices
 from app.web.routes import get_route, post_route
 
 
+_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
+
+
 class Application:
     def __init__(self, settings: Settings, services: ApplicationServices): self.settings, self.services = settings, services
 
@@ -24,29 +27,60 @@ class Application:
 
         class Handler(BaseHTTPRequestHandler):
             def send_bytes(self, body: bytes, content_type: str, status: int = 200, disposition: str = "") -> None:
-                self.send_response(status); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); self.send_header("Pragma", "no-cache"); self.send_header("Content-Length", str(len(body)));disposition and self.send_header("Content-Disposition",disposition);self.end_headers(); self.wfile.write(body)
-            def send_json(self, value: object, status: int = 200) -> None: self.send_bytes(json.dumps(value, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8", status)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.send_header("Pragma", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    if disposition:
+                        self.send_header("Content-Disposition", disposition)
+                    self.end_headers()
+                    self.wfile.write(body)
+                except _DISCONNECT_ERRORS:
+                    # O navegador cancela requisições de polling antigas quando uma
+                    # atualização mais nova assume a tela. Isso não é erro do servidor.
+                    return
+
+            def send_json(self, value: object, status: int = 200) -> None:
+                self.send_bytes(json.dumps(value, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8", status)
+
             def do_GET(self) -> None:
                 path = urlparse(self.path).path
                 try:
-                    if path == "/": return self.send_bytes(template.read_bytes(), "text/html; charset=utf-8")
+                    if path == "/":
+                        return self.send_bytes(template.read_bytes(), "text/html; charset=utf-8")
                     if path.startswith("/static/"):
                         target = (static / path.removeprefix("/static/")).resolve()
-                        if static.resolve() not in target.parents: raise FileNotFoundError
+                        if static.resolve() not in target.parents:
+                            raise FileNotFoundError
                         return self.send_bytes(target.read_bytes(), mimetypes.guess_type(target.name)[0] or "application/octet-stream")
-                    query={key: values[-1] for key,values in parse_qs(urlparse(self.path).query).items()}
+                    query = {key: values[-1] for key, values in parse_qs(urlparse(self.path).query).items()}
                     if path == "/api/catalogs/download":
-                        filename,body=services.catalogs.download(str(query.get("catalog_id") or ""));return self.send_bytes(body,"text/csv; charset=utf-8",disposition=f'attachment; filename="{filename}"')
+                        filename, body = services.catalogs.download(str(query.get("catalog_id") or ""))
+                        return self.send_bytes(body, "text/csv; charset=utf-8", disposition=f'attachment; filename="{filename}"')
                     return self.send_json(get_route(services, path, query))
-                except (KeyError, FileNotFoundError): self.send_json({"ok": False, "message": "Não encontrado"}, 404)
-                except Exception as error: self.send_json({"ok": False, "message": str(error)}, 500)
+                except _DISCONNECT_ERRORS:
+                    return
+                except (KeyError, FileNotFoundError):
+                    self.send_json({"ok": False, "message": "Não encontrado"}, 404)
+                except Exception as error:
+                    self.send_json({"ok": False, "message": str(error)}, 500)
+
             def do_POST(self) -> None:
                 try:
-                    size = int(self.headers.get("Content-Length", "0")); payload = json.loads(self.rfile.read(size) or b"{}")
+                    size = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(size) or b"{}")
                     self.send_json(post_route(services, urlparse(self.path).path, payload))
-                except KeyError: self.send_json({"ok": False, "message": "Não encontrado"}, 404)
-                except Exception as error: self.send_json({"ok": False, "message": str(error)}, 400)
-            def log_message(self, format: str, *args: object) -> None: pass
+                except _DISCONNECT_ERRORS:
+                    return
+                except KeyError:
+                    self.send_json({"ok": False, "message": "Não encontrado"}, 404)
+                except Exception as error:
+                    self.send_json({"ok": False, "message": str(error)}, 400)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
 
         server = ThreadingHTTPServer((settings.host, settings.port), Handler)
         url = f"http://{settings.host}:{settings.port}"

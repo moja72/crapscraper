@@ -18,6 +18,7 @@ import "./add.js";
 import "./add-heading.js";
 import "./add-queue-standardization.js";
 import "./add-live-progress.js";
+import "./add-stable-polling.js";
 import "./store.js";
 import "./sync.js";
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];let active="collect";
