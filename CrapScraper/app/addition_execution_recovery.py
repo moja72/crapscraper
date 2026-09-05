@@ -24,6 +24,8 @@ _FIXED_ERROR_MARKERS = (
     "configuracao ssh incompleta",
     "imagem inválida: sem permissão para enviar esse tipo de arquivo",
     "imagem invalida: sem permissao para enviar esse tipo de arquivo",
+    "a imagem publicada pelo crapscraper não é png, jpeg ou webp válido",
+    "a imagem publicada pelo crapscraper nao e png, jpeg ou webp valido",
     "um termo com o nome fornecido já existe com este ascendente",
     "um termo com o nome fornecido ja existe com este ascendente",
 )
