@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from app.additions.creative import image_prompt
-from app.additions.chatgpt_image_detection_runtime import _image_candidate_key
+from app.additions.chatgpt_image_detection_runtime import (
+    _image_candidate_key,
+    candidate_render_area,
+)
 from app.additions.chatgpt_playwright import (
     ChatGPTPlaywrightError,
     _LOCK,
@@ -98,7 +101,11 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
                 fresh = candidates[before_count:]
 
             if fresh:
-                candidate = fresh[-1]
+                # O ChatGPT pode mostrar a mesma imagem grande no corpo do chat
+                # e como miniatura na lateral. Prefira a cópia com maior área
+                # efetivamente renderizada para que o fallback por screenshot
+                # preserve a resolução visual mais alta possível.
+                candidate = max(fresh, key=candidate_render_area)
                 key = _image_candidate_key(candidate)
                 if key == stable_fresh_key:
                     stable_cycles += 1
