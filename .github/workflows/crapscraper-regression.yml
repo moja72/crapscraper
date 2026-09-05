@@ -43,6 +43,7 @@ jobs:
           app/updates/ultrapack_source_recovery.py
           app/updates/source_filter_runtime.py
           app/updates/target_preflight.py
+          app/additions/source.py
           app/additions/source_filter_runtime.py
           app/additions/source_preflight_runtime.py
           app/additions/woocommerce_bridge_runtime.py
@@ -83,6 +84,7 @@ jobs:
           tests/test_addition_chatgpt_playwright.py
           tests/test_chatgpt_playwright_compat.py
           tests/test_chatgpt_content_response_runtime.py
+          tests/test_chatgpt_rendered_response_and_research.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 
@@ -113,7 +115,7 @@ jobs:
         run: python -c "from app.bootstrap import create_application; app=create_application(); print(type(app).__name__)"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
