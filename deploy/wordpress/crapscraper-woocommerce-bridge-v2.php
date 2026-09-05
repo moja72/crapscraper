@@ -2,12 +2,14 @@
 /**
  * Plugin Name: CrapScraper WooCommerce Bridge V2
  * Description: Bridge HMAC com envelope opaco para operações de adição quando o WAF bloqueia /wc/v3.
- * Version: 2.1.0
+ * Version: 2.2.0
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
+
+define('CRAPSCRAPER_STORE_BRIDGE_V2_VERSION', '2.2.0');
 
 add_action('rest_api_init', static function (): void {
     register_rest_route('crapscraper/v2', '/bridge', [
@@ -16,6 +18,13 @@ add_action('rest_api_init', static function (): void {
         'permission_callback' => 'crapscraper_store_bridge_v2_authorize',
     ]);
 });
+
+function crapscraper_store_bridge_v2_error_data(int $status): array {
+    return [
+        'status' => $status,
+        'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+    ];
+}
 
 function crapscraper_store_bridge_v2_secret(): string {
     if (defined('CRAPSCRAPER_MANUAL_SECRET')) {
@@ -66,36 +75,60 @@ function crapscraper_store_bridge_v2_prime_user(): bool {
 function crapscraper_store_bridge_v2_authorize(WP_REST_Request $request) {
     $secret = crapscraper_store_bridge_v2_secret();
     if (strlen($secret) < 24) {
-        return new WP_Error('crapscraper_bridge_secret_missing', 'Segredo HMAC do CrapScraper não configurado.', ['status' => 503]);
+        return new WP_Error(
+            'crapscraper_bridge_secret_missing',
+            'Segredo HMAC do CrapScraper não configurado.',
+            crapscraper_store_bridge_v2_error_data(503)
+        );
     }
 
     $envelope = crapscraper_store_bridge_v2_envelope($request);
     if ($envelope['timestamp'] === '' || !ctype_digit($envelope['timestamp']) || $envelope['signature'] === '' || $envelope['encoded'] === '') {
-        return new WP_Error('crapscraper_bridge_signature_missing', 'Assinatura CrapScraper ausente.', ['status' => 403]);
+        return new WP_Error(
+            'crapscraper_bridge_signature_missing',
+            'Assinatura CrapScraper ausente.',
+            crapscraper_store_bridge_v2_error_data(403)
+        );
     }
     if (abs(time() - (int) $envelope['timestamp']) > 300) {
-        return new WP_Error('crapscraper_bridge_signature_expired', 'Assinatura CrapScraper expirada.', ['status' => 403]);
+        return new WP_Error(
+            'crapscraper_bridge_signature_expired',
+            'Assinatura CrapScraper expirada.',
+            crapscraper_store_bridge_v2_error_data(403)
+        );
     }
 
     $expected = hash_hmac('sha256', $envelope['timestamp'] . "\n" . $envelope['encoded'], $secret);
     if (!hash_equals($expected, $envelope['signature'])) {
-        return new WP_Error('crapscraper_bridge_signature_invalid', 'Assinatura CrapScraper inválida.', ['status' => 403]);
+        return new WP_Error(
+            'crapscraper_bridge_signature_invalid',
+            'Assinatura CrapScraper inválida.',
+            crapscraper_store_bridge_v2_error_data(403)
+        );
     }
 
     $decoded = base64_decode($envelope['encoded'], true);
     if ($decoded === false || strlen($decoded) > 1048576) {
-        return new WP_Error('crapscraper_bridge_payload_invalid', 'Envelope CrapScraper inválido.', ['status' => 400]);
+        return new WP_Error(
+            'crapscraper_bridge_payload_invalid',
+            'Envelope CrapScraper inválido.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
     $command = json_decode($decoded, true);
     if (!is_array($command)) {
-        return new WP_Error('crapscraper_bridge_payload_invalid', 'Comando CrapScraper inválido.', ['status' => 400]);
+        return new WP_Error(
+            'crapscraper_bridge_payload_invalid',
+            'Comando CrapScraper inválido.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
 
     if (!crapscraper_store_bridge_v2_prime_user()) {
         return new WP_Error(
             'crapscraper_bridge_operator_missing',
             'Nenhum usuário WordPress com manage_woocommerce e upload_files foi encontrado para executar o bridge.',
-            ['status' => 503]
+            crapscraper_store_bridge_v2_error_data(503)
         );
     }
 
@@ -109,6 +142,7 @@ function crapscraper_store_bridge_v2_response($result) {
         $status = is_array($data) && !empty($data['status']) ? (int) $data['status'] : 400;
         return new WP_REST_Response([
             'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
             'message' => $result->get_error_message(),
             'code' => $result->get_error_code(),
             'data' => is_array($data) ? $data : [],
@@ -121,11 +155,16 @@ function crapscraper_store_bridge_v2_response($result) {
     if ($status >= 400) {
         return new WP_REST_Response([
             'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
             'message' => is_array($data) ? (string) ($data['message'] ?? 'Falha WooCommerce.') : 'Falha WooCommerce.',
             'data' => $data,
         ], $status);
     }
-    return new WP_REST_Response(['ok' => true, 'data' => $data], 200);
+    return new WP_REST_Response([
+        'ok' => true,
+        'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+        'data' => $data,
+    ], 200);
 }
 
 function crapscraper_store_bridge_v2_request(string $method, array $params, array $body): WP_REST_Request {
@@ -173,17 +212,26 @@ function crapscraper_store_bridge_v2_taxonomy(string $method, string $path, arra
         }
         return new WP_REST_Response([
             'ok' => true,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
             'data' => array_map('crapscraper_store_bridge_v2_term_data', $terms),
         ], 200);
     }
 
     if ($method !== 'POST') {
-        return new WP_REST_Response(['ok' => false, 'message' => 'Método inválido para taxonomia.'], 405);
+        return new WP_REST_Response([
+            'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'message' => 'Método inválido para taxonomia.',
+        ], 405);
     }
 
     $name = trim((string) ($body['name'] ?? ''));
     if ($name === '') {
-        return new WP_REST_Response(['ok' => false, 'message' => 'Nome da taxonomia vazio.'], 400);
+        return new WP_REST_Response([
+            'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'message' => 'Nome da taxonomia vazio.',
+        ], 400);
     }
     $wanted_slug = sanitize_title((string) ($body['slug'] ?? $name));
 
@@ -194,7 +242,11 @@ function crapscraper_store_bridge_v2_taxonomy(string $method, string $path, arra
         'number' => 1,
     ]);
     if (!is_wp_error($existing) && $existing) {
-        return new WP_REST_Response(['ok' => true, 'data' => crapscraper_store_bridge_v2_term_data($existing[0])], 200);
+        return new WP_REST_Response([
+            'ok' => true,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'data' => crapscraper_store_bridge_v2_term_data($existing[0]),
+        ], 200);
     }
     if ($wanted_slug !== '') {
         $existing = get_terms([
@@ -204,7 +256,11 @@ function crapscraper_store_bridge_v2_taxonomy(string $method, string $path, arra
             'number' => 1,
         ]);
         if (!is_wp_error($existing) && $existing) {
-            return new WP_REST_Response(['ok' => true, 'data' => crapscraper_store_bridge_v2_term_data($existing[0])], 200);
+            return new WP_REST_Response([
+                'ok' => true,
+                'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                'data' => crapscraper_store_bridge_v2_term_data($existing[0]),
+            ], 200);
         }
     }
 
@@ -218,7 +274,11 @@ function crapscraper_store_bridge_v2_taxonomy(string $method, string $path, arra
             $term_id = (int) $created->get_error_data('term_exists');
             $term = $term_id ? get_term($term_id, $taxonomy) : null;
             if ($term instanceof WP_Term) {
-                return new WP_REST_Response(['ok' => true, 'data' => crapscraper_store_bridge_v2_term_data($term)], 200);
+                return new WP_REST_Response([
+                    'ok' => true,
+                    'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                    'data' => crapscraper_store_bridge_v2_term_data($term),
+                ], 200);
             }
         }
         return crapscraper_store_bridge_v2_response($created);
@@ -227,46 +287,137 @@ function crapscraper_store_bridge_v2_taxonomy(string $method, string $path, arra
     $term = get_term((int) $created['term_id'], $taxonomy);
     return new WP_REST_Response([
         'ok' => true,
+        'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
         'data' => $term instanceof WP_Term ? crapscraper_store_bridge_v2_term_data($term) : ['id' => (int) $created['term_id']],
     ], 200);
 }
 
 /**
- * Quando o REST /wp/v2/media está bloqueado, o CrapScraper publica a imagem em
- * /downloads. Em vez de pedir ao controller WooCommerce para baixar essa URL
- * como um visitante anônimo, o bridge usa o arquivo local correspondente,
- * valida que é PNG/JPEG/WebP e cria o attachment na pasta oficial de uploads.
+ * Lê a imagem publicada em /downloads sem depender do sideload REST do
+ * WooCommerce. Tentamos primeiro o arquivo local; se o PHP não tiver acesso a
+ * esse diretório externo ao public_html, usamos a própria URL pública same-host
+ * como fallback. Em ambos os casos validamos os bytes reais da imagem.
  */
-function crapscraper_store_bridge_v2_local_image_id(string $src, string $title): int {
+function crapscraper_store_bridge_v2_image_bytes(string $src) {
+    $src = trim($src);
     if ($src === '') {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_image_source_missing',
+            'URL da imagem do CrapScraper está vazia.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
+
     $parts = wp_parse_url($src);
     $site_host = strtolower((string) wp_parse_url(home_url('/'), PHP_URL_HOST));
     $src_host = strtolower((string) ($parts['host'] ?? ''));
     $path = rawurldecode((string) ($parts['path'] ?? ''));
     if ($site_host === '' || $src_host !== $site_host || strpos($path, '/downloads/') !== 0) {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_image_source_forbidden',
+            'A imagem do produto precisa estar no /downloads do próprio site.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
 
     $filename = sanitize_file_name(basename($path));
     if ($filename === '') {
-        return 0;
-    }
-    $downloads_root = realpath(dirname(rtrim(ABSPATH, '/\\')) . '/downloads');
-    $local = realpath(dirname(rtrim(ABSPATH, '/\\')) . '/downloads/' . $filename);
-    if (!$downloads_root || !$local || strpos($local, rtrim($downloads_root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR) !== 0 || !is_file($local)) {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_image_filename_invalid',
+            'Nome do arquivo de imagem inválido.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
 
-    $info = @getimagesize($local);
+    $bytes = '';
+    $origin = '';
+    $candidate = dirname(rtrim(ABSPATH, '/\\')) . '/downloads/' . $filename;
+    $real = realpath($candidate);
+    $root = realpath(dirname(rtrim(ABSPATH, '/\\')) . '/downloads');
+    if ($real && $root && strpos($real, rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR) === 0 && is_file($real) && is_readable($real)) {
+        $raw = @file_get_contents($real);
+        if (is_string($raw) && $raw !== '') {
+            $bytes = $raw;
+            $origin = 'local';
+        }
+    }
+
+    if ($bytes === '') {
+        $response = wp_safe_remote_get($src, [
+            'timeout' => 45,
+            'redirection' => 2,
+            'headers' => [
+                'Accept' => 'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8',
+                'User-Agent' => 'Mozilla/5.0 (compatible; CrapScraper/2.2)',
+            ],
+        ]);
+        if (is_wp_error($response)) {
+            return new WP_Error(
+                'crapscraper_bridge_image_fetch_failed',
+                'Não foi possível ler a imagem publicada em /downloads: ' . $response->get_error_message(),
+                crapscraper_store_bridge_v2_error_data(400)
+            );
+        }
+        $status = (int) wp_remote_retrieve_response_code($response);
+        $raw = (string) wp_remote_retrieve_body($response);
+        if ($status < 200 || $status >= 300 || $raw === '') {
+            return new WP_Error(
+                'crapscraper_bridge_image_fetch_failed',
+                'A imagem publicada em /downloads não pôde ser lida pelo WordPress (HTTP ' . $status . ').',
+                crapscraper_store_bridge_v2_error_data(400)
+            );
+        }
+        $bytes = $raw;
+        $origin = 'http';
+    }
+
+    if (strlen($bytes) <= 1024) {
+        return new WP_Error(
+            'crapscraper_bridge_image_too_small',
+            'A imagem publicada pelo CrapScraper está vazia ou pequena demais.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
+    }
+
+    $info = @getimagesizefromstring($bytes);
     $mime = is_array($info) ? strtolower((string) ($info['mime'] ?? '')) : '';
     $allowed = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp'];
     if (!isset($allowed[$mime])) {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_image_type_invalid',
+            'A imagem publicada pelo CrapScraper não é PNG, JPEG ou WebP válido.',
+            crapscraper_store_bridge_v2_error_data(400)
+        );
     }
 
-    $hash = hash_file('sha256', $local);
+    return [
+        'bytes' => $bytes,
+        'mime' => $mime,
+        'extension' => $allowed[$mime],
+        'filename' => $filename,
+        'origin' => $origin,
+    ];
+}
+
+/**
+ * Converte os bytes validados da imagem em attachment diretamente na pasta de
+ * uploads. Não usamos media_handle_sideload/wp_handle_sideload, portanto a
+ * criação não depende da política de extensões que estava rejeitando a imagem
+ * no controller REST apesar de os bytes serem válidos.
+ */
+function crapscraper_store_bridge_v2_local_image_id(string $src, string $title) {
+    $image = crapscraper_store_bridge_v2_image_bytes($src);
+    if (is_wp_error($image)) {
+        return $image;
+    }
+
+    $bytes = (string) $image['bytes'];
+    $mime = (string) $image['mime'];
+    $extension = (string) $image['extension'];
+    $filename = (string) $image['filename'];
+    $origin = (string) $image['origin'];
+    $hash = hash('sha256', $bytes);
+
     if ($hash) {
         $found = get_posts([
             'post_type' => 'attachment',
@@ -283,17 +434,34 @@ function crapscraper_store_bridge_v2_local_image_id(string $src, string $title):
 
     $uploads = wp_upload_dir();
     if (!empty($uploads['error'])) {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_upload_dir_failed',
+            'WordPress não disponibilizou a pasta de uploads: ' . (string) $uploads['error'],
+            crapscraper_store_bridge_v2_error_data(500)
+        );
     }
     if (!wp_mkdir_p($uploads['path'])) {
-        return 0;
+        return new WP_Error(
+            'crapscraper_bridge_upload_dir_failed',
+            'WordPress não conseguiu criar a pasta de uploads.',
+            crapscraper_store_bridge_v2_error_data(500)
+        );
     }
 
-    $base = pathinfo($filename, PATHINFO_FILENAME);
-    $target_name = wp_unique_filename($uploads['path'], sanitize_file_name($base . '.' . $allowed[$mime]));
+    $base = sanitize_file_name(pathinfo($filename, PATHINFO_FILENAME));
+    if ($base === '') {
+        $base = 'crapscraper-product-image';
+    }
+    $target_name = wp_unique_filename($uploads['path'], $base . '.' . $extension);
     $target = trailingslashit($uploads['path']) . $target_name;
-    if (!@copy($local, $target)) {
-        return 0;
+    $written = @file_put_contents($target, $bytes, LOCK_EX);
+    if (!$written || $written !== strlen($bytes)) {
+        @unlink($target);
+        return new WP_Error(
+            'crapscraper_bridge_image_write_failed',
+            'WordPress não conseguiu gravar a imagem na Biblioteca de Mídia.',
+            crapscraper_store_bridge_v2_error_data(500)
+        );
     }
 
     $attachment_id = wp_insert_attachment([
@@ -303,7 +471,13 @@ function crapscraper_store_bridge_v2_local_image_id(string $src, string $title):
     ], $target);
     if (is_wp_error($attachment_id) || !$attachment_id) {
         @unlink($target);
-        return 0;
+        return is_wp_error($attachment_id)
+            ? $attachment_id
+            : new WP_Error(
+                'crapscraper_bridge_attachment_failed',
+                'WordPress não retornou ID ao registrar a imagem.',
+                crapscraper_store_bridge_v2_error_data(500)
+            );
     }
 
     require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -314,11 +488,11 @@ function crapscraper_store_bridge_v2_local_image_id(string $src, string $title):
     if ($hash) {
         update_post_meta((int) $attachment_id, 'crapscraper_source_image_sha256', $hash);
     }
-    update_post_meta((int) $attachment_id, 'crapscraper_source_image_origin', 'downloads_bridge_v2');
+    update_post_meta((int) $attachment_id, 'crapscraper_source_image_origin', 'downloads_bridge_v2_' . $origin);
     return (int) $attachment_id;
 }
 
-function crapscraper_store_bridge_v2_prepare_product_body(array $body): array {
+function crapscraper_store_bridge_v2_prepare_product_body(array $body) {
     $images = is_array($body['images'] ?? null) ? $body['images'] : [];
     if (!$images) {
         return $body;
@@ -329,9 +503,17 @@ function crapscraper_store_bridge_v2_prepare_product_body(array $body): array {
             continue;
         }
         $attachment_id = crapscraper_store_bridge_v2_local_image_id((string) $image['src'], $title);
-        if ($attachment_id > 0) {
-            $images[$index] = ['id' => $attachment_id];
+        if (is_wp_error($attachment_id)) {
+            return $attachment_id;
         }
+        if ((int) $attachment_id <= 0) {
+            return new WP_Error(
+                'crapscraper_bridge_image_import_failed',
+                'O bridge não conseguiu transformar a imagem publicada em attachment.',
+                crapscraper_store_bridge_v2_error_data(400)
+            );
+        }
+        $images[$index] = ['id' => (int) $attachment_id];
     }
     $body['images'] = $images;
     return $body;
@@ -339,12 +521,20 @@ function crapscraper_store_bridge_v2_prepare_product_body(array $body): array {
 
 function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
     if (!class_exists('WooCommerce')) {
-        return new WP_REST_Response(['ok' => false, 'message' => 'WooCommerce não está ativo.'], 503);
+        return new WP_REST_Response([
+            'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'message' => 'WooCommerce não está ativo.',
+        ], 503);
     }
 
     $payload = $outer->get_param('_crapscraper_bridge_command');
     if (!is_array($payload)) {
-        return new WP_REST_Response(['ok' => false, 'message' => 'Comando CrapScraper ausente.'], 400);
+        return new WP_REST_Response([
+            'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'message' => 'Comando CrapScraper ausente.',
+        ], 400);
     }
 
     $method = strtoupper(trim((string) ($payload['method'] ?? '')));
@@ -353,7 +543,11 @@ function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
     $body = is_array($payload['json'] ?? null) ? $payload['json'] : [];
 
     if (!in_array($method, ['GET', 'POST', 'PUT'], true)) {
-        return new WP_REST_Response(['ok' => false, 'message' => 'Método não permitido no bridge.'], 405);
+        return new WP_REST_Response([
+            'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+            'message' => 'Método não permitido no bridge.',
+        ], 405);
     }
 
     try {
@@ -363,11 +557,19 @@ function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
 
         if ($path === '/products') {
             if (!class_exists('WC_REST_Products_Controller')) {
-                return new WP_REST_Response(['ok' => false, 'message' => 'Controller de produtos WooCommerce indisponível.'], 503);
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                    'message' => 'Controller de produtos WooCommerce indisponível.',
+                ], 503);
             }
             $controller = new WC_REST_Products_Controller();
             if ($method === 'POST') {
-                $body = crapscraper_store_bridge_v2_prepare_product_body($body);
+                $prepared = crapscraper_store_bridge_v2_prepare_product_body($body);
+                if (is_wp_error($prepared)) {
+                    return crapscraper_store_bridge_v2_response($prepared);
+                }
+                $body = $prepared;
             }
             $request = crapscraper_store_bridge_v2_request($method, $params, $body);
             if ($method === 'GET') {
@@ -376,12 +578,20 @@ function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
             if ($method === 'POST') {
                 return crapscraper_store_bridge_v2_response($controller->create_item($request));
             }
-            return new WP_REST_Response(['ok' => false, 'message' => 'Método inválido para produtos.'], 405);
+            return new WP_REST_Response([
+                'ok' => false,
+                'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                'message' => 'Método inválido para produtos.',
+            ], 405);
         }
 
         if (preg_match('~^/products/(\d+)$~', $path, $matches)) {
             if (!class_exists('WC_REST_Products_Controller')) {
-                return new WP_REST_Response(['ok' => false, 'message' => 'Controller de produtos WooCommerce indisponível.'], 503);
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                    'message' => 'Controller de produtos WooCommerce indisponível.',
+                ], 503);
             }
             $controller = new WC_REST_Products_Controller();
             $request = crapscraper_store_bridge_v2_request($method, $params, $body);
@@ -392,12 +602,20 @@ function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
             if ($method === 'PUT') {
                 return crapscraper_store_bridge_v2_response($controller->update_item($request));
             }
-            return new WP_REST_Response(['ok' => false, 'message' => 'Método inválido para produto individual.'], 405);
+            return new WP_REST_Response([
+                'ok' => false,
+                'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                'message' => 'Método inválido para produto individual.',
+            ], 405);
         }
 
         if (preg_match('~^/products/(\d+)/variations$~', $path, $matches)) {
             if (!class_exists('WC_REST_Product_Variations_Controller')) {
-                return new WP_REST_Response(['ok' => false, 'message' => 'Controller de variações WooCommerce indisponível.'], 503);
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                    'message' => 'Controller de variações WooCommerce indisponível.',
+                ], 503);
             }
             $controller = new WC_REST_Product_Variations_Controller();
             $request = crapscraper_store_bridge_v2_request($method, $params, $body);
@@ -408,14 +626,23 @@ function crapscraper_store_bridge_v2_command(WP_REST_Request $outer) {
             if ($method === 'POST') {
                 return crapscraper_store_bridge_v2_response($controller->create_item($request));
             }
-            return new WP_REST_Response(['ok' => false, 'message' => 'Método inválido para variações.'], 405);
+            return new WP_REST_Response([
+                'ok' => false,
+                'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+                'message' => 'Método inválido para variações.',
+            ], 405);
         }
     } catch (Throwable $error) {
         return new WP_REST_Response([
             'ok' => false,
+            'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
             'message' => 'Falha interna do bridge WooCommerce: ' . $error->getMessage(),
         ], 500);
     }
 
-    return new WP_REST_Response(['ok' => false, 'message' => 'Caminho não permitido no bridge.'], 404);
+    return new WP_REST_Response([
+        'ok' => false,
+        'bridge_version' => CRAPSCRAPER_STORE_BRIDGE_V2_VERSION,
+        'message' => 'Caminho não permitido no bridge.',
+    ], 404);
 }
