@@ -17,20 +17,24 @@ def install_addition_chatgpt_playwright() -> None:
         return
 
     # Corrige descoberta do compositor, reaproveita o perfil persistente legado,
-    # persiste a URL concreta do projeto e, no Windows, usa um navegador real
-    # minimizado quando o modo headless redireciona deep links do ChatGPT.
+    # persiste a URL concreta do projeto, usa navegador real minimizado no
+    # Windows e torna a captura da resposta textual independente do DOM instável
+    # do ChatGPT.
     from app.additions.chatgpt_playwright_compat import install as install_compat
     from app.additions.chatgpt_project_url_recovery import install as install_project_url_recovery
     from app.additions.chatgpt_background_project_runtime import install as install_background_project_runtime
+    from app.additions.chatgpt_content_response_runtime import install as install_content_response_runtime
 
     install_compat()
     install_project_url_recovery()
     install_background_project_runtime()
+    install_content_response_runtime()
 
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
     import app.additions.executor as executor_module
-    from app.additions.chatgpt_playwright import content_reusable, generate_content
+    from app.additions.chatgpt_content_response_runtime import generate_content
+    from app.additions.chatgpt_playwright import content_reusable
     from app.additions.chatgpt_playwright_image import generate_image, image_valid
 
     original_content_generate = ChatGPTContentService.generate
