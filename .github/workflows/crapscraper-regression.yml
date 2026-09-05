@@ -48,6 +48,8 @@ jobs:
           app/additions/woocommerce_bridge_runtime.py
           app/additions/chatgpt_playwright.py
           app/additions/chatgpt_playwright_compat.py
+          app/additions/chatgpt_project_url_recovery.py
+          app/additions/chatgpt_background_project_runtime.py
           app/additions/chatgpt_playwright_image.py
           app/additions/chatgpt_playwright_runtime.py
           app/additions/taxonomy_waf_runtime.py
