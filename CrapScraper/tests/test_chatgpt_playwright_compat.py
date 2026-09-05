@@ -18,7 +18,6 @@ def test_profile_dir_reuses_authenticated_legacy_profile(monkeypatch, tmp_path: 
     automation_profile = tmp_path / "browser_profiles" / "chatgpt_automation"
     _touch(legacy_profile / "Default" / "Network" / "Cookies", b"legacy-session")
     automation_profile.mkdir(parents=True, exist_ok=True)
-
     assert compat.profile_dir() == legacy_profile.resolve()
 
 
@@ -27,7 +26,6 @@ def test_profile_dir_uses_new_profile_when_only_new_has_state(monkeypatch, tmp_p
     monkeypatch.delenv("SCRAPER_CHATGPT_PROFILE_DIR", raising=False)
     automation_profile = tmp_path / "browser_profiles" / "chatgpt_automation"
     _touch(automation_profile / "Default" / "Network" / "Cookies", b"current-session")
-
     assert compat.profile_dir() == automation_profile.resolve()
 
 
@@ -70,6 +68,18 @@ def test_project_url_recovery_rejects_chatgpt_root():
 def test_project_url_recovery_accepts_concrete_chatgpt_pages():
     assert project_recovery.is_project_candidate_url("https://chatgpt.com/c/abc123") is True
     assert project_recovery.is_project_candidate_url("https://chatgpt.com/g/g-p-example/project") is True
+
+
+def test_saved_project_url_falls_back_to_last_good_url():
+    good = "https://chatgpt.com/g/g-p-abc123/c/chat-1"
+    assert project_recovery.saved_project_url({"project_url": "", "last_good_project_url": good}) == good
+    assert project_recovery.saved_project_url({"project_url": "https://chatgpt.com/", "last_good_project_url": good}) == good
+
+
+def test_saved_project_url_prefers_current_concrete_url():
+    current = "https://chatgpt.com/g/g-p-abc123/c/chat-2"
+    old = "https://chatgpt.com/g/g-p-abc123/c/chat-1"
+    assert project_recovery.saved_project_url({"project_url": current, "last_good_project_url": old}) == current
 
 
 def test_project_url_recovery_install_patches_compat_and_legacy(monkeypatch):
