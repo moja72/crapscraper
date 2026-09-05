@@ -44,13 +44,16 @@ def _site_base() -> str:
 
 def _bridge_error(response: requests.Response, method: str, path: str) -> RuntimeError:
     detail = ""
+    version = ""
     try:
         body = response.json()
         detail = str(body.get("message") or body.get("error") or "").strip()
+        version = str(body.get("bridge_version") or (body.get("data") or {}).get("bridge_version") or "").strip()
     except Exception:
         detail = str(response.text or "").strip()[:300]
+    suffix = f" [bridge {version}]" if version else ""
     return RuntimeError(
-        f"Bridge CrapScraper recusou {method} {path}: HTTP {response.status_code}"
+        f"Bridge CrapScraper recusou {method} {path}: HTTP {response.status_code}{suffix}"
         + (f" - {detail}" if detail else "")
     )
 
