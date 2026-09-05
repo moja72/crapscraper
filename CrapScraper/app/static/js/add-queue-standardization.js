@@ -1,4 +1,5 @@
 import {get} from "./api.js";
+import {polling} from "./polling.js";
 
 const $=(selector,root=document)=>root.querySelector(selector);
 const formatDate=value=>{
@@ -97,22 +98,22 @@ function observeList(){
   list.dataset.addQueueObserved="1";
   listObserver?.disconnect();
   listObserver=new MutationObserver(mutations=>{
-    if(decorating)return;
     const externalChange=mutations.some(mutation=>[...mutation.addedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-add-date-column]')));
-    if(externalChange)schedule();
+    if(externalChange)schedule(120);
   });
   listObserver.observe(list,{childList:true,subtree:true});
 }
 
 async function loadJobs(){
   if(loading)return;
-  if(!$("[data-page='add']"))return;
+  const page=$("[data-page='add']");
+  if(!page||!page.classList.contains("active"))return;
   loading=true;
   try{
     const first=await get("/api/additions?page=1&page_size=100&sort_by=date&sort_order=desc");
     const all=[...(first.items||[])];
-    for(let page=2;page<=Number(first.pages||1);page++){
-      const data=await get(`/api/additions?page=${page}&page_size=100&sort_by=date&sort_order=desc`);
+    for(let pageNumber=2;pageNumber<=Number(first.pages||1);pageNumber++){
+      const data=await get(`/api/additions?page=${pageNumber}&page_size=100&sort_by=date&sort_order=desc`);
       all.push(...(data.items||[]));
     }
     jobs=new Map(all.map(job=>[String(job.job_id),job]));
@@ -123,16 +124,28 @@ async function loadJobs(){
   }
 }
 
-function schedule(){
+function schedule(delay=80){
   clearTimeout(timer);
-  timer=setTimeout(()=>{decorateRows();observeList();loadJobs().catch(()=>{})},80);
+  timer=setTimeout(()=>loadJobs().catch(()=>{}),delay);
 }
 
 installStyle();
-queueMicrotask(schedule);
-setTimeout(schedule,0);
+
+// add.js registrava um refresh completo a cada 1,2 s mesmo quando a fila estava
+// parada. Como rows() recria todo o tbody, isso causava o efeito visual de piscar.
+// Mantemos polling apenas durante uma execução de lote; em repouso a tela só muda
+// por ação do usuário, troca de aba ou mutação real após uma execução.
+polling.stop("addition-state");
+polling.register("addition-state-running",async()=>{
+  const page=$("[data-page='add']");
+  if(!page?.classList.contains("active"))return;
+  const running=!$("#add-running-actions")?.hidden||$("#add-operation-status")?.classList.contains("loading");
+  if(running)$("#add-refresh")?.click();
+},1800);
+
+queueMicrotask(()=>schedule());
 
 document.addEventListener("app:tab",event=>{if(event.detail==="add")schedule()});
 document.addEventListener("click",event=>{
-  if(event.target.closest("#add-refresh,#add-materialize,[data-add-execute],#add-batch-start,#add-filter-clear,#add-prev,#add-next"))setTimeout(schedule,180);
+  if(event.target.closest("#add-refresh,#add-materialize,[data-add-execute],#add-batch-start,#add-filter-clear,#add-prev,#add-next"))setTimeout(()=>schedule(),220);
 });
