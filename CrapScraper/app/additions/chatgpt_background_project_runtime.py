@@ -17,6 +17,35 @@ _INSTALLED = False
 _ORIGINAL_BROWSER = compat.browser
 _ORIGINAL_OPEN_PROJECT = project_recovery.open_project
 
+_OVERLAY_GUARD_SCRIPT = r"""
+(() => {
+  const selectors = [
+    '#stage-slideover-sidebar[data-state="closed"]',
+    '[data-state="closed"][id*="slideover-sidebar"]'
+  ];
+  const fix = () => {
+    for (const selector of selectors) {
+      for (const el of document.querySelectorAll(selector)) {
+        el.style.setProperty('pointer-events', 'none', 'important');
+      }
+    }
+  };
+  const boot = () => {
+    fix();
+    try {
+      new MutationObserver(fix).observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'class', 'style']
+      });
+    } catch (_) {}
+  };
+  if (document.documentElement) boot();
+  else addEventListener('DOMContentLoaded', boot, {once: true});
+})();
+"""
+
 
 def browser_mode(requested_headless: bool | None = None) -> str:
     if requested_headless is False:
@@ -27,14 +56,50 @@ def browser_mode(requested_headless: bool | None = None) -> str:
     return "background" if sys.platform == "win32" else "headless"
 
 
-def _minimize(page: Any) -> bool:
+def _install_overlay_guard(page: Any) -> None:
+    """Keep the closed ChatGPT slideover from blocking automation clicks.
+
+    The current ChatGPT UI can recreate this element after React rerenders, so a
+    one-shot style change is not enough. Install the guard both for the current
+    document and for future navigations.
+    """
+    try:
+        page.add_init_script(_OVERLAY_GUARD_SCRIPT)
+    except Exception:
+        pass
+    try:
+        page.evaluate(_OVERLAY_GUARD_SCRIPT)
+    except Exception:
+        pass
+
+
+def _park_offscreen(page: Any) -> bool:
+    """Keep a real browser rendered without minimizing it.
+
+    Minimizing Chromium made ChatGPT intermittently redirect project routes back
+    to the home page and changed how the slideover sidebar was composed. Moving
+    the real window far off-screen keeps normal rendering/visibility semantics
+    while staying effectively out of the user's way.
+    """
     try:
         session = page.context.new_cdp_session(page)
         info = session.send("Browser.getWindowForTarget")
         window_id = info.get("windowId")
         if window_id is None:
             return False
-        session.send("Browser.setWindowBounds", {"windowId": window_id, "bounds": {"windowState": "minimized"}})
+        session.send(
+            "Browser.setWindowBounds",
+            {
+                "windowId": window_id,
+                "bounds": {
+                    "windowState": "normal",
+                    "left": -20000,
+                    "top": 0,
+                    "width": 1600,
+                    "height": 1000,
+                },
+            },
+        )
         return True
     except Exception:
         return False
@@ -45,14 +110,19 @@ def browser(headless: bool | None = None):
     mode = browser_mode(headless)
     if mode == "headless":
         with _ORIGINAL_BROWSER(headless=True) as page:
+            _install_overlay_guard(page)
             yield page
         return
     if mode == "visible":
         with _ORIGINAL_BROWSER(headless=False) as page:
+            _install_overlay_guard(page)
             yield page
         return
+    # Windows default: use a real rendered browser, but park it off-screen.
+    # Do not minimize it; ChatGPT currently behaves differently when minimized.
     with _ORIGINAL_BROWSER(headless=False) as page:
-        _minimize(page)
+        _install_overlay_guard(page)
+        _park_offscreen(page)
         yield page
 
 
@@ -85,18 +155,13 @@ def _same_project_route(saved: str, current: str) -> bool:
 
 
 def _disable_closed_stage_overlay(page: Any) -> None:
-    """Neutralize a ChatGPT sidebar shell that can intercept pointer events while closed.
-
-    The current web UI can keep #stage-slideover-sidebar over the project list even
-    with data-state='closed'. In Playwright that makes a perfectly visible project
-    locator unclickable. We only change pointer-events inside the automation browser.
-    """
+    _install_overlay_guard(page)
     try:
         page.evaluate(
             """
             () => {
               for (const el of document.querySelectorAll('#stage-slideover-sidebar[data-state="closed"], [data-state="closed"][id*="slideover-sidebar"]')) {
-                el.style.pointerEvents = 'none';
+                el.style.setProperty('pointer-events', 'none', 'important');
               }
             }
             """
@@ -105,15 +170,15 @@ def _disable_closed_stage_overlay(page: Any) -> None:
         pass
 
 
-def _ready_on_saved_route(page: Any, saved: str, timeout_ms: int = 18000) -> bool:
+def _ready_on_saved_route(page: Any, saved: str, timeout_ms: int = 22000) -> bool:
     deadline = time.monotonic() + max(2.0, timeout_ms / 1000)
     while time.monotonic() < deadline:
+        _disable_closed_stage_overlay(page)
         current = str(getattr(page, "url", "") or "").strip()
         if _same_project_route(saved, current):
-            _disable_closed_stage_overlay(page)
             compat._dismiss_common_dialogs(page)
             compat.ensure_authenticated(page)
-            if compat.composer(page, 1200) is not None:
+            if compat.composer(page, 1400) is not None:
                 return True
             if compat._try_new_chat(page):
                 return True
@@ -122,12 +187,14 @@ def _ready_on_saved_route(page: Any, saved: str, timeout_ms: int = 18000) -> boo
 
 
 def _navigate_saved(page: Any, saved: str) -> bool:
+    _install_overlay_guard(page)
     for wait_until in ("domcontentloaded", "commit"):
         try:
             page.goto(saved, wait_until=wait_until, timeout=60000)
         except Exception:
             pass
         page.wait_for_timeout(1400)
+        _disable_closed_stage_overlay(page)
         try:
             if _ready_on_saved_route(page, saved):
                 return True
@@ -139,6 +206,7 @@ def _navigate_saved(page: Any, saved: str) -> bool:
     try:
         page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(900)
+        _disable_closed_stage_overlay(page)
         compat._dismiss_common_dialogs(page)
         compat.ensure_authenticated(page)
         page.evaluate("url => window.location.assign(url)", saved)
@@ -160,7 +228,7 @@ def _project_href(locator: Any, page: Any) -> str:
               const anchor = el.closest?.('a[href]');
               if (anchor?.href) return anchor.href;
               let node = el.parentElement;
-              for (let i = 0; node && i < 6; i++, node = node.parentElement) {
+              for (let i = 0; node && i < 8; i++, node = node.parentElement) {
                 if (node.matches?.('a[href]') && node.href) return node.href;
                 const child = node.querySelector?.('a[href]');
                 if (child?.href) return child.href;
@@ -179,32 +247,61 @@ def _project_href(locator: Any, page: Any) -> str:
     return ""
 
 
-def _open_project_from_sidebar(page: Any, saved: str = "") -> bool:
-    """Open the project without relying on a pointer click.
+def _href_for_saved_project(page: Any, saved: str) -> str:
+    """Find an anchor for the saved project token without clicking the sidebar."""
+    token = _project_token(saved)
+    if not token:
+        return ""
+    selectors = (
+        f'a[href*="/g/{token}"]',
+        f'a[href*="{token}"]',
+    )
+    for selector in selectors:
+        try:
+            loc = page.locator(selector)
+            for index in range(min(loc.count(), 20)):
+                item = loc.nth(index)
+                href = str(item.get_attribute("href") or "").strip()
+                if not href:
+                    continue
+                if href.startswith("/"):
+                    href = urljoin("https://chatgpt.com/", href)
+                if href.startswith("https://chatgpt.com/") or href.startswith("https://www.chatgpt.com/"):
+                    return href
+        except Exception:
+            continue
+    return ""
 
-    Prefer the anchor href from the visible project row. If the row is not an
-    anchor, dispatch a DOM click, which is not blocked by an overlapping closed
-    sidebar shell. This is intentionally a fallback after direct URL navigation.
-    """
+
+def _open_project_from_sidebar(page: Any, saved: str = "") -> bool:
+    """Open the project without relying on a physical pointer click."""
+    _install_overlay_guard(page)
     page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(1100)
+    _disable_closed_stage_overlay(page)
     compat._dismiss_common_dialogs(page)
     compat.ensure_authenticated(page)
     compat._open_sidebar(page)
     page.wait_for_timeout(500)
     _disable_closed_stage_overlay(page)
 
-    locator = compat._project_locator(page)
-    if locator is None:
-        return False
+    # If we already know the project token, navigate via its anchor directly.
+    href = _href_for_saved_project(page, saved) if saved else ""
+    locator = None
+    if not href:
+        locator = compat._project_locator(page)
+        if locator is None:
+            return False
+        href = _project_href(locator, page)
 
-    href = _project_href(locator, page)
     if href:
         try:
             page.goto(href, wait_until="domcontentloaded", timeout=60000)
         except Exception:
             page.goto(href, wait_until="commit", timeout=60000)
-    else:
+    elif locator is not None:
+        # DOM click ignores an overlapping visual shell. Keep force-click as a
+        # final non-legacy fallback only.
         try:
             locator.evaluate("el => el.click()")
         except Exception:
@@ -212,8 +309,11 @@ def _open_project_from_sidebar(page: Any, saved: str = "") -> bool:
                 locator.click(force=True, timeout=5000)
             except Exception:
                 return False
+    else:
+        return False
 
     page.wait_for_timeout(1200)
+    _disable_closed_stage_overlay(page)
     compat._dismiss_common_dialogs(page)
     compat.ensure_authenticated(page)
 
@@ -253,6 +353,7 @@ def open_project(page: Any) -> None:
             if _navigate_saved(page, saved):
                 _remember_project(page, saved)
                 return
+            errors.append("navegação direta não confirmou a rota/compositor")
         except Exception as error:
             errors.append(f"navegação direta: {error}")
 
@@ -260,10 +361,25 @@ def open_project(page: Any) -> None:
         if _open_project_from_sidebar(page, saved):
             _remember_project(page, saved)
             return
+        errors.append("navegação pelo projeto não confirmou a rota/compositor")
     except Exception as error:
         errors.append(f"navegação pelo projeto: {error}")
 
+    # With a concrete saved URL, never fall back to the old physical-click path:
+    # that path is exactly what the current ChatGPT slideover blocks. Surface a
+    # deterministic diagnostic instead of spending another 15s on a doomed click.
+    if saved:
+        diagnostic = compat._diagnostic(page, "background_project_navigation_failed")
+        mode = browser_mode(True)
+        detail = " | ".join(errors[-3:])
+        raise legacy.ChatGPTPlaywrightError(
+            f"Projeto {legacy.project_name()} não abriu no modo {mode}. "
+            f"URL salva: {saved}. Diagnóstico salvo em {diagnostic}. "
+            f"Tentativas: {detail}"
+        )
+
     try:
+        _disable_closed_stage_overlay(page)
         _ORIGINAL_OPEN_PROJECT(page)
         current = str(getattr(page, "url", "") or "").strip()
         if project_recovery.is_project_candidate_url(current):
@@ -276,7 +392,7 @@ def open_project(page: Any) -> None:
         detail = " | ".join(errors[-3:])
         raise legacy.ChatGPTPlaywrightError(
             f"Projeto {legacy.project_name()} não abriu no modo {mode}. "
-            f"URL salva: {saved or '(ausente)'}. Diagnóstico salvo em {diagnostic}. "
+            f"URL salva: (ausente). Diagnóstico salvo em {diagnostic}. "
             f"Tentativas: {detail}"
         ) from error
 
@@ -293,6 +409,7 @@ def doctor() -> dict[str, Any]:
                 "profile_dir": str(compat.profile_dir()),
                 "composer_found": compat.composer(page, 2000) is not None,
                 "browser_mode": browser_mode(True),
+                "background_window": "offscreen-headful" if browser_mode(True) == "background" else browser_mode(True),
             }
         except Exception as error:
             diagnostic = compat._diagnostic(page, "background_doctor_failed")
@@ -303,6 +420,7 @@ def doctor() -> dict[str, Any]:
                 "saved_project_url": project_recovery.saved_project_url(),
                 "profile_dir": str(compat.profile_dir()),
                 "browser_mode": browser_mode(True),
+                "background_window": "offscreen-headful" if browser_mode(True) == "background" else browser_mode(True),
                 "diagnostic": diagnostic,
             }
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -343,6 +461,7 @@ def main() -> None:
         payload["profile_dir"] = str(compat.profile_dir())
         payload["project_url_valid"] = bool(durable)
         payload["browser_mode"] = browser_mode(True)
+        payload["background_window"] = "offscreen-headful" if browser_mode(True) == "background" else browser_mode(True)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     raise SystemExit("Use: python -m app.additions.chatgpt_background_project_runtime [bootstrap|doctor|status]")
