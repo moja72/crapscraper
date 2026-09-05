@@ -46,6 +46,14 @@ def _is_probable_generated_image(item: dict[str, Any]) -> bool:
     return not any(token in text for token in blocked)
 
 
+def candidate_render_area(item: dict[str, Any]) -> float:
+    width = float(item.get("display_width") or 0)
+    height = float(item.get("display_height") or 0)
+    if width > 0 and height > 0:
+        return width * height
+    return float(item.get("width") or 0) * float(item.get("height") or 0)
+
+
 def candidate_images(page: Any) -> list[dict[str, Any]]:
     """Find large images in the conversation without depending on assistant role DOM.
 
@@ -68,14 +76,19 @@ def candidate_images(page: Any) -> list[dict[str, Any]]:
             image = locator.nth(index)
             try:
                 info = image.evaluate(
-                    """img => ({
-                      src: img.currentSrc || img.src || '',
-                      width: img.naturalWidth || img.width || 0,
-                      height: img.naturalHeight || img.height || 0,
-                      alt: img.alt || '',
-                      aria: img.getAttribute('aria-label') || '',
-                      complete: Boolean(img.complete)
-                    })"""
+                    """img => {
+                      const rect = img.getBoundingClientRect();
+                      return {
+                        src: img.currentSrc || img.src || '',
+                        width: img.naturalWidth || img.width || 0,
+                        height: img.naturalHeight || img.height || 0,
+                        display_width: Math.max(0, rect.width || 0),
+                        display_height: Math.max(0, rect.height || 0),
+                        alt: img.alt || '',
+                        aria: img.getAttribute('aria-label') || '',
+                        complete: Boolean(img.complete)
+                      };
+                    }"""
                 )
             except Exception:
                 continue
@@ -115,6 +128,7 @@ def install() -> None:
 
 __all__ = [
     "candidate_images",
+    "candidate_render_area",
     "install",
     "_image_candidate_key",
     "_is_probable_generated_image",
