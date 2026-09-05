@@ -18,6 +18,7 @@ _ALLOWED = (
     re.compile(r"^/products$"),
     re.compile(r"^/products/\d+$"),
     re.compile(r"^/products/\d+/variations$"),
+    re.compile(r"^/products/\d+/variations/\d+$"),
     re.compile(r"^/products/categories$"),
     re.compile(r"^/products/tags$"),
     re.compile(r"^/media$"),
@@ -73,13 +74,7 @@ def _bridge_error(response: requests.Response, method: str, path: str) -> Runtim
 
 
 def install_addition_woocommerce_bridge() -> None:
-    """Fallback HMAC para namespace próprio quando REST/WAF não é confiável.
-
-    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Além de HTTP 401/403,
-    também usamos o bridge quando a conexão REST morre antes de existir resposta
-    HTTP (TLS EOF, ConnectionError ou timeout). Isso é especialmente importante
-    para /wp/v2/media neste servidor.
-    """
+    """Fallback HMAC para namespace próprio quando REST/WAF não é confiável."""
 
     from app.additions.wordpress import AdditionStoreGateway
 
@@ -154,7 +149,7 @@ def install_addition_woocommerce_bridge() -> None:
             if _status(error) not in {401, 403} or not _allowed(method, path):
                 raise
             return bridge_wc(self, method, path, **kwargs)
-        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as error:
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             if not _allowed(method, path):
                 raise
             return bridge_wc(self, method, path, **kwargs)
