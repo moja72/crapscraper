@@ -18,12 +18,52 @@ def install_addition_taxonomy_waf_recovery():
     if getattr(AdditionStoreGateway, "_crapscraper_taxonomy_waf_installed", False):
         return
 
-    original_term = AdditionStoreGateway._term
-
     def term(self, kind, name):
+        endpoint = "categories" if kind == "category" else "tags"
+        expected = str(name or "").strip()
+        if not expected:
+            raise RuntimeError("Termo WooCommerce vazio")
+
+        slug = self._term_slug(expected)
+        rows = []
+        if slug:
+            try:
+                rows = self._wc("GET", f"/products/{endpoint}", params={"slug": slug, "per_page": 100})
+            except requests.HTTPError as error:
+                if _http_status(error) not in {401, 403}:
+                    raise
+                rows = []
+
+        for row in rows:
+            if str(row.get("name") or "").casefold() == expected.casefold() or str(row.get("slug") or "").casefold() == slug.casefold():
+                return int(row["id"])
+
+        list_blocked = False
         try:
-            return int(original_term(self, kind, name) or 0)
+            rows = self._wc("GET", f"/products/{endpoint}", params={"per_page": 100})
         except requests.HTTPError as error:
+            if _http_status(error) not in {401, 403}:
+                raise
+            rows = []
+            list_blocked = True
+
+        for row in rows:
+            if str(row.get("name") or "").casefold() == expected.casefold() or str(row.get("slug") or "").casefold() == slug.casefold():
+                return int(row["id"])
+
+        # Se o próprio endpoint de taxonomia está sendo barrado pelo WAF,
+        # não insistimos com POST no mesmo endpoint. A criação do produto
+        # continua sem a taxonomia e os nomes ficam preservados em metadata.
+        if list_blocked:
+            return 0
+
+        try:
+            created = self._wc("POST", f"/products/{endpoint}", json={"name": expected})
+            return int(created["id"])
+        except requests.HTTPError as error:
+            existing = self._term_exists_id(error)
+            if existing:
+                return existing
             if _http_status(error) in {401, 403}:
                 return 0
             raise
