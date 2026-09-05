@@ -19,7 +19,8 @@ def install_addition_chatgpt_playwright() -> None:
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
     import app.additions.executor as executor_module
-    from app.additions.chatgpt_playwright import content_reusable, generate_content, generate_image, image_valid
+    from app.additions.chatgpt_playwright import content_reusable, generate_content
+    from app.additions.chatgpt_playwright_image import generate_image, image_valid
 
     original_content_generate = ChatGPTContentService.generate
     original_image_generate = ImageService.generate
