@@ -4,9 +4,11 @@ import base64
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -18,6 +20,7 @@ _ALLOWED = (
     re.compile(r"^/products/\d+/variations$"),
     re.compile(r"^/products/categories$"),
     re.compile(r"^/products/tags$"),
+    re.compile(r"^/media$"),
 )
 
 
@@ -61,9 +64,9 @@ def _bridge_error(response: requests.Response, method: str, path: str) -> Runtim
 def install_addition_woocommerce_bridge() -> None:
     """Fallback HMAC para namespace próprio quando o WAF bloqueia /wc/v3.
 
-    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Isso evita que WAFs
-    inspecionem strings como `/products`, `method=GET` ou o payload completo do
-    WooCommerce antes de a requisição chegar ao WordPress.
+    V2 usa envelope Base64 e apenas cabeçalhos HTTP comuns. Além das operações
+    WooCommerce, o bridge aceita somente um upload de mídia já validado pelo
+    CrapScraper, evitando depender de /wp/v2/media ou de sideload por URL.
     """
 
     from app.additions.wordpress import AdditionStoreGateway
@@ -110,7 +113,7 @@ def install_addition_woocommerce_bridge() -> None:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36",
             },
             json=envelope,
-            timeout=max(int(getattr(self, "timeout", 60) or 60), 90),
+            timeout=max(int(getattr(self, "timeout", 60) or 60), 120),
         )
         if response.status_code == 404:
             raise RuntimeError(
@@ -135,8 +138,28 @@ def install_addition_woocommerce_bridge() -> None:
                 raise
             return bridge_wc(self, method, path, **kwargs)
 
+    def upload_media_bridge(self: Any, path: Path, title: str) -> int:
+        file = Path(path)
+        raw = file.read_bytes()
+        if len(raw) <= 1024:
+            raise RuntimeError("Imagem validada está vazia ou pequena demais antes do bridge.")
+        mime = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+        payload = {
+            "filename": file.name,
+            "title": str(title or file.stem),
+            "mime": mime,
+            "content_b64": base64.b64encode(raw).decode("ascii"),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        media = bridge_wc(self, "POST", "/media", json=payload)
+        media_id = int((media or {}).get("id") or 0) if isinstance(media, dict) else 0
+        if not media_id:
+            raise RuntimeError("Bridge CrapScraper não retornou o ID da mídia criada.")
+        return media_id
+
     AdditionStoreGateway._bridge_wc = bridge_wc
     AdditionStoreGateway._wc = wc
+    AdditionStoreGateway.upload_media_bridge = upload_media_bridge
     AdditionStoreGateway._crapscraper_store_bridge_installed = True
 
 
