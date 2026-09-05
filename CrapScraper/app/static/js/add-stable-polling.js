@@ -4,6 +4,7 @@ import {polling} from "./polling.js";
 const $=(selector,root=document)=>root.querySelector(selector);
 let lastStructure="";
 let busy=false;
+let pendingStructure="";
 
 function active(){return $("[data-page='add']")?.classList.contains("active")}
 function query(){
@@ -52,11 +53,17 @@ async function tick(){
     const data=await get(`/api/additions/jobs?${query()}`);
     cards(data.counts||{});batchView(data.batch||{});
     const next=structure(data);
+    const hasRunning=(data.items||[]).some(job=>job.state==="running");
     if(!lastStructure){lastStructure=next;return}
-    if(next!==lastStructure){
+    if(hasRunning){
+      // Não substitui o tbody durante uma execução. A barra individual atualiza
+      // etapa e logs sem destruir/recriar a linha do produto.
+      if(next!==lastStructure)pendingStructure=next;
+      return;
+    }
+    if(next!==lastStructure||pendingStructure){
       lastStructure=next;
-      // A renderização completa só acontece quando a estrutura/estado realmente
-      // mudou. Etapas e logs em andamento são atualizados pelo add-live-progress.
+      pendingStructure="";
       $("#add-refresh")?.click();
     }
   }catch{}
@@ -65,9 +72,10 @@ async function tick(){
 
 queueMicrotask(()=>{
   polling.stop("addition-state");
+  polling.stop("addition-state-running");
   polling.stop("addition-state-stable");
   polling.register("addition-state-stable",tick,1400);
 });
-document.addEventListener("app:tab",event=>{if(event.detail==="add"){lastStructure="";setTimeout(tick,80)}});
-document.addEventListener("change",event=>{if(event.target.closest("#add-query,#add-group,#add-stage,#add-page-size"))lastStructure=""});
-document.addEventListener("click",event=>{if(event.target.closest("#add-refresh,#add-filter-clear,#add-prev,#add-next,#add-batch-start,[data-add-execute]"))lastStructure=""});
+document.addEventListener("app:tab",event=>{if(event.detail==="add"){lastStructure="";pendingStructure="";setTimeout(tick,80)}});
+document.addEventListener("change",event=>{if(event.target.closest("#add-query,#add-group,#add-stage,#add-page-size")){lastStructure="";pendingStructure=""}});
+document.addEventListener("click",event=>{if(event.target.closest("#add-refresh,#add-filter-clear,#add-prev,#add-next,#add-batch-start,[data-add-execute]")){lastStructure="";pendingStructure=""}});

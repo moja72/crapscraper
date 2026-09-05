@@ -1,5 +1,4 @@
 import {get} from "./api.js";
-import {polling} from "./polling.js";
 
 const $=(selector,root=document)=>root.querySelector(selector);
 const formatDate=value=>{
@@ -98,8 +97,13 @@ function observeList(){
   list.dataset.addQueueObserved="1";
   listObserver?.disconnect();
   listObserver=new MutationObserver(mutations=>{
-    const externalChange=mutations.some(mutation=>[...mutation.addedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-add-date-column]')));
-    if(externalChange)schedule(120);
+    const externalChange=mutations.some(mutation=>[...mutation.addedNodes].some(node=>
+      node.nodeType===1 &&
+      !node.matches?.('[data-add-date-column]') &&
+      !node.matches?.('tr.add-live-progress-row') &&
+      !node.closest?.('tr.add-live-progress-row')
+    ));
+    if(externalChange)schedule(140);
   });
   listObserver.observe(list,{childList:true,subtree:true});
 }
@@ -130,19 +134,6 @@ function schedule(delay=80){
 }
 
 installStyle();
-
-// add.js registrava um refresh completo a cada 1,2 s mesmo quando a fila estava
-// parada. Como rows() recria todo o tbody, isso causava o efeito visual de piscar.
-// Mantemos polling apenas durante uma execução de lote; em repouso a tela só muda
-// por ação do usuário, troca de aba ou mutação real após uma execução.
-polling.stop("addition-state");
-polling.register("addition-state-running",async()=>{
-  const page=$("[data-page='add']");
-  if(!page?.classList.contains("active"))return;
-  const running=!$("#add-running-actions")?.hidden||$("#add-operation-status")?.classList.contains("loading");
-  if(running)$("#add-refresh")?.click();
-},1800);
-
 queueMicrotask(()=>schedule());
 
 document.addEventListener("app:tab",event=>{if(event.detail==="add")schedule()});

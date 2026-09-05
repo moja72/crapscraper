@@ -1,6 +1,8 @@
+import base64
 import hashlib
 import hmac
 import json
+from pathlib import Path
 
 import pytest
 import requests
@@ -41,7 +43,7 @@ def configure(monkeypatch):
     monkeypatch.setenv("SCRAPER_WORDPRESS_MANUAL_SECRET", "x" * 32)
 
 
-def test_products_post_uses_signed_bridge_after_waf_403(monkeypatch):
+def test_products_post_uses_opaque_signed_bridge_after_waf_403(monkeypatch):
     configure(monkeypatch)
     session = BridgeSession()
     gateway = AdditionStoreGateway(session=session)
@@ -50,13 +52,28 @@ def test_products_post_uses_signed_bridge_after_waf_403(monkeypatch):
 
     assert result["id"] == 123
     url, kwargs = session.bridge_call
-    assert url == "https://plugintema.com.br/wp-json/crapscraper/v1/store-command"
-    raw = kwargs["data"]
-    payload = json.loads(raw.decode("utf-8"))
-    assert payload == {"method": "POST", "path": "/products", "params": {}, "json": {"name": "Produto"}}
-    timestamp = kwargs["headers"]["X-CrapScraper-Timestamp"]
-    expected = hmac.new(("x" * 32).encode(), timestamp.encode() + b"\n" + raw, hashlib.sha256).hexdigest()
-    assert kwargs["headers"]["X-CrapScraper-Signature"] == expected
+    assert url == "https://plugintema.com.br/wp-json/crapscraper/v2/bridge"
+    envelope = kwargs["json"]
+    assert set(envelope) == {"t", "s", "p"}
+    decoded = json.loads(base64.b64decode(envelope["p"]).decode("utf-8"))
+    assert decoded == {"method": "POST", "path": "/products", "params": {}, "json": {"name": "Produto"}}
+    expected = hmac.new(
+        ("x" * 32).encode(),
+        envelope["t"].encode() + b"\n" + envelope["p"].encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    assert envelope["s"] == expected
+    assert "X-CrapScraper-Signature" not in kwargs["headers"]
+    assert kwargs["headers"]["User-Agent"].startswith("Mozilla/5.0")
+
+
+def test_v2_mu_plugin_uses_opaque_body_envelope():
+    plugin = Path(__file__).resolve().parents[2] / "deploy" / "wordpress" / "crapscraper-woocommerce-bridge-v2.php"
+    text = plugin.read_text(encoding="utf-8")
+    assert "register_rest_route('crapscraper/v2', '/bridge'" in text
+    assert "base64_decode($envelope['encoded'], true)" in text
+    assert "hash_hmac('sha256', $envelope['timestamp'] . \"\\n\" . $envelope['encoded']" in text
+    assert "x-crapscraper-signature" not in text.lower()
 
 
 def test_bridge_missing_secret_is_actionable(monkeypatch):
@@ -80,3 +97,15 @@ def test_non_auth_server_error_is_not_hidden_by_bridge(monkeypatch):
     gateway = AdditionStoreGateway(session=ErrorSession())
     with pytest.raises(requests.HTTPError):
         gateway._wc("POST", "/products", json={"name": "Produto"})
+
+
+def test_bridge_html_403_has_actionable_message(monkeypatch):
+    configure(monkeypatch)
+
+    class HtmlBlockedSession(BridgeSession):
+        def post(self, url, **kwargs):
+            return FakeResponse(403, payload=None, text="<!doctype html><title>403 Forbidden</title>")
+
+    gateway = AdditionStoreGateway(session=HtmlBlockedSession())
+    with pytest.raises(RuntimeError, match="Bridge CrapScraper recusou GET /products: HTTP 403"):
+        gateway._wc("GET", "/products", params={"per_page": 100})
