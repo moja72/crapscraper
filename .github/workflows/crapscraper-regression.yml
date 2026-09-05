@@ -47,6 +47,7 @@ jobs:
           app/additions/source_filter_runtime.py
           app/additions/source_preflight_runtime.py
           app/additions/woocommerce_bridge_runtime.py
+          app/additions/catalog_taxonomy_runtime.py
           app/additions/chatgpt_playwright.py
           app/additions/chatgpt_playwright_compat.py
           app/additions/chatgpt_project_url_recovery.py
@@ -82,6 +83,7 @@ jobs:
           tests/test_addition_taxonomy_blocked.py
           tests/test_addition_woocommerce_bridge.py
           tests/test_addition_bridge_v2_media_taxonomy_contract.py
+          tests/test_addition_final_product_contract.py
           tests/test_addition_chatgpt_playwright.py
           tests/test_chatgpt_playwright_compat.py
           tests/test_chatgpt_content_response_runtime.py

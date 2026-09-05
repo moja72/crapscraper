@@ -20,6 +20,7 @@ def create_application() -> Application:
     from app.addition_decision_sync import install_addition_decision_sync
     from app.addition_execution_recovery import install_addition_execution_recovery
     from app.additions.chatgpt_playwright_runtime import install_addition_chatgpt_playwright
+    from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
 
@@ -54,6 +55,11 @@ def create_application() -> Application:
     install_addition_decision_sync()
     install_addition_execution_recovery()
     install_addition_chatgpt_playwright()
+
+    # Durante esta fase do cadastro, a taxonomia é propositalmente mínima:
+    # exatamente uma categoria (Plugin ou Tema) e nenhuma tag. O contrato é
+    # aplicado no payload final, inclusive em retries de jobs preparados antes.
+    install_catalog_taxonomy_contract()
 
     # Um catálogo PluginTema é um snapshot. Para linhas marcadas como produto novo,
     # o resultado visível é reconciliado com o WooCommerce ao vivo antes de permitir
