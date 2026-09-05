@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.additions import chatgpt_playwright as legacy
 from app.additions import chatgpt_playwright_compat as compat
+from app.additions import chatgpt_project_url_recovery as project_recovery
 
 
 def _touch(path: Path, content: bytes = b"x") -> None:
@@ -57,3 +58,37 @@ def test_compat_install_patches_runtime_globals(monkeypatch):
         legacy._browser = original_browser
         legacy._composer = original_composer
         compat._INSTALLED = False
+
+
+def test_project_url_recovery_rejects_chatgpt_root():
+    assert project_recovery.is_project_candidate_url("https://chatgpt.com/") is False
+    assert project_recovery.is_project_candidate_url("https://chatgpt.com") is False
+    assert project_recovery.is_project_candidate_url("https://chatgpt.com/?temporary=1") is False
+
+
+def test_project_url_recovery_accepts_concrete_chatgpt_pages():
+    assert project_recovery.is_project_candidate_url("https://chatgpt.com/c/abc123") is True
+    assert project_recovery.is_project_candidate_url("https://chatgpt.com/g/g-p-example/project") is True
+
+
+def test_project_url_recovery_install_patches_compat_and_legacy(monkeypatch):
+    monkeypatch.setattr(project_recovery, "_INSTALLED", False)
+    original_compat_open_project = compat.open_project
+    original_compat_bootstrap = compat.bootstrap
+    original_compat_doctor = compat.doctor
+    original_legacy_open_project = legacy._open_project
+    original_legacy_bootstrap = legacy.bootstrap
+    try:
+        project_recovery.install()
+        assert compat.open_project is project_recovery.open_project
+        assert compat.bootstrap is project_recovery.bootstrap
+        assert compat.doctor is project_recovery.doctor
+        assert legacy._open_project is project_recovery.open_project
+        assert legacy.bootstrap is project_recovery.bootstrap
+    finally:
+        compat.open_project = original_compat_open_project
+        compat.bootstrap = original_compat_bootstrap
+        compat.doctor = original_compat_doctor
+        legacy._open_project = original_legacy_open_project
+        legacy.bootstrap = original_legacy_bootstrap
+        project_recovery._INSTALLED = False
