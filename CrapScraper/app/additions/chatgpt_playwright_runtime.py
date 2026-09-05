@@ -16,14 +16,16 @@ def install_addition_chatgpt_playwright() -> None:
     if _INSTALLED:
         return
 
-    # Corrige descoberta do compositor, reaproveita o perfil persistente legado
-    # e separa autenticação de presença do campo de mensagem antes de instalar os
-    # adapters de conteúdo/imagem usados pelo executor.
+    # Corrige descoberta do compositor, reaproveita o perfil persistente legado,
+    # persiste a URL concreta do projeto e, no Windows, usa um navegador real
+    # minimizado quando o modo headless redireciona deep links do ChatGPT.
     from app.additions.chatgpt_playwright_compat import install as install_compat
     from app.additions.chatgpt_project_url_recovery import install as install_project_url_recovery
+    from app.additions.chatgpt_background_project_runtime import install as install_background_project_runtime
 
     install_compat()
     install_project_url_recovery()
+    install_background_project_runtime()
 
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
