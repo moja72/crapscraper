@@ -6,6 +6,7 @@ from pathlib import Path
 import requests
 
 from app.addition_execution_recovery import (
+    _configure_addition_download_destination,
     _reset_obsolete_errors,
     _slug,
     install_addition_execution_recovery,
@@ -17,6 +18,24 @@ from app.additions.wordpress import AdditionStoreGateway
 
 def test_slug_avoids_raw_search_query_characters():
     assert _slug("1Page - Masonry WordPress News / interesting links") == "1page-masonry-wordpress-news-interesting-links"
+
+
+def test_addition_download_destination_reuses_update_contract(monkeypatch):
+    for key in (
+        "SCRAPER_SSH_USER",
+        "SCRAPER_SSH_DOWNLOAD_ROOT",
+        "SCRAPER_DOWNLOAD_PUBLIC_BASE_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("SCRAPER_SSH_HOST", "example.test")
+    monkeypatch.setenv("SCRAPER_SSH_USERNAME", "transport-user")
+    monkeypatch.setenv("SCRAPER_WP_BASE_URL", "https://plugintema.com.br")
+
+    _configure_addition_download_destination()
+
+    assert __import__("os").environ["SCRAPER_SSH_USER"] == "transport-user"
+    assert __import__("os").environ["SCRAPER_SSH_DOWNLOAD_ROOT"] == "/home/plugintema.com/downloads"
+    assert __import__("os").environ["SCRAPER_DOWNLOAD_PUBLIC_BASE_URL"] == "https://plugintema.com.br/downloads"
 
 
 def test_known_legacy_addition_error_is_reopened(tmp_path: Path):
@@ -33,6 +52,28 @@ def test_known_legacy_addition_error_is_reopened(tmp_path: Path):
         db.execute(
             "UPDATE addition_jobs SET public_state='error',stage='generating_description',current_error=? WHERE job_id=?",
             (json.dumps({"message": "OPENAI_API_KEY não configurada para o ChatGPT"}), job_id),
+        )
+    assert _reset_obsolete_errors(repo) == 1
+    job = repo.get(job_id)
+    assert job["state"] == "ready"
+    assert job["stage"] == "prepared"
+    assert job["error"] is None
+
+
+def test_download_destination_error_is_reopened(tmp_path: Path):
+    repo = AdditionRepository(tmp_path)
+    approval = {
+        "comparison_item_id": "legacy-download-destination",
+        "source_name": "UltraPackV2",
+        "source_version": "1.0",
+        "source_product_url": "https://www.ultrapackv2.com/item/demo/",
+    }
+    repo.materialize([approval])
+    job_id = repo.job_id("legacy-download-destination")
+    with repo.connection() as db:
+        db.execute(
+            "UPDATE addition_jobs SET public_state='error',stage='uploading_file',current_error=? WHERE job_id=?",
+            (json.dumps({"message": "Destino de download não configurado"}), job_id),
         )
     assert _reset_obsolete_errors(repo) == 1
     job = repo.get(job_id)
