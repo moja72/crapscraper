@@ -65,19 +65,26 @@ def _assistant_fallback(page: Any) -> str:
             count = locator.count()
         except Exception:
             continue
-        for index in range(max(0, count - 10), count):
+        for index in range(max(0, count - 12), count):
             try:
                 text = str(locator.nth(index).inner_text(timeout=1500) or "").strip()
             except Exception:
                 continue
-            key = text[-500:]
+            key = text[-600:]
             if not text or key in seen:
                 continue
             seen.add(key)
-            # A resposta de conteúdo deve conter um objeto; o prompt do usuário
-            # não contém um objeto JSON literal e, por isso, esta heurística não
-            # confunde a instrução com a resposta.
-            if "{" in text and "}" in text and ("short_description" in text or "short\\_description" in text):
+            lowered = text.casefold()
+            if "regras obrigatórias" in lowered or "responda exatamente neste envelope" in lowered:
+                continue
+            # Fallback para mudanças futuras no DOM: aceite apenas uma resposta
+            # que pareça efetivamente um objeto JSON, não o prompt do usuário.
+            if (
+                "{" in text
+                and "}" in text
+                and ('"short_description"' in text or '"short\\_description"' in text)
+                and ('"content"' in text or '"description"' in text)
+            ):
                 candidates.append(text)
     return candidates[-1] if candidates else ""
 
@@ -97,9 +104,9 @@ def _wait_content_response(page: Any, prompt: str, timeout_seconds: int | None =
             )
 
         body = _body_text(page)
-        # O prompt do usuário contém os delimitadores uma vez. A resposta do
-        # assistente acrescenta a segunda ocorrência. Isso independe da estrutura
-        # interna dos conversation-turns do ChatGPT.
+        # O prompt do usuário contém os delimitadores uma vez; quando a resposta
+        # fecha o envelope, existe uma segunda ocorrência. Assim não dependemos
+        # de data-message-author-role, que muda com frequência na UI do ChatGPT.
         if body.count(_END) >= before_end_count + 2:
             marked = _extract_last_marked(body)
             if marked:
@@ -125,15 +132,15 @@ def _wait_content_response(page: Any, prompt: str, timeout_seconds: int | None =
         pass
     suffix = f" Diagnóstico salvo em {diagnostic}." if diagnostic else ""
     raise legacy.ChatGPTPlaywrightError(
-        "O ChatGPT exibiu/gerou a descrição, mas o CrapScraper não conseguiu confirmar o fim da resposta dentro do tempo limite."
+        "O ChatGPT exibiu a descrição, mas o CrapScraper não conseguiu confirmar o fim da resposta."
         + suffix
     )
 
 
 def _repair_json_candidate(candidate: str) -> str:
     text = str(candidate or "").strip().strip("`").strip()
-    # A UI do ChatGPT pode expor underscores escapados (product\\_name), o que
-    # não é um escape JSON válido. Remova apenas escapes Markdown conhecidos.
+    # A camada visual do ChatGPT pode devolver escapes Markdown em underscores,
+    # como product\_name. Esse escape é inválido em JSON e deve ser removido.
     text = re.sub(r"\\([_<>])", r"\1", text)
     return text
 
@@ -174,8 +181,7 @@ def _htmlize(text: str) -> str:
         return ""
     if re.search(r"<(?:p|h[2-6]|ul|ol|li|strong|em|br)\b", raw, re.I):
         return raw
-    # Fallback seguro: se o modelo ignorar o pedido de HTML, preserve o texto
-    # em parágrafos legíveis em vez de publicar um bloco contínuo.
+    # Último fallback: nunca publique o bloco corrido observado no teste real.
     normalized = re.sub(r"(?<=[.!?])(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])", "\n\n", raw)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     chunks = [" ".join(part.split()) for part in re.split(r"\n\s*\n", normalized) if part.strip()]
@@ -183,26 +189,6 @@ def _htmlize(text: str) -> str:
         sentences = re.split(r"(?<=[.!?])\s+", chunks[0])
         chunks = [" ".join(sentences[i : i + 3]).strip() for i in range(0, len(sentences), 3)]
     return "".join(f"<p>{chunk}</p>" for chunk in chunks if chunk)
-
-
-def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
-    payload = _extract_json(text)
-    if not isinstance(payload, dict):
-        # Preserve compatibilidade com o formato textual da versão legada.
-        return legacy.parse_content_response.__wrapped__(text, job) if hasattr(legacy.parse_content_response, "__wrapped__") else _legacy_parse(text, job)
-
-    result = {
-        "product_name": str(payload.get("product_name") or payload.get("title") or job.get("product_name") or "").strip(),
-        "short_description": " ".join(str(payload.get("short_description") or "").split()),
-        "content": _htmlize(str(payload.get("content") or payload.get("description") or "")),
-        "categories": normalize_list(payload.get("categories") or payload.get("category") or []),
-        "tags": normalize_list(payload.get("tags") or []),
-        "developer": str(payload.get("developer") or job.get("developer") or "").strip(),
-        "official_url": _plain_url(payload.get("official_url") or job.get("official_url") or ""),
-    }
-    if not valid_content(result):
-        raise legacy.ChatGPTPlaywrightError("ChatGPT retornou conteúdo incompleto ou curto demais para o cadastro.")
-    return result
 
 
 def _legacy_parse(text: str, job: dict[str, Any]) -> dict[str, Any]:
@@ -224,9 +210,28 @@ def _legacy_parse(text: str, job: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
+    payload = _extract_json(text)
+    if not isinstance(payload, dict):
+        return _legacy_parse(text, job)
+
+    result = {
+        "product_name": str(payload.get("product_name") or payload.get("title") or job.get("product_name") or "").strip(),
+        "short_description": " ".join(str(payload.get("short_description") or "").split()),
+        "content": _htmlize(str(payload.get("content") or payload.get("description") or "")),
+        "categories": normalize_list(payload.get("categories") or payload.get("category") or []),
+        "tags": normalize_list(payload.get("tags") or []),
+        "developer": str(payload.get("developer") or job.get("developer") or "").strip(),
+        "official_url": _plain_url(payload.get("official_url") or job.get("official_url") or ""),
+    }
+    if not valid_content(result):
+        raise legacy.ChatGPTPlaywrightError("ChatGPT retornou conteúdo incompleto ou curto demais para o cadastro.")
+    return result
+
+
 def _strict_prompt(job: dict[str, Any], correction: bool = False) -> str:
     prefix = (
-        "A resposta anterior não cumpriu integralmente o formato solicitado. Corrija-a agora.\n\n"
+        "A resposta anterior não cumpriu integralmente o formato. Corrija-a agora sem repetir a explicação.\n\n"
         if correction
         else ""
     )
@@ -240,17 +245,17 @@ Desenvolvedor confirmado: {job.get('developer') or 'não confirmado'}
 
 REGRAS OBRIGATÓRIAS:
 - Não invente recursos, compatibilidades, desenvolvedor, URL ou benefício não confirmado.
-- short_description: 400 a 500 caracteres, um único texto comercial/informativo, sem versão e sem HTML.
-- content: HTML simples e bem formatado, nunca texto colado. Use pelo menos 2 parágrafos <p>. Se houver recursos confirmados, use <h2>Principais recursos</h2> e <ul><li>...</li></ul>.
-- categories e tags: somente termos realmente coerentes com o produto.
-- official_url: URL pura, sem Markdown, sem colchetes e sem link formatado.
-- Use EXATAMENTE as chaves: product_name, short_description, content, categories, tags, developer, official_url.
+- short_description: 400 a 500 caracteres, texto corrido comercial/informativo, sem versão e sem HTML.
+- content: HTML simples e legível. Use pelo menos 2 <p>. Se houver recursos confirmados, use <h2>Principais recursos</h2> e <ul><li>...</li></ul>.
+- categories e tags: somente termos realmente coerentes.
+- official_url: URL pura, sem Markdown, colchetes ou link formatado.
+- Use EXATAMENTE as chaves product_name, short_description, content, categories, tags, developer, official_url.
 - Não escape underscores nas chaves. Escreva product_name, nunca product\\_name.
 - Não escreva explicações antes ou depois do objeto.
 
-Responda EXATAMENTE neste envelope, sem bloco ```:
+Responda EXATAMENTE neste envelope, sem bloco de código:
 {_BEGIN}
-{{objeto JSON válido aqui}}
+JSON válido com as sete chaves solicitadas
 {_END}
 """
 
@@ -303,12 +308,6 @@ def install() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    original_parse = legacy.parse_content_response
-    if not hasattr(original_parse, "__wrapped__"):
-        try:
-            original_parse.__wrapped__ = original_parse  # type: ignore[attr-defined]
-        except Exception:
-            pass
     legacy.parse_content_response = parse_content_response
     legacy.generate_content = generate_content
     _INSTALLED = True
