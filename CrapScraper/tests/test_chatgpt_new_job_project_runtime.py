@@ -9,16 +9,18 @@ from app.additions import strict_job_identity_runtime as strict
 class FakePage:
     def __init__(self):
         self.url = "https://chatgpt.com/"
+        self.visited = []
 
     def goto(self, url, **_kwargs):
         self.url = url
+        self.visited.append(url)
         return None
 
     def wait_for_timeout(self, _ms):
         return None
 
 
-def test_new_job_uses_project_root_before_old_saved_conversation(monkeypatch):
+def test_new_job_uses_canonical_project_landing_before_old_saved_conversation(monkeypatch):
     page = FakePage()
     saved = "https://chatgpt.com/g/g-p-project123/c/old-chat"
     written = {}
@@ -31,7 +33,7 @@ def test_new_job_uses_project_root_before_old_saved_conversation(monkeypatch):
     monkeypatch.setattr(route_recovery, "open_project", old_route_must_not_run)
 
     def direct(current_page, project_root):
-        assert project_root == "https://chatgpt.com/g/g-p-project123"
+        assert project_root == "https://chatgpt.com/g/g-p-project123/project"
         current_page.url = project_root
         return True
 
@@ -49,9 +51,40 @@ def test_new_job_uses_project_root_before_old_saved_conversation(monkeypatch):
     runtime.create_project_local_chat(page, "job-new-product")
 
     assert written["job_id"] == "job-new-product"
-    assert written["conversation_url"] == "https://chatgpt.com/g/g-p-project123"
+    assert written["conversation_url"] == "https://chatgpt.com/g/g-p-project123/project"
     assert written["content_ready"] is False
     assert written["image_ready"] is False
+
+
+def test_project_route_candidates_prefer_project_suffix():
+    saved = "https://chatgpt.com/g/g-p-project123/c/old-chat"
+    assert runtime._project_landing_url("g-p-project123") == (
+        "https://chatgpt.com/g/g-p-project123/project"
+    )
+    assert runtime._project_route_candidates(saved) == [
+        "https://chatgpt.com/g/g-p-project123/project",
+        "https://chatgpt.com/g/g-p-project123",
+    ]
+
+
+def test_direct_blank_project_falls_back_to_legacy_root(monkeypatch):
+    page = FakePage()
+    project = "https://chatgpt.com/g/g-p-project123/project"
+
+    monkeypatch.setattr(route_recovery, "_wait_signed_in", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        runtime,
+        "_wait_for_blank_project_chat",
+        lambda current_page, *_args, **_kwargs: current_page.url.endswith("g-p-project123"),
+    )
+    monkeypatch.setattr(runtime, "_click_project_local_new", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(route_recovery, "_try_project_new_button", lambda *_args, **_kwargs: False)
+
+    assert runtime._direct_blank_project(page, project) is True
+    assert page.visited[:2] == [
+        "https://chatgpt.com/g/g-p-project123/project",
+        "https://chatgpt.com/g/g-p-project123",
+    ]
 
 
 def test_failed_direct_root_recovers_by_project_token_without_legacy_open(monkeypatch):
@@ -66,7 +99,7 @@ def test_failed_direct_root_recovers_by_project_token_without_legacy_open(monkey
     def recover(current_page, saved_url, project_root):
         calls["recover"] += 1
         assert saved_url == saved
-        assert project_root == "https://chatgpt.com/g/g-p-project123"
+        assert project_root == "https://chatgpt.com/g/g-p-project123/project"
         current_page.url = project_root
         return True
 
@@ -78,7 +111,7 @@ def test_failed_direct_root_recovers_by_project_token_without_legacy_open(monkey
     runtime.create_project_local_chat(page, "job-recovery")
 
     assert calls["recover"] == 1
-    assert written["conversation_url"] == "https://chatgpt.com/g/g-p-project123"
+    assert written["conversation_url"] == "https://chatgpt.com/g/g-p-project123/project"
 
 
 def test_content_contract_version_is_v4():
