@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+import sys
 import time
 from typing import Any
 from urllib.parse import urljoin
@@ -285,6 +287,36 @@ def open_job_conversation(page: Any, job_id: str) -> None:
         )
 
 
+def doctor() -> dict[str, Any]:
+    with legacy._LOCK, background.browser(headless=True) as page:
+        try:
+            open_project(page)
+            result = {
+                "ok": True,
+                "project": legacy.project_name(),
+                "project_url": str(getattr(page, "url", "") or ""),
+                "saved_project_url": project_recovery.saved_project_url(),
+                "profile_dir": str(compat.profile_dir()),
+                "composer_found": compat.composer(page, 2000) is not None,
+                "browser_mode": background.browser_mode(True),
+                "route_recovery": "project-token",
+            }
+        except Exception as error:
+            diagnostic = compat._diagnostic(page, "background_route_recovery_doctor_failed")
+            result = {
+                "ok": False,
+                "error": str(error),
+                "url": str(getattr(page, "url", "") or ""),
+                "saved_project_url": project_recovery.saved_project_url(),
+                "profile_dir": str(compat.profile_dir()),
+                "browser_mode": background.browser_mode(True),
+                "route_recovery": "project-token",
+                "diagnostic": diagnostic,
+            }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return result
+
+
 def install() -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -299,10 +331,37 @@ def install() -> None:
     _INSTALLED = True
 
 
+def main() -> None:
+    compat.install()
+    project_recovery.install()
+    background.install()
+    install()
+    command = (sys.argv[1] if len(sys.argv) > 1 else "doctor").strip().lower()
+    if command in {"doctor", "diagnose", "diagnostico"}:
+        doctor()
+        return
+    if command == "bootstrap":
+        project_recovery.bootstrap()
+        return
+    if command == "status":
+        payload = legacy.status()
+        payload["saved_project_url"] = project_recovery.saved_project_url(payload)
+        payload["browser_mode"] = background.browser_mode(True)
+        payload["route_recovery"] = "project-token"
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    raise SystemExit("Use: python -m app.additions.chatgpt_background_route_recovery [doctor|bootstrap|status]")
+
+
 __all__ = [
     "install",
     "open_project",
     "open_job_conversation",
+    "doctor",
     "_project_chat_hrefs",
     "_recover_from_project_token",
 ]
+
+
+if __name__ == "__main__":
+    main()
