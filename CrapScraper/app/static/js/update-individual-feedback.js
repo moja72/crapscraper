@@ -11,6 +11,7 @@ document.addEventListener("click", event => {
   if (!button || button.disabled) return;
 
   const startedAt = Date.now();
+  const originalLabel = button.textContent || "Executar";
   const band = $("#update-operation-status");
   if (band) {
     band.textContent = `Preparando ${productName(button)} para execução individual…`;
@@ -32,6 +33,7 @@ document.addEventListener("click", event => {
 
   window.setTimeout(() => {
     observer.disconnect();
-    if (button.isConnected && button.disabled) button.textContent = "Executando…";
+    if (!button.isConnected) return;
+    button.textContent = button.disabled ? "Executando…" : originalLabel;
   }, 650);
 }, true);
