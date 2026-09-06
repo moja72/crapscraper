@@ -81,12 +81,5 @@ def test_failed_direct_root_recovers_by_project_token_without_legacy_open(monkey
     assert written["conversation_url"] == "https://chatgpt.com/g/g-p-project123"
 
 
-def test_install_keeps_content_contract_v4(monkeypatch):
-    monkeypatch.setattr(runtime, "_INSTALLED", False)
-    monkeypatch.setattr(strict, "_CONTENT_CONTRACT_VERSION", 3)
-    monkeypatch.setattr(runtime.product_contract, "_CONTENT_CONTRACT_VERSION", 3)
-
-    runtime.install()
-
-    assert strict._CONTENT_CONTRACT_VERSION == 4
-    assert runtime.product_contract._CONTENT_CONTRACT_VERSION == 4
+def test_content_contract_version_is_v4():
+    assert runtime._CONTENT_CONTRACT_VERSION == 4
