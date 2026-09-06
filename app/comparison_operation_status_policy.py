@@ -15,6 +15,7 @@ from app.operations.runtime import history_jobs
 _INSTALLED = False
 _BASE_GET_CACHED = None
 _BASE_RENDER = None
+_BASE_LIST_APPROVED_UPDATES = None
 
 
 def _generic_origin_text(value: Any) -> str:
@@ -67,6 +68,36 @@ def _completed_additions() -> list[dict[str, Any]]:
     except Exception:
         return []
     return [dict(row) for row in rows]
+
+
+def _completed_update_ids() -> set[str]:
+    try:
+        updates = history_jobs()
+    except Exception:
+        updates = []
+    return {
+        str(row.get("comparison_item_id") or "").strip()
+        for row in updates
+        if str(row.get("state") or "") == "completed"
+        and str(row.get("comparison_item_id") or "").strip()
+    }
+
+
+def _pending_approved_updates() -> list[dict[str, Any]]:
+    """Expose only approvals that still require work.
+
+    The decision database remains untouched so its audit/history stays intact.  A
+    completed update is consumed operationally and must not be materialized into
+    the update queue again after a refresh/restart.
+    """
+    if _BASE_LIST_APPROVED_UPDATES is None:
+        return []
+    completed = _completed_update_ids()
+    return [
+        dict(row)
+        for row in (_BASE_LIST_APPROVED_UPDATES() or [])
+        if str(row.get("comparison_item_id") or "").strip() not in completed
+    ]
 
 
 def _operation_overrides() -> dict[str, dict[str, Any]]:
@@ -130,6 +161,15 @@ def _apply_operation_status(full: Mapping[str, Any]) -> dict[str, Any]:
             row["status_reason"] = operation["status_reason"]
             if operation.get("version"):
                 row["site_version"] = operation["version"]
+            if operation["status"] == "updated":
+                # A aprovação permanece no histórico do banco, mas deixa de ser
+                # apresentada como uma ação pendente depois da conclusão.
+                row["decision"] = "pending"
+                row["decision_label"] = "Atualizado"
+                row["decision_note"] = "A aprovação de atualização foi consumida pela execução concluída."
+                row["queue_type"] = ""
+                row["recommended_action"] = "none"
+                row["recommended_action_label"] = "Nenhuma ação necessária"
         rows.append(row)
     result["rows"] = rows
 
@@ -216,11 +256,21 @@ def _render_with_generic_source_labels(*args: Any, **kwargs: Any) -> str:
 
 
 def install_comparison_operation_status_policy() -> None:
-    global _INSTALLED, _BASE_GET_CACHED, _BASE_RENDER
+    global _INSTALLED, _BASE_GET_CACHED, _BASE_RENDER, _BASE_LIST_APPROVED_UPDATES
     if _INSTALLED:
         return
     _BASE_GET_CACHED = comparison._get_cached_comparison
     _BASE_RENDER = web.render_panel_page
+
+    # update_operational_ui_policy imported the function directly, so patch its
+    # bound global instead of mutating the decision database or losing history.
+    try:
+        import app.update_operational_ui_policy as update_ui
+        _BASE_LIST_APPROVED_UPDATES = update_ui.list_approved_updates
+        update_ui.list_approved_updates = _pending_approved_updates
+    except Exception:
+        _BASE_LIST_APPROVED_UPDATES = None
+
     comparison._STATUS_LABELS["source_version_missing"] = "Versão ausente no site de origem"
     comparison._STATUS_LABELS["new_source"] = "Novo"
     comparison._STATUS_LABELS["added"] = "Adicionado"
