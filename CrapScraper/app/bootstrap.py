@@ -23,6 +23,7 @@ def create_application() -> Application:
     from app.additions.chatgpt_background_route_recovery import install as install_chatgpt_background_route_recovery
     from app.additions.chatgpt_product_isolation_runtime import install as install_chatgpt_product_isolation
     from app.additions.product_content_contract_runtime import install as install_product_content_contract
+    from app.additions.strict_job_identity_runtime import install as install_strict_job_identity
     from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
@@ -72,6 +73,11 @@ def create_application() -> Application:
     # O conteúdo segue o padrão comercial de referência do Elementor Pro, mantém
     # nome imutável e invalida descrições antigas fora desse contrato.
     install_product_content_contract()
+
+    # Guard final de identidade: vincula a automação ao job/produto/fonte exatos,
+    # exige chat novo e vazio por item e rejeita qualquer resposta cujo nome não
+    # seja exatamente o produto da linha atual. Cache antigo é invalidado.
+    install_strict_job_identity()
 
     # Taxonomia fixa do catálogo PluginTema: Plugin #504 ou Tema #525, nunca ambas,
     # e nenhuma tag. Os IDs são enviados diretamente sem criar termos novos.
