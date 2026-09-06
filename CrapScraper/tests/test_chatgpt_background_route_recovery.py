@@ -57,14 +57,21 @@ def test_project_chat_hrefs_keep_only_saved_project_and_deduplicate():
     ]
 
 
-def test_project_token_recovery_prefers_project_root(monkeypatch):
+def test_project_landing_candidates_prefer_project_suffix():
+    assert recovery._project_landing_candidates("G-P-ABC") == [
+        "https://chatgpt.com/g/g-p-abc/project",
+        "https://chatgpt.com/g/g-p-abc",
+    ]
+
+
+def test_project_token_recovery_prefers_canonical_project_landing(monkeypatch):
     saved = "https://chatgpt.com/g/g-p-abc/c/stale-chat"
     page = _Page()
     monkeypatch.setattr(recovery, "_wait_signed_in", lambda _page, _timeout=0: True)
     monkeypatch.setattr(recovery, "_project_ready", lambda _page, expected, _timeout=0: expected.endswith("g-p-abc"))
 
     assert recovery._recover_from_project_token(page, saved) is True
-    assert page.visited[0] == "https://chatgpt.com/g/g-p-abc"
+    assert page.visited[0] == "https://chatgpt.com/g/g-p-abc/project"
 
 
 def test_stale_job_conversation_falls_back_to_project_recovery(monkeypatch):
