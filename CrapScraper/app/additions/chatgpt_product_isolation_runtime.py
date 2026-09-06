@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from typing import Any
 
@@ -63,37 +64,78 @@ def _open_existing_isolated(page: Any, job_id: str, item: dict[str, Any]) -> boo
         return False
 
 
+def _click_project_new(page: Any, expected: str) -> bool:
+    """Click only the project's exact `Novo`/`New` action, never global Novo chat."""
+    patterns = (re.compile(r"^Novo$", re.I), re.compile(r"^New$", re.I))
+    for role in ("button", "link"):
+        for pattern in patterns:
+            try:
+                item = page.get_by_role(role, name=pattern).last
+                if not item.count() or not item.is_visible():
+                    continue
+                try:
+                    item.evaluate("el => el.click()")
+                except Exception:
+                    item.click(force=True, timeout=5000)
+                page.wait_for_timeout(900)
+                current = str(getattr(page, "url", "") or "").strip()
+                if _same_project(expected, current) and compat.composer(page, 8000) is not None:
+                    return True
+            except Exception:
+                continue
+    return False
+
+
 def _create_project_local_chat(page: Any, job_id: str) -> None:
     route_recovery.open_project(page)
-    expected = project_recovery.saved_project_url() or str(getattr(page, "url", "") or "").strip()
-
-    # Prefer the `Novo` action rendered inside the project. The helper validates
-    # that the resulting route still belongs to the same g-p-* project token.
+    saved = project_recovery.saved_project_url() or str(getattr(page, "url", "") or "").strip()
+    token = background._project_token(saved)
+    expected = saved
     created = False
-    try:
-        created = route_recovery._try_project_new_button(page, expected)
-    except Exception:
-        created = False
+
+    # Best case: open the stable project landing route. If it stays on the root
+    # and exposes a composer, sending the first prompt creates a brand-new chat
+    # inside the project without touching any previous product conversation.
+    if token:
+        project_root = f"https://chatgpt.com/g/{token}"
+        try:
+            page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(900)
+            route_recovery._wait_signed_in(page, 10000)
+            current = str(getattr(page, "url", "") or "").rstrip("/")
+            if current == project_root.rstrip("/") and compat.composer(page, 7000) is not None:
+                expected = project_root
+                created = True
+            else:
+                expected = project_root
+                created = _click_project_new(page, project_root)
+        except Exception:
+            created = False
+
+    # Fallback for UI variants where the project root redirects to the previous
+    # chat: find the exact local `Novo` action. The legacy helper remains a final
+    # fallback because it also validates the resulting g-p-* project route.
+    if not created:
+        try:
+            route_recovery.open_project(page)
+            expected = project_recovery.saved_project_url() or saved
+            created = _click_project_new(page, expected)
+        except Exception:
+            created = False
 
     if not created:
-        token = background._project_token(expected)
-        if token:
-            project_root = f"https://chatgpt.com/g/{token}"
-            try:
-                page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_timeout(900)
-                route_recovery._wait_signed_in(page, 10000)
-                created = route_recovery._try_project_new_button(page, project_root)
-                expected = project_root
-            except Exception:
-                created = False
+        try:
+            created = route_recovery._try_project_new_button(page, expected)
+        except Exception:
+            created = False
 
     current = str(getattr(page, "url", "") or "").strip()
     if not created or not _same_project(expected, current) or compat.composer(page, 7000) is None:
         diagnostic = compat._diagnostic(page, "isolated_job_chat_creation_failed")
         raise legacy.ChatGPTPlaywrightError(
             "Não foi possível criar um chat exclusivo deste produto dentro do projeto [CS] Automação. "
-            f"A execução foi interrompida para não reutilizar conteúdo/imagem de outro produto. Diagnóstico: {diagnostic}."
+            "A execução foi interrompida para não reutilizar conteúdo ou imagem de outro produto. "
+            f"Diagnóstico: {diagnostic}."
         )
 
     _save_isolated_chat(job_id, current)
@@ -110,9 +152,8 @@ def candidate_belongs_to_current_prompt_turn(candidate: dict[str, Any], marker: 
     """Accept images only from the conversation turn answering this exact prompt.
 
     DOM position alone was insufficient because ChatGPT can render project/library
-    images after the conversation in <main>. This requires a real conversation
-    turn for both the user marker and the candidate and rejects any image if a
-    later user turn exists between them.
+    images after the conversation in <main>. Both marker and image must resolve to
+    real conversation turns, and no later user prompt may exist between them.
     """
     locator = candidate.get("locator")
     if locator is None:
@@ -125,14 +166,15 @@ def candidate_belongs_to_current_prompt_turn(candidate: dict[str, Any], marker: 
                   const main = img.closest('main') || document.querySelector('main');
                   if (!main) return false;
                   const textOf = node => String(node?.innerText || node?.textContent || '');
-                  const turnSelector = '[data-testid^="conversation-turn-"], article';
                   const roleOf = turn => {
                     if (!turn) return '';
                     const roleNode = turn.matches?.('[data-message-author-role]')
                       ? turn : turn.querySelector?.('[data-message-author-role]');
                     return String(roleNode?.getAttribute('data-message-author-role') || '').toLowerCase();
                   };
-                  const turnOf = node => node?.closest?.(turnSelector) || null;
+                  const turnOf = node =>
+                    node?.closest?.('[data-testid^="conversation-turn-"]') ||
+                    node?.closest?.('article') || null;
 
                   const markerNodes = [
                     ...main.querySelectorAll('[data-message-author-role="user"]'),
@@ -140,15 +182,15 @@ def candidate_belongs_to_current_prompt_turn(candidate: dict[str, Any], marker: 
                     ...main.querySelectorAll('article')
                   ].filter(node => textOf(node).includes(marker));
                   const markerNode = markerNodes[markerNodes.length - 1];
-                  const markerTurn = turnOf(markerNode) || markerNode;
+                  const markerTurn = turnOf(markerNode);
                   const imageTurn = turnOf(img);
                   if (!markerTurn || !imageTurn || markerTurn === imageTurn) return false;
                   if (roleOf(imageTurn) === 'user') return false;
 
-                  const rawTurns = [...main.querySelectorAll(turnSelector)];
-                  const turns = rawTurns.filter((turn, index) =>
-                    !rawTurns.some((other, otherIndex) => otherIndex !== index && other.contains(turn))
-                  );
+                  const conversationTurns = [...main.querySelectorAll('[data-testid^="conversation-turn-"]')];
+                  const turns = conversationTurns.length
+                    ? conversationTurns
+                    : [...main.querySelectorAll('article')];
                   const markerIndex = turns.indexOf(markerTurn);
                   const imageIndex = turns.indexOf(imageTurn);
                   if (markerIndex < 0 || imageIndex <= markerIndex) return false;
