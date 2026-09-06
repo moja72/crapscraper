@@ -69,23 +69,28 @@ def _same_project(expected: str, actual: str) -> bool:
     return host in {"chatgpt.com", "www.chatgpt.com"}
 
 
-def _user_turn_count(page: Any) -> int:
+def _conversation_turn_count(page: Any) -> int:
+    """Return 0 only when the DOM positively shows no conversation turns.
+
+    A layout with unclassified article nodes is treated as unknown (-1), never as
+    empty. This keeps the isolation guard fail-closed when ChatGPT changes its DOM.
+    """
     try:
         value = page.evaluate(
             """
             () => {
               const main = document.querySelector('main') || document;
-              const explicit = [...main.querySelectorAll('[data-message-author-role="user"]')];
-              if (explicit.length) return explicit.length;
-              let total = 0;
-              for (const turn of main.querySelectorAll('[data-testid*="conversation-turn"], article')) {
-                const roleNode = turn.matches('[data-message-author-role]')
-                  ? turn : turn.querySelector('[data-message-author-role]');
-                if (String(roleNode?.getAttribute('data-message-author-role') || '').toLowerCase() === 'user') {
-                  total += 1;
-                }
-              }
-              return total;
+              const turns = [...main.querySelectorAll('[data-testid*="conversation-turn"]')];
+              if (turns.length) return turns.length;
+
+              const roleNodes = [...main.querySelectorAll('[data-message-author-role]')];
+              if (roleNodes.length) return roleNodes.length;
+
+              // Some layouts keep turns as articles after removing role/test ids.
+              // Their mere presence means we cannot prove the chat is empty.
+              const articles = [...main.querySelectorAll('article')];
+              if (articles.length) return -1;
+              return 0;
             }
             """
         )
@@ -113,7 +118,7 @@ def _blank_project_chat(page: Any, expected: str, before_url: str = "") -> bool:
     if "/c/" in str(before_url or "") and current.rstrip("/") == str(before_url).rstrip("/"):
         return False
 
-    turns = _user_turn_count(page)
+    turns = _conversation_turn_count(page)
     return turns == 0 and _composer_available(page)
 
 

@@ -61,8 +61,13 @@ class AdditionFreshProjectChatPolicyTests(unittest.TestCase):
         with patch.object(policy.one_click, "_composer", return_value=object()):
             self.assertTrue(policy._blank_project_chat(page, self.project))
 
-    def test_blank_project_chat_rejects_existing_user_turn(self) -> None:
+    def test_blank_project_chat_rejects_existing_conversation_turn(self) -> None:
         page = FakePage(self.project, turns=1)
+        with patch.object(policy.one_click, "_composer", return_value=object()):
+            self.assertFalse(policy._blank_project_chat(page, self.project))
+
+    def test_blank_project_chat_rejects_unknown_conversation_structure(self) -> None:
+        page = FakePage(self.project, turns=-1)
         with patch.object(policy.one_click, "_composer", return_value=object()):
             self.assertFalse(policy._blank_project_chat(page, self.project))
 
