@@ -5,6 +5,7 @@ from typing import Any
 
 from app.comparison import decisions, matching
 from app.updates.executor import UpdateExecutor
+from app.updates.models import utc_now
 from app.updates.service import UpdateService
 
 
@@ -67,12 +68,13 @@ def _persist_recoverable_drift(repository: Any, job_id: str, result: dict[str, A
     error["code"] = "source_version_drift"
     result = {**result, "error": error}
     attempt_id = _clean(result.get("attempt_id"))
+    now = utc_now()
 
     try:
         with repository.connection() as db:
             db.execute(
-                "UPDATE update_jobs SET current_error=?, updated_at=datetime('now') WHERE job_id=?",
-                (json.dumps(error, ensure_ascii=False), str(job_id)),
+                "UPDATE update_jobs SET current_error=?, updated_at=? WHERE job_id=?",
+                (json.dumps(error, ensure_ascii=False), now, str(job_id)),
             )
             if attempt_id:
                 db.execute(
