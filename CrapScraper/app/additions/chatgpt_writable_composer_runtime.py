@@ -80,6 +80,7 @@ def wait_until_chat_ready(page: Any, timeout_ms: int = 45000):
 
 
 def fill_and_submit(page: Any, prompt: str, timeout_ms: int = 45000) -> None:
+    """Resolve a fresh writable composer, fill it and submit exactly once."""
     composer = wait_until_chat_ready(page, timeout_ms)
     try:
         composer.click(timeout=5000)
@@ -92,10 +93,13 @@ def fill_and_submit(page: Any, prompt: str, timeout_ms: int = 45000) -> None:
     try:
         composer.fill(prompt, timeout=10000)
     except Exception:
-        # Re-resolve once in case React replaced the composer node between
-        # discovery and fill.
+        # React can replace the composer node between discovery and fill. Resolve
+        # a fresh writable node once instead of retrying a stale disabled locator.
         composer = wait_until_chat_ready(page, 15000)
-        composer.click(timeout=5000)
+        try:
+            composer.click(timeout=5000)
+        except Exception:
+            composer.focus(timeout=5000)
         composer.fill(prompt, timeout=10000)
 
     try:
@@ -119,12 +123,32 @@ def fill_and_submit(page: Any, prompt: str, timeout_ms: int = 45000) -> None:
     raise legacy.ChatGPTPlaywrightError("Não foi possível enviar o prompt ao ChatGPT após preencher o compositor.")
 
 
+def _submit_content(page: Any, prompt: str) -> None:
+    fill_and_submit(page, prompt, 45000)
+
+
+def _submit_image(page: Any, prompt: str) -> None:
+    # Image starts immediately after description in the same conversation. Give
+    # ChatGPT enough time to release the composer from the previous response.
+    fill_and_submit(page, prompt, 60000)
+
+
 def install() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+
     compat.composer = writable_composer
     legacy._composer = writable_composer
+
+    # Patch both prompt entry points. chatgpt_playwright_image imported _composer
+    # by value, so changing legacy._composer alone would not fix that module.
+    from app.additions import chatgpt_content_response_runtime as content_runtime
+    from app.additions import chatgpt_playwright_image as image_runtime
+
+    content_runtime._submit = _submit_content
+    image_runtime._composer = writable_composer
+    image_runtime._submit_image_prompt = _submit_image
     _INSTALLED = True
 
 
