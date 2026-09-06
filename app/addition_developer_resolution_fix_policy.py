@@ -4,8 +4,10 @@ import re
 from typing import Any, Callable, Mapping
 
 import app.addition_custom_fields_policy as fields
+import app.addition_fresh_project_chat_policy as fresh_chat
 import app.addition_operational_ui_policy as operational
 import app.addition_one_click_policy as one_click
+import app.addition_real_chat_url_policy as real_chat
 import app.new_product_workflow_policy as additions
 
 
@@ -145,4 +147,12 @@ def install_addition_developer_resolution_fix_policy() -> None:
     # A UI antiga só resolvia quando o campo estava vazio; revalidar sempre é
     # necessário para corrigir jobs já persistidos com PluginTheme.net.
     operational._resolve_developer_fields = _resolve_developer_fields
+
+    # Este instalador roda depois de addition_conversation_capture_policy e antes
+    # do runner resiliente final. É o ponto tardio seguro para ativar duas proteções
+    # que já existem/foram isoladas em policies próprias: nunca persistir /project
+    # como conversa e nunca aceitar o Chat 2 sem provar um chat novo e vazio.
+    real_chat.install_addition_real_chat_url_policy()
+    fresh_chat.install_addition_fresh_project_chat_policy()
+
     _INSTALLED = True
