@@ -25,6 +25,8 @@ def test_prompt_uses_elementor_pro_as_style_model_and_fixed_taxonomy():
     assert 'categories deve ser EXATAMENTE ["Plugin"]' in prompt
     assert "tags deve ser EXATAMENTE []" in prompt
     assert "sem copiar recursos do Elementor" in prompt
+    assert "categoria WooCommerce já existente ID 504" in prompt
+    assert "NÃO use listas" in prompt
 
 
 def test_result_forces_exact_product_name_one_category_and_no_tags():
@@ -40,13 +42,14 @@ def test_result_forces_exact_product_name_one_category_and_no_tags():
     )
     assert result["product_name"] == "Admin Columns Pro JetEngine"
     assert result["categories"] == ["Plugin"]
+    assert result["category_ids"] == [504]
     assert result["tags"] == []
     assert result["short_description"] == "descrição com espaços"
 
 
 def test_content_fingerprint_version_invalidates_old_cached_descriptions():
     fingerprint = content_contract.content_fingerprint(plugin_job())
-    assert fingerprint.startswith("content-contract-v2|")
+    assert fingerprint.startswith("content-contract-v4|")
 
 
 def test_plugin_and_theme_use_existing_plugintheme_category_ids():

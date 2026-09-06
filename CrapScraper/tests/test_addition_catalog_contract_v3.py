@@ -35,8 +35,8 @@ def test_prompt_forbids_lists_and_tags():
     assert 'categories deve ser EXATAMENTE ["Plugin"]' in prompt
     assert 'tags deve ser EXATAMENTE []' in prompt
     assert "não use listas" in prompt.casefold()
-    assert "<ul>" not in prompt
-    assert "<li>" not in prompt
+    assert "não retorne tags" in prompt.casefold()
+    assert "categoria woocommerce já existente id 504" in prompt.casefold()
 
 
 def test_normalize_removes_lists_from_content_and_forces_taxonomy():
@@ -52,7 +52,9 @@ def test_normalize_removes_lists_from_content_and_forces_taxonomy():
         },
     )
     assert result["categories"] == ["Tema"]
+    assert result["category_ids"] == [525]
     assert result["tags"] == []
     assert "<ul" not in result["content"].casefold()
     assert "<li" not in result["content"].casefold()
     assert "<h2" not in result["content"].casefold()
+    assert result["content"].count("<p>") >= 2
