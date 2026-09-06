@@ -39,8 +39,14 @@ class ComparisonOperationStatusPolicyTests(unittest.TestCase):
         self.assertEqual(result["counts"]["added"], 1)
         self.assertEqual(result["counts"]["new_source"], 0)
 
-    def test_completed_update_becomes_updated(self):
-        full = {"rows": [{"comparison_item_id": "comparison-2", "status": "update_available"}]}
+    def test_completed_update_becomes_updated_and_consumes_pending_action_in_view(self):
+        full = {"rows": [{
+            "comparison_item_id": "comparison-2",
+            "status": "update_available",
+            "decision": "approve_update",
+            "decision_label": "Aprovar atualização",
+            "queue_type": "update",
+        }]}
         with patch.object(policy, "_operation_overrides", return_value={
             "comparison-2": {
                 "completed_at": "2026-08-19T20:00:00+00:00",
@@ -51,8 +57,29 @@ class ComparisonOperationStatusPolicyTests(unittest.TestCase):
             }
         }):
             result = policy._apply_operation_status(full)
-        self.assertEqual(result["rows"][0]["status"], "updated")
-        self.assertEqual(result["rows"][0]["site_version"], "2.0.0")
+        row = result["rows"][0]
+        self.assertEqual(row["status"], "updated")
+        self.assertEqual(row["status_label"], "Atualizado")
+        self.assertEqual(row["site_version"], "2.0.0")
+        self.assertEqual(row["decision_label"], "Atualizado")
+        self.assertEqual(row["queue_type"], "")
+        self.assertEqual(row["recommended_action"], "none")
+
+    def test_completed_approval_is_not_rematerialized_but_audit_source_is_untouched(self):
+        approved = [
+            {"comparison_item_id": "done", "decision": "approve_update", "queue_type": "update"},
+            {"comparison_item_id": "todo", "decision": "approve_update", "queue_type": "update"},
+        ]
+        original_base = policy._BASE_LIST_APPROVED_UPDATES
+        try:
+            policy._BASE_LIST_APPROVED_UPDATES = lambda: approved
+            with patch.object(policy, "_completed_update_ids", return_value={"done"}):
+                pending = policy._pending_approved_updates()
+        finally:
+            policy._BASE_LIST_APPROVED_UPDATES = original_base
+
+        self.assertEqual([row["comparison_item_id"] for row in pending], ["todo"])
+        self.assertEqual([row["comparison_item_id"] for row in approved], ["done", "todo"])
 
 
 if __name__ == "__main__":
