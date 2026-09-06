@@ -60,6 +60,7 @@ jobs:
           app/additions/chatgpt_image_detection_runtime.py
           app/additions/chatgpt_playwright_image.py
           app/additions/chatgpt_playwright_runtime.py
+          app/additions/chatgpt_writable_composer_runtime.py
           app/additions/taxonomy_waf_runtime.py
           app/additions/wordpress.py
           app/additions/executor.py
@@ -97,6 +98,7 @@ jobs:
           tests/test_chatgpt_content_response_runtime.py
           tests/test_chatgpt_rendered_response_and_research.py
           tests/test_chatgpt_image_detection_runtime.py
+          tests/test_chatgpt_writable_composer_runtime.py
           tests/test_addition_source_preflight_runtime.py
           tests/test_live_comparison_addition_sync.py
 

@@ -25,6 +25,7 @@ def install_addition_chatgpt_playwright() -> None:
     from app.additions.chatgpt_background_project_runtime import install as install_background_project_runtime
     from app.additions.chatgpt_content_response_runtime import install as install_content_response_runtime
     from app.additions.chatgpt_image_detection_runtime import install as install_image_detection_runtime
+    from app.additions.chatgpt_writable_composer_runtime import install as install_writable_composer_runtime
 
     install_compat()
     install_project_url_recovery()
@@ -33,6 +34,10 @@ def install_addition_chatgpt_playwright() -> None:
     # Precisa ocorrer antes de importar chatgpt_playwright_image, pois esse
     # módulo referencia o coletor de imagens do runtime legado no import.
     install_image_detection_runtime()
+    # O ChatGPT pode manter um textarea visível porém disabled entre a descrição
+    # e a imagem. Esta camada só aceita compositor realmente editável e espera a
+    # liberação da UI antes de enviar o próximo prompt.
+    install_writable_composer_runtime()
 
     from app.additions.chatgpt import ChatGPTContentService
     from app.additions.images import ImageService
