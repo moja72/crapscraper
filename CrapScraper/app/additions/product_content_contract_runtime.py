@@ -114,7 +114,9 @@ def quality_ok(result: dict[str, Any]) -> bool:
 
 
 def content_fingerprint(job: dict[str, Any]) -> str:
-    return f"content-contract-v{_CONTENT_CONTRACT_VERSION}|{_ORIGINAL_CONTENT_FINGERPRINT(job)}"
+    # Hard-code v4 here so later compatibility layers cannot accidentally lower
+    # the cache contract back to an older description format.
+    return f"content-contract-v4|{_ORIGINAL_CONTENT_FINGERPRINT(job)}"
 
 
 def install() -> None:
