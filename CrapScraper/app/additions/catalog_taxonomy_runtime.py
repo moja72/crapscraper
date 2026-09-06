@@ -28,11 +28,29 @@ def canonicalize_job_taxonomy(job: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
-def install_catalog_taxonomy_contract() -> None:
-    """Use the two existing PluginTema product categories by immutable ID.
+def _taxonomy_payload(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "categories": [{"id": canonical_category_id(job)}],
+        "tags": [],
+    }
 
-    New additions must never create/resolve arbitrary WooCommerce terms here:
-    plugin -> Plugin (#504), theme -> Tema (#525), and no tags.
+
+def _taxonomy_matches(product: dict[str, Any], job: dict[str, Any]) -> bool:
+    category_ids = [int(item.get("id") or 0) for item in product.get("categories", []) or []]
+    tags = list(product.get("tags", []) or [])
+    return category_ids == [canonical_category_id(job)] and not tags
+
+
+def install_catalog_taxonomy_contract() -> None:
+    """Use only the two existing PluginTema categories by immutable ID.
+
+    plugin -> Plugin (#504)
+    theme  -> Tema (#525)
+    tags   -> none
+
+    The category is written in the initial product payload and then asserted with
+    an explicit WooCommerce update. Final validation also refuses to mark a job
+    completed if WooCommerce returns any extra/wrong category or any tag.
     """
     global _INSTALLED
     if _INSTALLED:
@@ -40,9 +58,13 @@ def install_catalog_taxonomy_contract() -> None:
 
     from app.additions.wordpress import AdditionStoreGateway
 
-    if getattr(AdditionStoreGateway, "_crapscraper_catalog_taxonomy_contract_v2", False):
+    if getattr(AdditionStoreGateway, "_crapscraper_catalog_taxonomy_contract_v3", False):
         _INSTALLED = True
         return
+
+    original_create_parent = AdditionStoreGateway.create_parent
+    original_update_parent = AdditionStoreGateway.update_parent
+    original_validate = AdditionStoreGateway.validate
 
     def parent_payload(
         self: Any,
@@ -88,9 +110,50 @@ def install_catalog_taxonomy_contract() -> None:
             ],
         }
 
+    def force_taxonomy(self: Any, product_id: int, job: dict[str, Any]) -> dict[str, Any]:
+        product_id = int(product_id or 0)
+        if not product_id:
+            raise RuntimeError("WooCommerce não retornou produto para aplicar a categoria canônica")
+        self._wc("PUT", f"/products/{product_id}", json=_taxonomy_payload(job))
+        product = self._wc("GET", f"/products/{product_id}")
+        if not _taxonomy_matches(product, job):
+            expected = canonical_category(job)
+            expected_id = canonical_category_id(job)
+            raise RuntimeError(
+                f"Taxonomia final divergiu: esperado somente {expected} (ID {expected_id}) e nenhuma tag"
+            )
+        return product
+
+    def create_parent(self: Any, job: dict[str, Any], media_id: int, download_ref: str, image_url: str = ""):
+        clean = canonicalize_job_taxonomy(job)
+        product = original_create_parent(self, clean, media_id, download_ref, image_url)
+        force_taxonomy(self, int(product.get("id") or 0), clean)
+        return product
+
+    def update_parent(self: Any, product_id: int, job: dict[str, Any], media_id: int, download_ref: str, image_url: str = ""):
+        clean = canonicalize_job_taxonomy(job)
+        product = original_update_parent(self, product_id, clean, media_id, download_ref, image_url)
+        force_taxonomy(self, int(product_id), clean)
+        return product
+
+    def validate(self: Any, product_id: int, job: dict[str, Any], variation_ids: Any, expected_status: Any = None) -> bool:
+        try:
+            base_ok = original_validate(self, product_id, job, variation_ids, expected_status=expected_status)
+        except TypeError:
+            base_ok = original_validate(self, product_id, job, variation_ids)
+        if not base_ok:
+            return False
+        product = self._wc("GET", f"/products/{int(product_id)}")
+        return _taxonomy_matches(product, job)
+
     AdditionStoreGateway._parent_payload = parent_payload
+    AdditionStoreGateway._force_catalog_taxonomy = force_taxonomy
+    AdditionStoreGateway.create_parent = create_parent
+    AdditionStoreGateway.update_parent = update_parent
+    AdditionStoreGateway.validate = validate
     AdditionStoreGateway._crapscraper_catalog_taxonomy_contract = True
     AdditionStoreGateway._crapscraper_catalog_taxonomy_contract_v2 = True
+    AdditionStoreGateway._crapscraper_catalog_taxonomy_contract_v3 = True
     _INSTALLED = True
 
 
