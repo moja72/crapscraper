@@ -16,15 +16,20 @@ def create_application() -> Application:
     from app.update_runtime_consistency import install_update_runtime_consistency
     from app.legacy_permission_recovery import install_legacy_permission_recovery
     from app.update_retry_live_objective import install_update_retry_live_objective
+    from app.update_completion_and_retry_runtime import install_update_completion_and_retry_runtime
+    from app.update_queue_state_runtime import install_update_queue_state_runtime
     from app.addition_runtime_recovery import install_addition_runtime_recovery
     from app.addition_decision_sync import install_addition_decision_sync
     from app.addition_execution_recovery import install_addition_execution_recovery
+    from app.addition_sort_runtime import install_addition_sort_runtime
     from app.additions.chatgpt_playwright_runtime import install_addition_chatgpt_playwright
     from app.additions.chatgpt_background_route_recovery import install as install_chatgpt_background_route_recovery
     from app.additions.chatgpt_product_isolation_runtime import install as install_chatgpt_product_isolation
     from app.additions.product_content_contract_runtime import install as install_product_content_contract
     from app.additions.strict_job_identity_runtime import install as install_strict_job_identity
     from app.additions.chatgpt_new_job_project_runtime import install as install_chatgpt_new_job_project_runtime
+    from app.additions.chatgpt_job_cache_recovery_runtime import install_chatgpt_job_cache_recovery_runtime
+    from app.additions.chatgpt_json_recovery_runtime import install_chatgpt_json_recovery_runtime
     from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
@@ -47,6 +52,15 @@ def create_application() -> Application:
     # e a versão viva da mesma fonte aprovada. Isso impede que snapshots antigos
     # bloqueiem a nova tentativa quando a origem avançou após a aprovação.
     install_update_retry_live_objective()
+
+    # Corrige o caminho individual sem tocar no proprietário da execução em lote:
+    # drift de versão vira retry recuperável, conclusão consome a aprovação
+    # operacional e a Comparação passa a projetar imediatamente "Atualizado".
+    install_update_completion_and_retry_runtime()
+
+    # Projeta separadamente os produtos que já foram enviados para o lote, mas
+    # ainda aguardam sua vez. O estado real do executor continua transacional.
+    install_update_queue_state_runtime()
 
     # Quando o check-access do PluginTheme responde falso, ainda permitimos uma
     # única prova no endpoint de arquivo. Só há sucesso se o retorno final for um
@@ -85,6 +99,19 @@ def create_application() -> Application:
     # raiz do projeto e criamos um chat vazio. Assim uma /c/ antiga ou instável não
     # bloqueia o cadastro seguinte em generating_description.
     install_chatgpt_new_job_project_runtime()
+
+    # Retry/restart da Adição reconstrói a proveniência do chat a partir do mesmo
+    # job persistido em SQLite. Isso permite terminar a imagem do produto correto
+    # sem cair num chat de outro item e torna a prova de chat vazio fail-closed.
+    install_chatgpt_job_cache_recovery_runtime()
+
+    # O DOM do ChatGPT pode inserir quebras de linha dentro de strings visualmente
+    # renderizadas (o diagnóstico real fez isso no official_url). Extraia o último
+    # objeto JSON balanceado e repare apenas formatação segura, nunca truncamento.
+    install_chatgpt_json_recovery_runtime()
+
+    # Ordenação da fila de Adicionar usa o mesmo contrato visual de Atualizar.
+    install_addition_sort_runtime()
 
     # Taxonomia fixa do catálogo PluginTema: Plugin #504 ou Tema #525, nunca ambas,
     # e nenhuma tag. Os IDs são enviados diretamente sem criar termos novos.
