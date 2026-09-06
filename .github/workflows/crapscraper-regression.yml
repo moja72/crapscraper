@@ -35,9 +35,11 @@ jobs:
           app/update_runtime_consistency.py
           app/update_retry_live_objective.py
           app/update_completion_and_retry_runtime.py
+          app/update_queue_state_runtime.py
           app/addition_runtime_recovery.py
           app/addition_decision_sync.py
           app/addition_execution_recovery.py
+          app/addition_sort_runtime.py
           app/comparison_live_reconciliation.py
           app/plugintheme_access_fallback.py
           app/updates/plugintheme_source_recovery.py
@@ -60,6 +62,7 @@ jobs:
           app/additions/strict_job_identity_runtime.py
           app/additions/chatgpt_new_job_project_runtime.py
           app/additions/chatgpt_job_cache_recovery_runtime.py
+          app/additions/chatgpt_json_recovery_runtime.py
           app/additions/chatgpt_content_response_runtime.py
           app/additions/chatgpt_image_detection_runtime.py
           app/additions/chatgpt_playwright_image.py
@@ -86,8 +89,10 @@ jobs:
           tests/test_retry_error_recovery.py
           tests/test_update_retry_live_objective.py
           tests/test_update_completion_and_retry_runtime.py
+          tests/test_update_queue_state_runtime.py
           tests/test_addition_runtime_recovery.py
           tests/test_addition_execution_recovery.py
+          tests/test_addition_sort_runtime.py
           tests/test_addition_media_fallback.py
           tests/test_addition_term_resolution.py
           tests/test_addition_taxonomy_blocked.py
@@ -100,6 +105,7 @@ jobs:
           tests/test_addition_strict_job_identity.py
           tests/test_chatgpt_new_job_project_runtime.py
           tests/test_chatgpt_job_cache_recovery_runtime.py
+          tests/test_chatgpt_json_recovery_runtime.py
           tests/test_chatgpt_product_isolation_runtime.py
           tests/test_chatgpt_playwright_compat.py
           tests/test_chatgpt_background_route_recovery.py
@@ -151,6 +157,8 @@ jobs:
           node --check app/static/js/runtime-fixes.js
           node --check app/static/js/app.js
           node --check app/static/js/update-individual-feedback.js
+          node --check app/static/js/update-queue-state-ui.js
+          node --check app/static/js/add-sort-controls.js
           node --check app/static/js/add-queue-standardization.js
           node --check app/static/js/add-live-progress.js
           node --check app/static/js/add-stable-polling.js
