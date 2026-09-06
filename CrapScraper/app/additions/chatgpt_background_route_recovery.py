@@ -25,6 +25,17 @@ def _absolute_chatgpt_url(value: Any) -> str:
     return ""
 
 
+def _project_landing_candidates(token: str) -> list[str]:
+    """Return current and legacy project landing routes, preferring /project."""
+    normalized = str(token or "").strip().casefold()
+    if not normalized:
+        return []
+    return [
+        f"https://chatgpt.com/g/{normalized}/project",
+        f"https://chatgpt.com/g/{normalized}",
+    ]
+
+
 def _wait_signed_in(page: Any, timeout_ms: int = 15000) -> bool:
     """Wait for session evidence without treating a slow composer as logout."""
     deadline = time.monotonic() + max(2.0, timeout_ms / 1000)
@@ -114,12 +125,16 @@ def _project_chat_hrefs(page: Any, token: str) -> list[str]:
 
 
 def _try_project_new_button(page: Any, expected: str) -> bool:
-    """Use the project's own `Novo` control, never the global `Novo chat`."""
+    """Use a project-local new-chat control, never accepting a route outside the project."""
     patterns = (
         re.compile(r"^Novo$", re.I),
         re.compile(r"^New$", re.I),
+        re.compile(r"^Novo chat$", re.I),
+        re.compile(r"^New chat$", re.I),
         re.compile(r"^Criar chat$", re.I),
         re.compile(r"^Create chat$", re.I),
+        re.compile(r"^Iniciar(?: novo)? chat$", re.I),
+        re.compile(r"^Start(?: a)? new chat$", re.I),
     )
     for role in ("button", "link"):
         for pattern in patterns:
@@ -133,6 +148,9 @@ def _try_project_new_button(page: Any, expected: str) -> bool:
                 except Exception:
                     item.click(force=True, timeout=5000)
                 page.wait_for_timeout(900)
+                current = str(getattr(page, "url", "") or "").strip()
+                if not background._same_project_route(expected, current):
+                    continue
                 if _project_ready(page, expected, 12000):
                     return True
             except legacy.ChatGPTPlaywrightError:
@@ -148,25 +166,27 @@ def _recover_from_project_token(page: Any, saved: str) -> bool:
     if not token:
         return False
     expected = f"https://chatgpt.com/g/{token}"
-    project_root = expected
+    landing_candidates = _project_landing_candidates(token)
 
-    # The project landing route is more durable than a specific conversation URL.
-    try:
-        page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
-    except Exception:
+    # The canonical /project page is the stable fresh-chat landing route. Keep
+    # /g/<token> only as a compatibility fallback for older UI revisions.
+    for project_root in landing_candidates:
         try:
-            page.goto(project_root, wait_until="commit", timeout=60000)
+            page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
         except Exception:
-            pass
-    page.wait_for_timeout(1000)
-    if _wait_signed_in(page, 10000):
-        if _project_ready(page, expected, 9000):
-            return True
-        for href in _project_chat_hrefs(page, token)[:8]:
-            if _goto_project_candidate(page, href, expected, 12000):
+            try:
+                page.goto(project_root, wait_until="commit", timeout=60000)
+            except Exception:
+                continue
+        page.wait_for_timeout(1000)
+        if _wait_signed_in(page, 10000):
+            if _project_ready(page, expected, 9000):
                 return True
-        if _try_project_new_button(page, expected):
-            return True
+            for href in _project_chat_hrefs(page, token)[:8]:
+                if _goto_project_candidate(page, href, expected, 12000):
+                    return True
+            if _try_project_new_button(page, expected):
+                return True
 
     # If the project landing page is sparse, reload the home/sidebar and use the
     # hrefs React already rendered instead of clicking through the slideover UI.
@@ -196,17 +216,18 @@ def _recover_from_project_token(page: Any, saved: str) -> bool:
         if _goto_project_candidate(page, href, expected, 14000):
             return True
 
-    # Last token-safe attempt: navigate to the project landing page again and
-    # invoke only its local New button. Never accept a global /c/ chat here.
-    try:
-        page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(900)
-        if _wait_signed_in(page, 9000) and _try_project_new_button(page, expected):
-            return True
-    except legacy.ChatGPTPlaywrightError:
-        raise
-    except Exception:
-        pass
+    # Last token-safe attempt: revisit the canonical project landing route and
+    # invoke only a local new-chat action. Never accept a global /c/ chat here.
+    for project_root in landing_candidates:
+        try:
+            page.goto(project_root, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(900)
+            if _wait_signed_in(page, 9000) and _try_project_new_button(page, expected):
+                return True
+        except legacy.ChatGPTPlaywrightError:
+            raise
+        except Exception:
+            continue
     return False
 
 
@@ -236,8 +257,6 @@ def open_project(page: Any) -> None:
         except Exception as error:
             errors.append(f"token do projeto: {error}")
 
-    # Preserve the proven background implementation for profiles that predate a
-    # project-token URL. It still knows how to discover the project by its label.
     try:
         _ORIGINAL_OPEN_PROJECT(page)
         current = str(getattr(page, "url", "") or "").strip()
@@ -299,7 +318,7 @@ def doctor() -> dict[str, Any]:
                 "profile_dir": str(compat.profile_dir()),
                 "composer_found": compat.composer(page, 2000) is not None,
                 "browser_mode": background.browser_mode(True),
-                "route_recovery": "project-token",
+                "route_recovery": "project-token-canonical-landing",
             }
         except Exception as error:
             diagnostic = compat._diagnostic(page, "background_route_recovery_doctor_failed")
@@ -310,7 +329,7 @@ def doctor() -> dict[str, Any]:
                 "saved_project_url": project_recovery.saved_project_url(),
                 "profile_dir": str(compat.profile_dir()),
                 "browser_mode": background.browser_mode(True),
-                "route_recovery": "project-token",
+                "route_recovery": "project-token-canonical-landing",
                 "diagnostic": diagnostic,
             }
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -347,7 +366,7 @@ def main() -> None:
         payload = legacy.status()
         payload["saved_project_url"] = project_recovery.saved_project_url(payload)
         payload["browser_mode"] = background.browser_mode(True)
-        payload["route_recovery"] = "project-token"
+        payload["route_recovery"] = "project-token-canonical-landing"
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     raise SystemExit("Use: python -m app.additions.chatgpt_background_route_recovery [doctor|bootstrap|status]")
@@ -359,6 +378,7 @@ __all__ = [
     "open_job_conversation",
     "doctor",
     "_project_chat_hrefs",
+    "_project_landing_candidates",
     "_recover_from_project_token",
 ]
 
