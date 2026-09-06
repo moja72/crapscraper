@@ -58,7 +58,7 @@ Desenvolvedor confirmado: {developer}
 Use somente fatos confirmados pelas fontes fornecidas. Não invente recursos, compatibilidades, desenvolvedor, URL ou benefícios específicos não comprovados.
 
 PADRÃO OBRIGATÓRIO DA BREVE DESCRIÇÃO
-Use como referência de estrutura, ritmo, tamanho e tom comercial este modelo do Elementor Pro, SEM copiar recursos do Elementor para outro produto:
+Use como referência de estrutura, ritmo, tamanho e tom comercial este modelo do Elementor Pro, sem copiar recursos do Elementor para outro produto:
 "{ELEMENTOR_PRO_MODEL}"
 
 Para short_description:
