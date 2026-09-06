@@ -12,6 +12,7 @@ from app.updates.service import UpdateService
 _INSTALLED = False
 _ORIGINAL_EXECUTOR_EXECUTE = None
 _ORIGINAL_EXECUTION = None
+_ORIGINAL_RECONCILE_JOB = None
 _ORIGINAL_LIST_APPROVED = None
 _ORIGINAL_BUILD_FULL_COMPARISON = None
 
@@ -208,33 +209,48 @@ def _execution(self: UpdateService, job: dict[str, Any]) -> dict[str, Any]:
     return _ORIGINAL_EXECUTION(self, _recoverable_job(job))
 
 
+def _project_job_completion(job: dict[str, Any]) -> None:
+    try:
+        _mark_decision_updated(job)
+    except Exception:
+        # Uma atualização já validada nunca deve ser revertida por uma falha na
+        # projeção administrativa da decisão/comparação.
+        pass
+
+
 def _executor_execute(self: UpdateExecutor, job_id: str) -> dict[str, Any]:
     job = self.repository.get(job_id)
     result = dict(_ORIGINAL_EXECUTOR_EXECUTE(self, job_id))
     result = _persist_recoverable_drift(self.repository, job_id, result)
     if result.get("ok"):
-        try:
-            _mark_decision_updated({**job, "source_version": self.repository.get(job_id).get("source_version")})
-        except Exception:
-            # Uma atualização transacional já confirmada nunca deve virar erro
-            # apenas porque a projeção administrativa da Comparação falhou.
-            pass
+        current = self.repository.get(job_id)
+        _project_job_completion({**job, "source_version": current.get("source_version")})
+    return result
+
+
+def _reconcile_job(self: UpdateService, job_id: str) -> dict[str, Any]:
+    result = dict(_ORIGINAL_RECONCILE_JOB(self, job_id))
+    item = dict(result.get("item") or {})
+    if result.get("reconciled") and str(item.get("state") or "") == "success":
+        _project_job_completion(item)
     return result
 
 
 def install_update_completion_and_retry_runtime() -> None:
     global _INSTALLED, _ORIGINAL_EXECUTOR_EXECUTE, _ORIGINAL_EXECUTION
-    global _ORIGINAL_LIST_APPROVED, _ORIGINAL_BUILD_FULL_COMPARISON
+    global _ORIGINAL_RECONCILE_JOB, _ORIGINAL_LIST_APPROVED, _ORIGINAL_BUILD_FULL_COMPARISON
     if _INSTALLED:
         return
 
     _ORIGINAL_EXECUTOR_EXECUTE = UpdateExecutor.execute
     _ORIGINAL_EXECUTION = UpdateService._execution
+    _ORIGINAL_RECONCILE_JOB = UpdateService.reconcile_job
     _ORIGINAL_LIST_APPROVED = decisions.list_approved_updates
     _ORIGINAL_BUILD_FULL_COMPARISON = matching._build_full_comparison
 
     UpdateExecutor.execute = _executor_execute
     UpdateService._execution = _execution
+    UpdateService.reconcile_job = _reconcile_job
     decisions.list_approved_updates = _list_approved_updates
     matching._build_full_comparison = _build_full_comparison
     _INSTALLED = True
