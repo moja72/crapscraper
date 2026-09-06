@@ -20,6 +20,7 @@ def create_application() -> Application:
     from app.addition_decision_sync import install_addition_decision_sync
     from app.addition_execution_recovery import install_addition_execution_recovery
     from app.additions.chatgpt_playwright_runtime import install_addition_chatgpt_playwright
+    from app.additions.chatgpt_background_route_recovery import install as install_chatgpt_background_route_recovery
     from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
@@ -55,6 +56,11 @@ def create_application() -> Application:
     install_addition_decision_sync()
     install_addition_execution_recovery()
     install_addition_chatgpt_playwright()
+
+    # O ChatGPT muda a composição das rotas/projetos com frequência. Esta camada
+    # roda por último sobre o Playwright e recupera o projeto pelo token g-p-* se
+    # uma conversa salva deixar de abrir no navegador em segundo plano.
+    install_chatgpt_background_route_recovery()
 
     # Durante esta fase do cadastro, a taxonomia é propositalmente mínima:
     # exatamente uma categoria (Plugin ou Tema) e nenhuma tag. O contrato é
