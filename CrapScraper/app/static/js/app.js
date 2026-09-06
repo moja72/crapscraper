@@ -12,6 +12,7 @@ import "./catalog-management.js";
 import "./update-metrics.js";
 import "./update.js";
 import "./update-selection-fix.js";
+import "./update-individual-feedback.js";
 import "./update-manual-origin.js";
 import "./plugintheme-update.js";
 import "./add.js";
