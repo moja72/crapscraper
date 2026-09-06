@@ -6,13 +6,14 @@ let scheduled = 0;
 
 function ensureQueuedOption() {
   const select = $("#update-group");
-  if (!select || select.querySelector('option[value="queued"]')) return;
+  if (!select || select.querySelector('option[value="queued"]')) return false;
   const option = document.createElement("option");
   option.value = "queued";
   option.textContent = "Na fila";
   const prepared = select.querySelector('option[value="prepared"]');
   if (prepared?.nextSibling) select.insertBefore(option, prepared.nextSibling);
   else select.appendChild(option);
+  return true;
 }
 
 function queuedCard(count) {
@@ -40,9 +41,12 @@ async function syncCards() {
       card = cards.querySelector("[data-update-queued-card]");
     }
     const strong = card?.querySelector("strong");
-    if (strong) strong.textContent = String(count);
+    const nextCount = String(count);
+    if (strong && strong.textContent !== nextCount) strong.textContent = nextCount;
     const active = $("#update-group")?.value === "queued";
-    card?.querySelector("[data-update-queued-filter]")?.setAttribute("aria-pressed", String(active));
+    const filter = card?.querySelector("[data-update-queued-filter]");
+    const nextPressed = String(active);
+    if (filter && filter.getAttribute("aria-pressed") !== nextPressed) filter.setAttribute("aria-pressed", nextPressed);
   } catch {
     // A UI base continua funcional se a projeção auxiliar falhar.
   } finally {
@@ -52,7 +56,7 @@ async function syncCards() {
 
 function decorateQueuedRows() {
   for (const chip of document.querySelectorAll('#update-list .status-chip[data-status="queued"]')) {
-    chip.textContent = "Na fila";
+    if (chip.textContent !== "Na fila") chip.textContent = "Na fila";
     const state = chip.closest(".update-job-state");
     const detail = state?.querySelector("small");
     if (detail && /^queued\b/i.test(detail.textContent || "")) {
@@ -90,7 +94,19 @@ document.addEventListener("app:tab", event => {
 
 ensureQueuedOption();
 const cards = $("#update-cards");
-if (cards) new MutationObserver(scheduleSync).observe(cards, {childList: true, subtree: true});
+if (cards) new MutationObserver(mutations => {
+  // Só reconsulte quando o renderer principal substituiu os cards. Ignore
+  // mutações produzidas pelo próprio card auxiliar para não criar polling infinito.
+  const external = mutations.some(mutation => [...mutation.addedNodes].some(node => {
+    if (!(node instanceof Element)) return false;
+    if (node.matches?.("[data-update-queued-card]") || node.closest?.("[data-update-queued-card]")) return false;
+    return true;
+  }) || [...mutation.removedNodes].some(node => {
+    if (!(node instanceof Element)) return false;
+    return !node.matches?.("[data-update-queued-card]");
+  }));
+  if (external) scheduleSync();
+}).observe(cards, {childList: true, subtree: false});
 const list = $("#update-list");
 if (list) new MutationObserver(decorateQueuedRows).observe(list, {childList: true, subtree: true});
 scheduleSync();
