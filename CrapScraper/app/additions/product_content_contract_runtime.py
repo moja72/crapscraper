@@ -5,10 +5,12 @@ from typing import Any
 
 from app.additions import chatgpt_content_response_runtime as content_runtime
 from app.additions import chatgpt_playwright as legacy
+from app.additions.catalog_content_contract_v3 import apply as apply_catalog_contract
+from app.additions.catalog_content_contract_v3 import has_forbidden_list_markup
 from app.additions.content import valid_content
 
 _INSTALLED = False
-_CONTENT_CONTRACT_VERSION = 2
+_CONTENT_CONTRACT_VERSION = 4
 
 ELEMENTOR_PRO_MODEL = (
     "Crie páginas profissionais com total liberdade visual O Elementor Pro ajuda a montar páginas, "
@@ -28,12 +30,7 @@ def canonical_category(job: dict[str, Any]) -> str:
 
 
 def normalize_catalog_result(job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    clean = dict(result)
-    clean["product_name"] = str(job.get("product_name") or clean.get("product_name") or "").strip()
-    clean["short_description"] = " ".join(str(clean.get("short_description") or "").split())
-    clean["categories"] = [canonical_category(job)]
-    clean["tags"] = []
-    return clean
+    return apply_catalog_contract(job, result)
 
 
 def strict_prompt(job: dict[str, Any], correction: bool = False) -> str:
@@ -44,6 +41,7 @@ def strict_prompt(job: dict[str, Any], correction: bool = False) -> str:
     )
     kind_label = "plugin" if str(job.get("kind") or "").strip().casefold() == "plugin" else "tema"
     category = canonical_category(job)
+    category_id = 504 if category == "Plugin" else 525
     developer = str(job.get("developer") or "não confirmado").strip()
     official = str(job.get("official_url") or "não confirmada").strip()
     source = str(job.get("source_url") or "").strip()
@@ -57,26 +55,31 @@ Desenvolvedor confirmado: {developer}
 
 Use somente fatos confirmados pelas fontes fornecidas. Não invente recursos, compatibilidades, desenvolvedor, URL ou benefícios específicos não comprovados.
 
-PADRÃO OBRIGATÓRIO DA BREVE DESCRIÇÃO
+PADRÃO OBRIGATÓRIO DA DESCRIÇÃO
 Use como referência de estrutura, ritmo, tamanho e tom comercial este modelo do Elementor Pro, sem copiar recursos do Elementor para outro produto:
 "{ELEMENTOR_PRO_MODEL}"
 
 Para short_description:
 - escreva entre 330 e 540 caracteres;
-- comece com uma frase curta de benefício/posicionamento diretamente ligada ao produto;
-- em seguida use 2 frases objetivas explicando o que o produto faz e como ajuda no uso real;
 - texto corrido, natural, comercial e informativo;
-- sem versão, sem HTML, sem listas, sem promessas genéricas e sem inventar recursos.
+- comece com uma frase curta de benefício/posicionamento diretamente ligada ao produto;
+- depois explique em 2 ou 3 frases o que o produto faz, para quem serve e como ajuda no uso real;
+- sem versão, sem HTML, sem listas, sem bullets, sem títulos e sem inventar recursos;
+- NÃO faça enumeração de recursos.
 
 Para content:
-- use HTML simples e legível;
-- use pelo menos 2 parágrafos <p>;
-- se houver recursos realmente confirmados, pode usar <h2>Principais recursos</h2> e <ul><li>...</li></ul>;
+- use SOMENTE parágrafos <p>...</p>;
+- escreva em texto corrido, no mesmo estilo comercial do modelo acima, com 2 a 4 parágrafos curtos;
+- NÃO use listas, bullets, enumerações, títulos, subtítulos, <ul>, <ol>, <li>, <h1>, <h2>, <h3> ou qualquer seção de "Principais recursos";
+- não transforme a descrição em uma lista de funcionalidades;
 - não repita a breve descrição palavra por palavra.
 
 TAXONOMIA OBRIGATÓRIA
+- este produto é {category}, categoria WooCommerce já existente ID {category_id};
 - categories deve ser EXATAMENTE ["{category}"];
 - tags deve ser EXATAMENTE [];
+- NÃO crie, sugira ou retorne nenhuma outra categoria;
+- NÃO retorne tags;
 - nunca retorne Plugin e Tema ao mesmo tempo.
 
 METADADOS
@@ -94,13 +97,17 @@ def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
 
 def quality_ok(result: dict[str, Any]) -> bool:
     short = " ".join(str(result.get("short_description") or "").split())
+    long_content = str(result.get("content") or "")
     sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", short) if part.strip()]
+    paragraph_count = len(re.findall(r"<p\b[^>]*>.*?</p>", long_content, re.I | re.S))
     return bool(
         _ORIGINAL_QUALITY(result)
         and valid_content(result)
         and 330 <= len(short) <= 540
         and len(sentences) >= 2
         and "<" not in short
+        and 2 <= paragraph_count <= 6
+        and not has_forbidden_list_markup(long_content)
         and list(result.get("categories") or []) in (["Plugin"], ["Tema"])
         and not list(result.get("tags") or [])
     )
