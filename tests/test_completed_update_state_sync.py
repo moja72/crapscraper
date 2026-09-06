@@ -81,3 +81,35 @@ def test_state_sync_script_updates_badge_and_stale_homologation_copy() -> None:
     assert 'reason.remove()' in script
     assert "Execução concluída com sucesso" in script
     assert "Execução concluída e registrada no histórico" in script
+
+
+def test_individual_update_owns_prepare_plan_execute_without_touching_batch_button() -> None:
+    from pathlib import Path
+
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "app" / "static" / "update_state_sync.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'button.textContent = "Preparando…"' in script
+    assert 'postJson("/atualizacoes/preparar"' in script
+    assert 'button.textContent = "Gerando plano…"' in script
+    assert 'postJson("/atualizacoes/plano"' in script
+    assert 'button.textContent = "Executando…"' in script
+    assert 'postJson("/atualizacoes/executar"' in script
+    assert 'button.dataset.csIndividualBusy' in script
+    assert 'label === "executar" || label === "tentar novamente"' in script
+    assert '#updates_queue_start' not in script
+
+
+def test_retryable_individual_states_reenter_same_prepare_plan_path() -> None:
+    from pathlib import Path
+
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "app" / "static" / "update_state_sync.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'const RETRYABLE_STATES = new Set(["blocked", "error", "failed", "interrupted", "canceled"]);' in script
+    assert 'RETRYABLE_STATES.has(text(job.state))' in script
+    assert 'text(job.state) === "rollback_required"' in script
