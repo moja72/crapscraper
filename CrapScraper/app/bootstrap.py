@@ -21,6 +21,8 @@ def create_application() -> Application:
     from app.addition_execution_recovery import install_addition_execution_recovery
     from app.additions.chatgpt_playwright_runtime import install_addition_chatgpt_playwright
     from app.additions.chatgpt_background_route_recovery import install as install_chatgpt_background_route_recovery
+    from app.additions.chatgpt_product_isolation_runtime import install as install_chatgpt_product_isolation
+    from app.additions.product_content_contract_runtime import install as install_product_content_contract
     from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
@@ -58,13 +60,21 @@ def create_application() -> Application:
     install_addition_chatgpt_playwright()
 
     # O ChatGPT muda a composição das rotas/projetos com frequência. Esta camada
-    # roda por último sobre o Playwright e recupera o projeto pelo token g-p-* se
-    # uma conversa salva deixar de abrir no navegador em segundo plano.
+    # recupera o projeto pelo token g-p-* se uma conversa salva deixar de abrir.
     install_chatgpt_background_route_recovery()
 
-    # Durante esta fase do cadastro, a taxonomia é propositalmente mínima:
-    # exatamente uma categoria (Plugin ou Tema) e nenhuma tag. O contrato é
-    # aplicado no payload final, inclusive em retries de jobs preparados antes.
+    # Cada produto passa a ter uma conversa própria dentro do projeto. Isso evita
+    # que imagens de 911, 69 Clothing ou qualquer item anterior sejam elegíveis
+    # para outro cadastro. A captura ainda exige que a imagem pertença ao turno
+    # exato que respondeu ao prompt atual.
+    install_chatgpt_product_isolation()
+
+    # O conteúdo segue o padrão comercial de referência do Elementor Pro, mantém
+    # nome imutável e invalida descrições antigas fora desse contrato.
+    install_product_content_contract()
+
+    # Taxonomia fixa do catálogo PluginTema: Plugin #504 ou Tema #525, nunca ambas,
+    # e nenhuma tag. Os IDs são enviados diretamente sem criar termos novos.
     install_catalog_taxonomy_contract()
 
     # Um catálogo PluginTema é um snapshot. Para linhas marcadas como produto novo,
