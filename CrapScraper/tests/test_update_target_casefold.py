@@ -19,6 +19,7 @@ def test_filesystem_resolves_single_case_only_difference(tmp_path):
 
     assert result["ok"] is True
     assert result["target_filename"] == "AutomatorWP-BuddyPress.zip"
+    assert (root / result["target_filename"]).samefile(actual)
     assert job["target_filename"] == "AutomatorWP-BuddyPress.zip"
 
 

@@ -1,0 +1,12 @@
+{
+"product_name": "Agricola - Agriculture and Organic Farm WordPress Theme",
+"short_description": "Crie uma presença profissional para negócios ligados ao campo e à alimentação orgânica. O Agricola é um tema WordPress desenvolvido para fazendas, produtores, lojas de alimentos naturais, blogs de alimentação saudável e outros projetos do setor agrícola. Seu visual responsivo e a integração com Elementor e WooCommerce facilitam a criação e personalização do site.",
+"content": "<p>O Agricola oferece uma base visual voltada a negócios agrícolas, produção orgânica e alimentação natural, permitindo criar sites que apresentam produtos, serviços e conteúdos de forma alinhada ao segmento.</p><p>O tema utiliza o Elementor para facilitar a personalização das páginas e possui integração com WooCommerce, permitindo também desenvolver lojas para comercialização de produtos orgânicos e outros itens relacionados ao setor.</p><p>Com layout responsivo, o Agricola pode ser utilizado por fazendas, produtores de alimentos, lojas de produtos naturais, vinícolas, negócios de laticínios, padarias e projetos voltados à alimentação saudável que desejam construir uma presença profissional no WordPress.</p>",
+"categories": [
+"Tema"
+],
+"tags": [],
+"developer": "Ultrapack",
+"official_url": "https://themeforest.net/item/agricola-agriculture-and-organic-farm-wordpress-theme/39853177
+"
+}

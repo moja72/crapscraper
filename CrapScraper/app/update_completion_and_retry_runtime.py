@@ -112,6 +112,9 @@ def _mark_decision_updated(job: dict[str, Any]) -> bool:
             ).fetchone()
             if not row or str(row["decision"] or "") != "approve_update":
                 return False
+            if target and _version_key(row["source_version"]) > _version_key(target):
+                # A newer approval created while this job ran is not consumed.
+                return False
             if str(row["status"] or "") == "updated" and not str(row["queue_type"] or ""):
                 return False
 
@@ -126,10 +129,11 @@ def _mark_decision_updated(job: dict[str, Any]) -> bool:
                 SET decision_label='Atualizado', status='updated',
                     recommended_action='no_action', queue_type='',
                     site_version=CASE WHEN ?<>'' THEN ? ELSE site_version END,
+                    source_version=CASE WHEN ?<>'' THEN ? ELSE source_version END,
                     operator='CrapScraper', updated_at=?
                 WHERE comparison_item_id=?
                 """,
-                (target, target, now, item_id),
+                (target, target, target, target, now, item_id),
             )
             db.execute(
                 """

@@ -74,3 +74,56 @@ def test_queued_item_is_not_individually_executable():
     assert projected["state"] == "queued"
     assert projected["execution"]["allowed"] is False
     assert projected["execution"]["blockers"][0]["code"] == "job_queued"
+
+
+def test_real_worker_advances_three_jobs_and_pause_cancel_preserve_pending():
+    from app.updates.batch import UpdateBatchService
+    svc = service()
+    entered = {key: threading.Event() for key in "abc"}
+    release = {key: threading.Event() for key in "abc"}
+
+    def execute(job_id):
+        job = next(row for row in svc.repository.items if row["job_id"] == job_id)
+        job.update(state="running", group="running")
+        entered[job_id].set()
+        assert release[job_id].wait(5)
+        job.update(state="success", group="success")
+        return {"ok": True, "job_id": job_id}
+
+    svc.batch = UpdateBatchService(SimpleNamespace(execute=execute))
+    try:
+        svc.batch.start(list("abc"))
+        assert entered["a"].wait(5)
+        first = runtime._list(svc)
+        assert first["counts"] == {"total": 3, "prepared": 0, "queued": 2, "running": 1, "success": 0, "error": 0}
+        svc.batch.pause()
+        assert runtime._list(svc, {"group": "queued"})["total"] == 2
+        release["a"].set()
+        svc.batch.resume()
+        assert entered["b"].wait(5)
+        second = runtime._list(svc)
+        assert second["counts"]["queued"] == 1
+        assert second["counts"]["running"] == 1
+        assert second["counts"]["success"] == 1
+        release["b"].set()
+        assert entered["c"].wait(5)
+        release["c"].set()
+        svc.batch.thread.join(5)
+        final = runtime._list(svc)
+        assert final["counts"]["queued"] == final["counts"]["running"] == 0
+        assert final["counts"]["success"] == 3
+    finally:
+        for event in release.values():
+            event.set()
+        svc.batch.cancel()
+        svc.batch.thread.join(5)
+
+
+def test_cancel_releases_only_pending_jobs():
+    svc = service()
+    svc.repository.items[0].update(state="running", group="running")
+    svc.batch.cancelled = True
+    result = runtime._list(svc)
+    assert result["counts"]["running"] == 1
+    assert result["counts"]["prepared"] == 2
+    assert result["counts"]["queued"] == 0

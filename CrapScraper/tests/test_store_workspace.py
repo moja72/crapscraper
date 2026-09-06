@@ -106,7 +106,8 @@ def test_plan_price_write_uses_real_group_and_explicit_confirmation():
     try:
         pricing.apply(payload, True)
     except ValueError as error:
-        assert "ALTERAR PRECO" in str(error)
+        from app.store.pricing import confirmation_token
+        assert "ALTERAR PRECO" in confirmation_token(str(error))
     else:
         raise AssertionError("Plano foi escrito sem confirmação explícita")
     result = pricing.apply({**payload, "confirmation": "ALTERAR PRECO"}, True)

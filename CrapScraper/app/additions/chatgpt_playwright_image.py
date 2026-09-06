@@ -58,7 +58,13 @@ def image_reusable(job: dict[str, Any]) -> bool:
     cache_until = int(item.get("cache_until") or 0)
     if cache_until and cache_until < int(time.time()):
         return False
-    return image_valid(str(job.get("image_path") or item.get("image_path") or ""))
+    path = Path(str(job.get("image_path") or item.get("image_path") or ""))
+    if not item.get("image_prompt_marker") or not item.get("image_sha256") or not image_valid(str(path)):
+        return False
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest() == item["image_sha256"]
+    except OSError:
+        return False
 
 
 def _submit_image_prompt(page: Any, prompt: str) -> None:
@@ -116,23 +122,28 @@ def _candidate_is_after_marker(candidate: dict[str, Any], marker: str) -> bool:
                 (img, marker) => {
                   const textOf = node => String(node?.innerText || node?.textContent || '');
                   const scopes = [
-                    ...document.querySelectorAll('main [data-message-author-role="user"]'),
+                    ...document.querySelectorAll('main [data-message-author-role]'),
                     ...document.querySelectorAll('main [data-testid^="conversation-turn-"]'),
                     ...document.querySelectorAll('main article')
                   ];
-                  let anchors = scopes.filter(node => textOf(node).includes(marker));
-                  if (!anchors.length) {
-                    const all = [...document.querySelectorAll('main *')];
-                    anchors = all.filter(node => {
-                      const own = textOf(node);
-                      if (!own.includes(marker)) return false;
-                      return ![...node.children].some(child => textOf(child).includes(marker));
-                    });
+                  const turns = [...new Set(scopes)].filter(node =>
+                    !scopes.some(parent => parent !== node && parent.contains(node)));
+                  const roleOf = node => {
+                    const explicit = node.matches('[data-message-author-role]') ? node : node.querySelector('[data-message-author-role]');
+                    if (explicit) return explicit.getAttribute('data-message-author-role');
+                    const label = String(node.getAttribute('aria-label') || '').toLowerCase();
+                    if (/you said|você disse/.test(label)) return 'user';
+                    if (/chatgpt said|chatgpt disse/.test(label)) return 'assistant';
+                    return '';
+                  };
+                  turns.sort((a,b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+                  const index = turns.findIndex(node => node.contains(img));
+                  if (index < 0 || roleOf(turns[index]) !== 'assistant') return false;
+                  for (let i = index - 1; i >= 0; i--) {
+                    if (roleOf(turns[i]) === 'user') return textOf(turns[i]).includes(marker);
+                    if (!roleOf(turns[i])) return false;
                   }
-                  const anchor = anchors[anchors.length - 1];
-                  if (!anchor) return false;
-                  const relation = anchor.compareDocumentPosition(img);
-                  return Boolean(relation & Node.DOCUMENT_POSITION_FOLLOWING);
+                  return false;
                 }
                 """,
                 marker,
@@ -212,6 +223,12 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
         before_keys = {_image_candidate_key(item) for item in before_candidates}
         before_count = len(before_candidates)
         before_hashes: set[str] = set()
+        # A different conversation need not render the preceding product's image.
+        # Protect hashes recorded for every completed job, not just this page.
+        from app.additions.chatgpt_playwright import _read_state
+        for previous in (_read_state().get("jobs") or {}).values():
+            if isinstance(previous, dict):
+                before_hashes.update(str(previous[key]) for key in ("image_sha256", "image_raw_sha256") if previous.get(key))
         for item in before_candidates:
             digest, _ = _candidate_hash(page, item)
             if digest:
@@ -304,6 +321,7 @@ def generate_image(job: dict[str, Any], root: Path) -> Path:
             image_generated_at=now,
             image_fingerprint=image_fingerprint(job),
             image_sha256=hashlib.sha256(Path(target).read_bytes()).hexdigest(),
+            image_raw_sha256=hashlib.sha256(selected_raw).hexdigest(),
             image_candidate_src=str(selected.get("src") or "")[:1000],
             image_prompt_marker=marker,
             cache_until=now + _CACHE_SECONDS,

@@ -37,9 +37,11 @@ def test_addition_selection_is_sent_as_explicit_job_ids():
     assert 'pageSize:5' in ADD_JS
 
 
-def test_local_launcher_enables_real_additions_but_keeps_explicit_off_switch():
-    assert 'if not defined SCRAPER_ADDITION_EXECUTION_ENABLED set "SCRAPER_ADDITION_EXECUTION_ENABLED=1"' in LAUNCHER
-    assert 'SCRAPER_ADDITION_EXECUTION_ENABLED=0' in LAUNCHER
+def test_local_launcher_uses_current_entrypoint_and_preserves_explicit_off_switch():
+    import main
+    assert main.CURRENT_APP_DEFAULTS["SCRAPER_ADDITION_EXECUTION_ENABLED"] == "1"
+    assert "main.py" in LAUNCHER and "8766" in LAUNCHER
+    assert "setdefault" in (ROOT / "main.py").read_text(encoding="utf-8")
 
 
 def test_existing_real_addition_pipeline_creates_and_validates_product():
@@ -48,7 +50,7 @@ def test_existing_real_addition_pipeline_creates_and_validates_product():
         'self.store.ensure_variations(product_id,job,download_ref)',
         'self.store.validate(product_id,job,variation_ids)',
     ):
-        assert token in EXECUTOR
-    assert '"categories":categories' in WORDPRESS
-    assert '"tags":tags' in WORDPRESS
+        assert token in EXECUTOR.replace(" ", "")
+    assert '"categories":categories' in WORDPRESS.replace(" ", "")
+    assert '"tags":tags' in WORDPRESS.replace(" ", "")
     assert '"pt_versao"' in WORDPRESS

@@ -37,6 +37,18 @@ def _overlay_decisions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             decision_updated_at=str(item.get("updated_at") or ""),
             has_saved_decision=bool(item),
         )
+        if item.get("status") == "updated":
+            from app.update_completion_and_retry_runtime import _completed_overlay_is_current
+            row["original_decision"] = item.get("decision")
+            if _completed_overlay_is_current(row, item):
+                row.update(status="updated", status_label="Atualizado",
+                           decision_label="Atualizado", decision_queue_type="",
+                           recommended_action="no_action")
+                row["site_version"] = item.get("site_version") or row.get("site_version")
+            else:
+                # History remains approve_update in SQLite, but the next source
+                # version needs a fresh approval in the operational view.
+                row.update(decision="pending", decision_label="Pendente", decision_queue_type="")
         output.append(row)
     return output
 

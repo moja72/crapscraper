@@ -27,3 +27,9 @@ def test_retry_reuses_zip_content_image_and_history(tmp_path):
 def test_lost_create_response_reconciles_without_duplicate(tmp_path):
     store=Store(lose_response=True);repo,job,executor,*_=build(tmp_path,store=store)
     assert not executor.execute(job["job_id"])["ok"];assert executor.execute(job["job_id"])["ok"] and store.create_calls==1 and repo.get(job["job_id"])["woo_product_id"]==501
+import pytest
+
+@pytest.fixture(autouse=True)
+def fake_creative_mode(monkeypatch):
+    # These tests inject content/image services, not the browser provenance store.
+    monkeypatch.setenv("SCRAPER_CHATGPT_AUTOMATION_MODE", "api")

@@ -76,9 +76,9 @@ def test_advanced_filters_bulk_reset_history_and_cached_operation(comparison: Co
 
 
 def test_filtered_selection_reuses_local_comparison_cache(monkeypatch: pytest.MonkeyPatch, comparison: ComparisonService):
-    comparison.catalogs();calls=0;original=__import__("app.comparison.service",fromlist=["matching"]).matching.build_comparison_payload
+    comparison.catalogs();calls=0;original=__import__("app.comparison.performance_runtime",fromlist=["build_comparison_payload"]).build_comparison_payload
     def counted(**kwargs):
         nonlocal calls;calls+=1;return original(**kwargs)
-    monkeypatch.setattr("app.comparison.service.matching.build_comparison_payload",counted)
+    monkeypatch.setattr("app.comparison.performance_runtime.build_comparison_payload",counted)
     result=comparison.selection({"page_size":1})
     assert result["total"]==3 and calls==1

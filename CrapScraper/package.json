@@ -1,1 +1,19 @@
-{"private":true,"scripts":{"e2e":"node tests/e2e.mjs","e2e:credits":"node tests/credits_ui.mjs","e2e:plugintheme":"node tests/plugintheme_update_ui.mjs","e2e:updates":"node tests/update_execution_ui.mjs","e2e:update-progress":"node tests/update_progress_ui.mjs","e2e:store":"node tests/store_ui.mjs"},"devDependencies":{"playwright":"^1.62.1"}}
+{
+  "private": true,
+  "scripts": {
+    "e2e": "node tests/e2e.mjs",
+    "e2e:credits": "node tests/credits_ui.mjs",
+    "e2e:plugintheme": "node tests/plugintheme_update_ui.mjs",
+    "e2e:updates": "node tests/update_execution_ui.mjs && node tests/update_progress_ui.mjs && node tests/chatgpt_dom_ui.mjs",
+    "e2e:update-progress": "node tests/update_progress_ui.mjs",
+    "e2e:store": "node tests/store_ui.mjs",
+    "test:syntax": "node tests/check_syntax.mjs",
+    "test:modular": "python -m pytest -q tests",
+    "pree2e:updates": "npm run test:syntax && npm run test:modular",
+    "poste2e:updates": "node tests/run_ui.mjs tests/e2e.mjs tests/compare_ui.mjs tests/catalogs_ui.mjs tests/collect_ui.mjs tests/update_ui.mjs tests/credits_ui.mjs tests/plugintheme_update_ui.mjs",
+    "e2e:all": "node tests/run_ui.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

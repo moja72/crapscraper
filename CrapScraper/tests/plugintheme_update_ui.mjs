@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {chromium} from "playwright";
 
 const port="8777",fixture=mkdtempSync(join(tmpdir(),"crapscraper-plugin-session-e2e-")),cwd=new URL("..",import.meta.url).pathname.replace(/^\/(.:)/,"$1");
-const server=spawn("python",["main.py"],{cwd,env:{...process.env,SCRAPER_PORT:port,SCRAPER_DATA_DIR:fixture,SCRAPER_UPDATE_IMPORT_LEGACY:"0",SCRAPER_ADDITION_IMPORT_LEGACY:"0",SCRAPER_STORE_E2E_FIXTURES:"1"},stdio:"ignore"});
+const server=spawn("python",["tests/e2e_server.py"],{cwd,env:{...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("SCRAPER_"))),SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED:"0",SCRAPER_PORT:port,SCRAPER_DATA_DIR:fixture,SCRAPER_UPDATE_IMPORT_LEGACY:"0",SCRAPER_ADDITION_IMPORT_LEGACY:"0",SCRAPER_STORE_E2E_FIXTURES:"1"},stdio:"ignore"});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function ready(){for(let index=0;index<60;index++){try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok)return}catch{}await sleep(250)}throw new Error("Servidor não iniciou")}
 const checks=validated=>[

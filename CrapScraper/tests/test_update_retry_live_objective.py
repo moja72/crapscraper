@@ -14,6 +14,7 @@ class Repository:
             "woo_product_id": 42,
             "source_kind": "ultrapackv2",
             "source_version": "1.0",
+            "error": {"code": "source_version_drift", "recoverable": True},
         }
 
     def refresh_objective(self, job_id, *, current_version, source_version):

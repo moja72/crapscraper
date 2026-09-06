@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -409,15 +410,20 @@ def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
 def _content_fingerprint(job: dict[str, Any]) -> str:
     return "|".join(
         str(job.get(key) or "").strip()
-        for key in ("product_name", "source_version", "source_url", "official_url", "developer")
+          for key in ("job_id", "product_name", "source_version", "source_url", "official_url", "developer")
     )
+
+
+def content_digest(job: dict[str, Any]) -> str:
+    payload = {key: job.get(key) for key in ("job_id", "product_name", "short_description", "content", "categories", "tags")}
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def content_reusable(job: dict[str, Any]) -> bool:
     if not valid_content(job):
         return False
     item = _job_state(str(job.get("job_id") or ""))
-    return bool(item.get("content_ready")) and str(item.get("content_fingerprint") or "") == _content_fingerprint(job)
+    return bool(item.get("content_ready")) and str(item.get("content_fingerprint") or "") == _content_fingerprint(job) and item.get("content_sha256") == content_digest(job)
 
 
 def _image_magic(raw: bytes) -> str:

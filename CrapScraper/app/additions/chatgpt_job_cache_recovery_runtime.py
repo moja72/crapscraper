@@ -68,47 +68,41 @@ def _safe_user_turn_count(page: Any) -> int:
 
 
 def _restore_exact_job_chat(job: dict[str, Any]) -> bool:
-    """Rebuild isolation only for the same immutable job identity.
-
-    A concrete URL persisted on the SQLite addition row is useful across browser
-    restarts, but it is not trusted by itself. If the previous in-memory identity
-    says this job id belonged to a different product/source, bind_job_identity
-    invalidates that state and this function deliberately refuses to re-add the URL.
-    """
+    """Restore only persisted evidence for the exact job, never bless a bare URL."""
     if not _playwright_mode():
         return False
-
     job_id = str(job.get("job_id") or "").strip()
-    url = str(job.get("chatgpt_conversation_url") or "").strip()
-    cache_until = int(job.get("chatgpt_cache_until") or 0)
     now = int(time.time())
-    if not job_id or not url.startswith("https://chatgpt.com/"):
+    if not job_id:
         return False
-    if cache_until and cache_until < now:
+    previous = legacy._job_state(job_id)
+    identity = strict.job_identity_fingerprint(job)
+    if previous.get("product_identity_fingerprint") not in (None, "", identity):
+        strict.bind_job_identity(job)  # invalidates stale content/chat/image
         return False
-
-    previous_state = legacy._job_state(job_id)
-    previous_identity = str(previous_state.get("product_identity_fingerprint") or "").strip()
-    current_identity = strict.bind_job_identity(job)
-    if previous_identity and previous_identity != current_identity:
-        # bind_job_identity has already cleared the stale conversation/image/content
-        # state. Do not restore the SQLite URL from the old product identity.
+    proof = job.get("chatgpt_provenance")
+    if not isinstance(proof, dict):
+        proof = {}
+    # Older SQLite rows can still reuse existing full per-job JSON evidence.
+    evidence = proof or previous
+    url = str(evidence.get("conversation_url") or "").strip()
+    from app.additions.chatgpt_project_url_recovery import is_project_candidate_url
+    if (evidence.get("product_identity_fingerprint") != identity
+            or int(evidence.get("isolated_chat_version") or 0) != strict._ISOLATION_VERSION
+            or int(evidence.get("cache_until") or 0) <= now
+            or not is_project_candidate_url(url) or "/c/" not in url
+            or (job.get("chatgpt_conversation_url") and job["chatgpt_conversation_url"] != url)):
         return False
-
-    legacy._update_job_state(
-        job_id,
-        conversation_url=url,
-        isolated_chat_version=strict._ISOLATION_VERSION,
-        isolated_chat_fingerprint=strict.strict_job_conversation_fingerprint(job_id),
-        isolated_chat_created_at=now,
-        cache_until=cache_until if cache_until > now else now + _CHAT_CACHE_SECONDS,
-    )
+    strict.bind_job_identity(job)
+    if evidence.get("isolated_chat_fingerprint") != strict.strict_job_conversation_fingerprint(job_id):
+        return False
+    legacy._update_job_state(job_id, **evidence)
     return True
 
 
 def _rehydrate_chatgpt_cache(self: AdditionExecutor, job: dict[str, Any]) -> None:
-    """Restore URL plus provenance for the exact persisted addition job."""
-    _ORIGINAL_REHYDRATE(self, job)
+    # Do not call the old URL-only hydrator before checking the evidence: that
+    # would overwrite a valid conversation with an unproven SQLite URL.
     _restore_exact_job_chat(job)
 
 

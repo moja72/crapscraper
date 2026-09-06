@@ -1,107 +1,84 @@
-from __future__ import annotations
-
 import time
 from types import SimpleNamespace
-
+import pytest
 from app.additions import chatgpt_job_cache_recovery_runtime as runtime
+from app.additions.repository import AdditionRepository
+from app.additions.executor import AdditionExecutor
+from tests.addition_fakes import approval
 
 
 class FakePage:
     def __init__(self, result):
         self.result = result
-
-    def evaluate(self, _script):
+    def evaluate(self, script):
         return self.result
 
 
-def job_row(**values):
-    now = int(time.time())
-    row = {
-        "job_id": "add-456",
-        "comparison_item_id": "cmp-456",
-        "product_name": "456 Industry - Repair Tools Shop",
-        "kind": "theme",
-        "source_url": "https://ultrapackv2.example/item/456",
-        "source_version": "1.4.5",
-        "chatgpt_conversation_url": "https://chatgpt.com/g/g-p-project/c/chat-456",
-        "chatgpt_cache_until": now + 600,
-    }
-    row.update(values)
-    return row
+@pytest.mark.parametrize(("result", "expected"), [
+    ({"ok": True, "users": 0}, 0), ({"ok": True, "users": 2}, 2),
+    ({"ok": False, "users": -1}, -1), (None, -1)])
+def test_safe_user_turn_count(result, expected):
+    assert runtime._safe_user_turn_count(FakePage(result)) == expected
 
 
-def test_safe_user_turn_count_accepts_proven_empty_conversation():
-    assert runtime._safe_user_turn_count(FakePage({"ok": True, "users": 0})) == 0
+def bind(job):
+    runtime.strict.bind_job_identity(job)
+    return runtime.legacy._update_job_state(job["job_id"],
+        conversation_url="https://chatgpt.com/g/g-p-project/c/chat-" + job["job_id"],
+        isolated_chat_version=runtime.strict._ISOLATION_VERSION,
+        isolated_chat_fingerprint=runtime.strict.strict_job_conversation_fingerprint(job["job_id"]),
+        cache_until=int(time.time()) + 600)
 
 
-def test_safe_user_turn_count_fails_closed_when_dom_is_unknown():
-    assert runtime._safe_user_turn_count(FakePage({"ok": False, "users": -1})) == -1
-    assert runtime._safe_user_turn_count(FakePage(None)) == -1
+@pytest.fixture
+def jobs(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCRAPER_CHATGPT_AUTOMATION_MODE", "playwright")
+    repo = AdditionRepository(tmp_path)
+    repo.materialize([approval("A"), approval("B")])
+    return repo, [repo.get(repo.job_id(key)) for key in ("A", "B")]
 
 
-def test_safe_user_turn_count_preserves_existing_user_turns():
-    assert runtime._safe_user_turn_count(FakePage({"ok": True, "users": 2})) == 2
+def test_sqlite_restart_restores_same_job_proof(jobs):
+    repo, (a, b) = jobs
+    proof = bind(a)
+    executor = AdditionExecutor(repo)
+    persisted = executor._persist_chatgpt_cache(a["job_id"])
+    assert persisted["chatgpt_provenance"]["product_identity_fingerprint"] == proof["product_identity_fingerprint"]
+    runtime.legacy._write_state({})
+    restarted = AdditionRepository(repo.path.parent).get(a["job_id"])
+    assert runtime._restore_exact_job_chat(restarted)
+    assert runtime.legacy._job_state(a["job_id"])["conversation_url"] == proof["conversation_url"]
+    assert runtime.legacy._job_state(b["job_id"]) == {}
 
 
-def test_rehydrate_restores_exact_job_isolation(monkeypatch):
+def test_b_cannot_restore_a_proof_even_when_runtime_state_was_lost(jobs):
+    repo, (a, b) = jobs
+    proof = bind(a)
+    runtime.legacy._write_state({})
+    stolen = {**b, "chatgpt_conversation_url": proof["conversation_url"], "chatgpt_provenance": proof}
+    assert not runtime._restore_exact_job_chat(stolen)
+    assert not runtime.legacy._job_state(b["job_id"]).get("conversation_url")
+
+
+def test_url_without_provenance_is_not_promoted(jobs):
+    repo, (a, _) = jobs
+    a["chatgpt_conversation_url"] = "https://chatgpt.com/g/g-p-project/c/unknown"
+    assert not runtime._restore_exact_job_chat(a)
+
+
+def test_expired_and_changed_identity_fail_closed(jobs):
+    repo, (a, _) = jobs
+    proof = bind(a)
+    proof["cache_until"] = int(time.time()) - 1
+    assert not runtime._restore_exact_job_chat({**a, "chatgpt_provenance": proof})
+    assert not runtime._restore_exact_job_chat({**a, "product_name": "Changed"})
+    assert not runtime.legacy._job_state(a["job_id"]).get("conversation_url")
+
+
+def test_image_restores_provenance_before_browser(monkeypatch):
     calls = []
-    written = {}
-    job = job_row()
-
-    monkeypatch.setattr(runtime, "_ORIGINAL_REHYDRATE", lambda _self, current: calls.append(current["job_id"]))
-    monkeypatch.setattr(runtime, "_playwright_mode", lambda: True)
-    monkeypatch.setattr(runtime.legacy, "_job_state", lambda _job_id: {})
-    monkeypatch.setattr(runtime.strict, "bind_job_identity", lambda current: calls.append(("bind", current["job_id"])) or "identity")
-    monkeypatch.setattr(runtime.strict, "strict_job_conversation_fingerprint", lambda job_id: f"chat-fp:{job_id}")
-    monkeypatch.setattr(runtime.legacy, "_update_job_state", lambda job_id, **values: written.update({"job_id": job_id, **values}) or values)
-
-    runtime._rehydrate_chatgpt_cache(SimpleNamespace(), job)
-
-    assert calls == ["add-456", ("bind", "add-456")]
-    assert written["job_id"] == "add-456"
-    assert written["conversation_url"].endswith("/c/chat-456")
-    assert written["isolated_chat_version"] == runtime.strict._ISOLATION_VERSION
-    assert written["isolated_chat_fingerprint"] == "chat-fp:add-456"
-    assert written["cache_until"] == job["chatgpt_cache_until"]
-
-
-def test_previous_different_product_identity_rejects_persisted_chat(monkeypatch):
-    calls = []
-    job = job_row()
-
-    monkeypatch.setattr(runtime, "_playwright_mode", lambda: True)
-    monkeypatch.setattr(runtime.legacy, "_job_state", lambda _job_id: {"product_identity_fingerprint": "old-product"})
-    monkeypatch.setattr(runtime.strict, "bind_job_identity", lambda _job: "new-product")
-    monkeypatch.setattr(runtime.legacy, "_update_job_state", lambda *_args, **_kwargs: calls.append("write"))
-
-    assert runtime._restore_exact_job_chat(job) is False
-    assert calls == []
-
-
-def test_expired_cache_is_not_promoted_to_reusable(monkeypatch):
-    calls = []
-    job = job_row(
-        job_id="add-old",
-        chatgpt_conversation_url="https://chatgpt.com/g/g-p-project/c/old",
-        chatgpt_cache_until=int(time.time()) - 1,
-    )
-    monkeypatch.setattr(runtime, "_ORIGINAL_REHYDRATE", lambda _self, current: calls.append("base"))
-    monkeypatch.setattr(runtime, "_playwright_mode", lambda: True)
-    monkeypatch.setattr(runtime.strict, "bind_job_identity", lambda _current: calls.append("bind"))
-    monkeypatch.setattr(runtime.legacy, "_update_job_state", lambda *_args, **_kwargs: calls.append("write"))
-
-    runtime._rehydrate_chatgpt_cache(SimpleNamespace(), job)
-
-    assert calls == ["base"]
-
-
-def test_image_generation_rebinds_same_job_chat_before_opening_browser(monkeypatch):
-    calls = []
-    job = job_row()
-    monkeypatch.setattr(runtime, "_restore_exact_job_chat", lambda current: calls.append(("restore", current["job_id"])) or True)
-    monkeypatch.setattr(runtime, "_ORIGINAL_IMAGE_GENERATE", lambda _self, current: calls.append(("image", current["job_id"])) or "image.webp")
-
-    result = runtime._image_generate(SimpleNamespace(), job)
-
-    assert result == "image.webp"
-    assert calls == [("restore", "add-456"), ("image", "add-456")]
+    monkeypatch.setattr(runtime, "_restore_exact_job_chat", lambda job: calls.append("restore"))
+    monkeypatch.setattr(runtime, "_ORIGINAL_IMAGE_GENERATE", lambda self, job: calls.append("image") or "image.webp")
+    assert runtime._image_generate(SimpleNamespace(), {"job_id": "a"}) == "image.webp"
+    assert calls == ["restore", "image"]

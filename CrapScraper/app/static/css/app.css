@@ -115,3 +115,8 @@ main{padding-top:16px;padding-bottom:16px}
 .store-variation-prices{display:grid;gap:6px}.store-variation-prices>div{display:grid;grid-template-columns:minmax(180px,1.5fr) repeat(2,minmax(120px,1fr));align-items:end;gap:8px;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--surface-2)}
 @media(max-width:1024px){.store-monitor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.store-quality-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.store-quality-filters label:first-child{grid-column:span 2}}
 @media(max-width:640px){.store-monitor-grid,.store-quality-filters{grid-template-columns:1fr}.store-quality-filters label:first-child{grid-column:auto}.store-price-item header{align-items:stretch;flex-direction:column}.store-price-item .form-row,.store-variation-prices>div{display:grid;grid-template-columns:1fr}.store-monitor .section-head .actions{display:grid;grid-template-columns:1fr}.store-monitor-log-wrap pre{height:220px;max-height:220px}}
+/* Shared async feedback; does not change button dimensions. */
+.button-spinner{display:inline-block;width:13px;height:13px;margin-right:7px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:middle;animation:button-spin .7s linear infinite}
+@keyframes button-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.button-spinner{animation:none}}
+.status-chip[data-status="queued"]{color:var(--muted);border-style:dashed}

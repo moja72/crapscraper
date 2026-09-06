@@ -107,6 +107,7 @@ class AdditionRepository:
                 ("chatgpt_conversation_url", "TEXT NOT NULL DEFAULT ''"),
                 ("chatgpt_cached_at", "INTEGER NOT NULL DEFAULT 0"),
                 ("chatgpt_cache_until", "INTEGER NOT NULL DEFAULT 0"),
+                ("chatgpt_provenance", "TEXT NOT NULL DEFAULT '{}'"),
             )
             for name, declaration in migrations:
                 if name not in columns:
@@ -160,6 +161,7 @@ class AdditionRepository:
         item = dict(row)
         item["state"] = item.pop("public_state")
         item["error"] = json.loads(item.pop("current_error") or "null")
+        item["chatgpt_provenance"] = json.loads(item.get("chatgpt_provenance") or "{}")
         for key in ("logs", "categories", "tags", "woo_variation_ids"):
             item[key] = json.loads(item[key] or "[]")
         item["group"] = {value: key for key, value in GROUP_STATES.items()}[item["state"]]
@@ -173,9 +175,14 @@ class AdditionRepository:
             raise KeyError(job_id)
         return item
 
-    def list(self, query="", group="", stage="", page=1, page_size=5):
-        filters = []
-        values = []
+    def list(self, query="", group="", stage="", page=1, page_size=5, sort_by="date", sort_order="desc", sources=None):
+        from app.additions.source_filter_runtime import _sources
+        if sort_by not in {"date", "name"}:
+            raise ValueError("Campo de ordenação inválido")
+        if sort_order not in {"asc", "desc"}:
+            raise ValueError("Direção de ordenação inválida")
+        filters: list[str] = []
+        values: list[Any] = []
         if query:
             filters.append("(product_name LIKE ? OR source_name LIKE ? OR CAST(woo_product_id AS TEXT) LIKE ?)")
             values += [f"%{query}%"] * 3
@@ -187,13 +194,26 @@ class AdditionRepository:
         if stage:
             filters.append("stage=?")
             values.append(stage)
+
+        selected = _sources(sources)
+        if selected is not None:
+            if not selected:
+                filters.append("1=0")
+            else:
+                ordered = sorted(selected)
+                filters.append("source_kind IN (" + ",".join("?" for _ in ordered) + ")")
+                values.extend(ordered)
+
         where = " WHERE " + " AND ".join(filters) if filters else ""
         page = max(1, int(page))
         page_size = max(1, min(100, int(page_size)))
         with self.connection() as db:
             total = int(db.execute("SELECT COUNT(*) FROM addition_jobs" + where, values).fetchone()[0])
+            page = min(page, max(1, (total + page_size - 1) // page_size))
+            column = "product_name COLLATE NOCASE" if sort_by == "name" else "created_at"
+            direction = "ASC" if sort_order == "asc" else "DESC"
             rows = db.execute(
-                "SELECT * FROM addition_jobs" + where + " ORDER BY created_at LIMIT ? OFFSET ?",
+                "SELECT * FROM addition_jobs" + where + f" ORDER BY {column} {direction}, job_id ASC LIMIT ? OFFSET ?",
                 values + [page_size, (page - 1) * page_size],
             ).fetchall()
             counts = {"total": int(db.execute("SELECT COUNT(*) FROM addition_jobs").fetchone()[0])}
@@ -206,11 +226,14 @@ class AdditionRepository:
             "page_size": page_size,
             "pages": max(1, (total + page_size - 1) // page_size),
             "counts": counts,
+            "sort_by": sort_by,
+            "sort_order": sort_order,
+            "sources": sorted(selected) if selected is not None else None,
         }
 
     def patch(self, job_id, **values):
         encoded = {
-            key: (json.dumps(value, ensure_ascii=False) if key in {"categories", "tags", "woo_variation_ids", "logs", "current_error"} and not isinstance(value, str) else value)
+            key: (json.dumps(value, ensure_ascii=False) if key in {"categories", "tags", "woo_variation_ids", "logs", "current_error", "chatgpt_provenance"} and not isinstance(value, str) else value)
             for key, value in values.items()
         }
         encoded["updated_at"] = utc_now()
@@ -224,9 +247,12 @@ class AdditionRepository:
     def begin(self, job_id):
         now = utc_now()
         with self.connection() as db:
-            row = db.execute("SELECT attempts,source_kind FROM addition_jobs WHERE job_id=?", (job_id,)).fetchone()
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT attempts,source_kind,public_state FROM addition_jobs WHERE job_id=?", (job_id,)).fetchone()
             if not row:
                 raise KeyError(job_id)
+            if row["public_state"] == "running":
+                raise ValueError("Job já está em execução")
             number = int(row["attempts"]) + 1
             attempt_id = f"{job_id}-a{number}"
             db.execute(

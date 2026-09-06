@@ -1,3 +1,5 @@
+import {isolatedUI} from './isolated_ui.mjs';
+const isolated=await isolatedUI(8787);
 import {chromium} from "playwright";
 
 const browser=await chromium.launch({headless:true});
@@ -5,7 +7,7 @@ try{
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
   page.on("console",message=>message.type()==="error"&&errors.push(message.text()));
   page.on("pageerror",error=>errors.push(error.message));
-  await page.goto("http://127.0.0.1:8766/",{waitUntil:"networkidle"});
+  await page.goto(isolated.base,{waitUntil:"networkidle"});
   await page.waitForSelector('[data-state-value="status"]');
   const result=await page.evaluate(async()=>{
     const log=document.querySelector("#collect-logs"),details=document.querySelector("#collect-log-details"),progress=document.querySelector(".head-progress-track");
@@ -28,4 +30,4 @@ try{
   await page.click("#collect-config-open");await page.waitForSelector("#collect-config-modal[open]");await page.selectOption("#collect-scope","selected");if(!await page.locator("#config-categories").isVisible())throw new Error("Categorias não apareceram para escopo selecionado");await page.keyboard.press("Escape");
   await page.setViewportSize({width:375,height:800});const mobile=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,stateColumns:getComputedStyle(document.querySelector("#collect-cards")).gridTemplateColumns.split(" ").length}));if(mobile.overflow||mobile.stateColumns!==1)throw new Error(`Layout móvel inválido: ${JSON.stringify(mobile)}`);
   console.log(JSON.stringify({ok:true,consoleErrors:0,quickInteractions:true,...result}));
-}finally{await browser.close()}
+}finally{await browser.close();await isolated.close()}

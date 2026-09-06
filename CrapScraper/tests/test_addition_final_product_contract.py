@@ -107,6 +107,8 @@ def test_image_cache_requires_exact_product_fingerprint(monkeypatch, tmp_path):
         lambda _job_id: {
             "image_ready": True,
             "image_fingerprint": expected,
+            "image_prompt_marker": "CSIMG-current",
+            "image_sha256": __import__("hashlib").sha256(b"valid-test-image").hexdigest(),
             "image_path": str(image),
             "cache_until": 4102444800,
         },
@@ -117,6 +119,8 @@ def test_image_cache_requires_exact_product_fingerprint(monkeypatch, tmp_path):
     other = dict(current)
     other["product_name"] = "Outro Produto"
     assert not image_reusable(other)
+    image.write_bytes(b"image-from-another-product")
+    assert not image_reusable(current)
 
 
 def test_taxonomy_is_exactly_one_type_category_and_no_tags():

@@ -36,9 +36,10 @@ def _batch_roles(service: UpdateService) -> tuple[str, set[str]]:
     return current, queued
 
 
-def _project_job(service: UpdateService, job: dict[str, Any]) -> dict[str, Any]:
+def _project_job(service: UpdateService, job: dict[str, Any], *, roles=None, active=None) -> dict[str, Any]:
     item = dict(job)
-    current, queued = _batch_roles(service)
+    current, queued = _batch_roles(service) if roles is None else roles
+    active = getattr(service, "active_requests", set()) if active is None else active
     job_id = str(item.get("job_id") or "")
     state = str(item.get("state") or "")
 
@@ -70,7 +71,7 @@ def _project_job(service: UpdateService, job: dict[str, Any]) -> dict[str, Any]:
     # Existe uma janela curta entre o worker retirar o primeiro ID da fila e o
     # repository.begin_attempt gravar public_state=running. Projete essa janela
     # como Em andamento para a UI nunca voltar visualmente a Preparados.
-    if job_id == current and state in {"ready", "error"}:
+    if (job_id == current or job_id in active) and state in {"ready", "error"}:
         item["state"] = "running"
         item["group"] = "running"
         item["stage"] = "starting"
@@ -122,6 +123,10 @@ def _all_repository_items(
 
 def _counts(service: UpdateService) -> dict[str, int]:
     items = [_project_job(service, item) for item in _all_repository_items(service)]
+    return _count_items(items)
+
+
+def _count_items(items: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"total": len(items), "prepared": 0, "queued": 0, "running": 0, "success": 0, "error": 0}
     for item in items:
         group = str(item.get("group") or "")
@@ -143,16 +148,25 @@ def _list(self: UpdateService, payload: dict[str, Any] | None = None) -> dict[st
     if group not in {"", "prepared", "queued", "running", "success", "error"}:
         raise ValueError("Grupo operacional inválido")
 
-    items = [
-        _project_job(self, item)
-        for item in _all_repository_items(
-            self,
-            query=query,
-            stage=stage,
-            sort_by=sort_by,
-            sort_order=sort_order,
-        )
-    ]
+    # One set of rows and one worker snapshot drive both cards and counters.
+    # Keep the worker from advancing to another product during this short read.
+    with self.batch.lock:
+        roles = _batch_roles(self)
+        active = set(getattr(self, "active_requests", set()))
+        items = [_project_job(self, item, roles=roles, active=active)
+                 for item in _all_repository_items(self, sort_by=sort_by, sort_order=sort_order)]
+        batch = self.batch.state()
+    counts = _count_items(items)
+    if query:
+        needle = query.casefold()
+        items = [item for item in items if any(needle in str(item.get(key) or "").casefold()
+                 for key in ("product_name", "woo_product_id", "source_name"))]
+    if stage:
+        items = [item for item in items if item.get("stage") == stage]
+    from app.updates.source_filter_runtime import _sources
+    sources = _sources(p.get("sources"))
+    if sources is not None:
+        items = [item for item in items if item.get("source_kind") in sources]
     if group:
         items = [item for item in items if str(item.get("group") or "") == group]
 
@@ -169,10 +183,10 @@ def _list(self: UpdateService, payload: dict[str, Any] | None = None) -> dict[st
         "page": page,
         "page_size": page_size,
         "pages": pages,
-        "counts": _counts(self),
+        "counts": counts,
         "sort_by": sort_by,
         "sort_order": sort_order,
-        "batch": self.batch.state(),
+        "batch": batch,
         "database": str(self.repository.path),
     }
 

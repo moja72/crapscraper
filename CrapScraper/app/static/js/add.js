@@ -6,7 +6,7 @@ const safe=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"
 const labels={ready:"Preparado",running:"Em andamento",success:"Concluído",error:"Erro"};
 const envTips={woocommerce:"Loja de destino usada para criar o novo produto e suas variações.",source:"Indica se alguma autenticação de fonte foi configurada; a validade final é confirmada durante a execução.",storage:"Destino usado para publicar o ZIP validado do novo produto.",individual:"Indica se operações individuais autorizadas podem ser executadas.",woo_write:"Indica se a aplicação está autorizada a alterar o WooCommerce."};
 const actionable=job=>["ready","error"].includes(String(job?.state||""));
-const state={active:false,query:"",group:"",stage:"",page:1,pageSize:5,pages:1,total:0,items:[],selected:new Map(),allFiltered:false,selectedJob:"",logs:[],batch:{},timer:null,lastDetails:null};
+const state={active:false,query:"",group:"",stage:"",sortBy:"date",sortOrder:"desc",page:1,pageSize:5,pages:1,total:0,items:[],selected:new Map(),allFiltered:false,selectedJob:"",logs:[],batch:{},timer:null,lastDetails:null};
 let detailOpener=null;
 
 function help(text,label){return `<button type="button" class="help-tip" data-tooltip="${safe(text)}" aria-label="Ajuda sobre ${safe(label)}">?</button>`}
@@ -35,6 +35,8 @@ function setupLayout(){
         <label>Buscar<input id="add-query" placeholder="Nome, fonte ou WooCommerce ID"></label>
         <label>Estado<select id="add-group"><option value="">Todos</option><option value="prepared">Preparados</option><option value="running">Em andamento</option><option value="success">Concluídos</option><option value="error">Erros</option></select></label>
         <label>Etapa<select id="add-stage"><option value="">Todas</option><option value="prepared">Preparado</option><option value="validating">Validando</option><option value="resolving_source">Confirmando fonte</option><option value="downloading">Baixando</option><option value="validating_zip">Validando ZIP</option><option value="generating_description">Gerando conteúdo</option><option value="generating_image">Gerando imagem</option><option value="uploading_file">Publicando ZIP</option><option value="uploading_image">Enviando imagem</option><option value="creating_woocommerce">Criando WooCommerce</option><option value="completed">Concluído</option></select></label>
+        <label>Ordenar por<select id="add-sort-by"><option value="date">Data de entrada na fila</option><option value="name">Nome do produto</option></select></label>
+        <label>Ordem<select id="add-sort-order"><option value="desc">Mais recentes primeiro</option><option value="asc">Mais antigos primeiro</option></select></label>
         <div class="filter-actions"><button id="add-refresh">Atualizar</button><button id="add-filter-clear">Limpar filtros</button></div>
       </div>
       <div class="update-listing-meta"><output id="add-showing">Mostrando 0–0 de 0 itens</output><label>Itens por página<select id="add-page-size"><option selected>5</option><option>10</option><option>20</option><option>30</option><option>50</option><option>100</option></select></label></div>
@@ -51,7 +53,7 @@ function setupLayout(){
   modal.addEventListener("close",()=>detailOpener?.isConnected&&detailOpener.focus());
 }
 
-const qs=(page=state.page,pageSize=state.pageSize)=>new URLSearchParams({query:state.query,group:state.group,stage:state.stage,page,page_size:pageSize});
+const qs=(page=state.page,pageSize=state.pageSize)=>new URLSearchParams({query:state.query,group:state.group,stage:state.stage,sort_by:state.sortBy,sort_order:state.sortOrder,page,page_size:pageSize});
 
 function cards(counts){
   $("#add-cards").innerHTML=[["total","Total"],["prepared","Preparados"],["running","Em andamento"],["success","Concluídos"],["error","Erros"]].map(([key,label])=>`<div class="card metric-card"><button class="metric-filter" data-add-group="${key==="total"?"":key}" aria-pressed="${String((key==="total"?"":key)===state.group)}"><small>${label}</small><strong>${counts[key]??0}</strong></button></div>`).join("");
@@ -185,11 +187,20 @@ async function copyLog(){
   const button=$("#add-copy-log"),old=button.textContent;button.textContent="Log copiado";setTimeout(()=>button.textContent=old,1500);
 }
 
+function syncSortLabels(){
+  const options=$("#add-sort-order").options;
+  options[0].textContent=state.sortBy==="name"?"Z — A":"Mais recentes primeiro";
+  options[1].textContent=state.sortBy==="name"?"A — Z":"Mais antigos primeiro";
+}
 setupLayout();
 
 document.addEventListener("app:tab",event=>{state.active=event.detail==="add";if(state.active){environment();refresh()}});
 document.addEventListener("input",event=>{if(event.target.id==="add-query"){state.query=event.target.value;state.page=1;clearTimeout(state.timer);state.timer=setTimeout(refresh,250)}});
 document.addEventListener("change",event=>{
+  if(event.target.id==="add-sort-by"||event.target.id==="add-sort-order"){
+    state.sortBy=$("#add-sort-by").value;state.sortOrder=$("#add-sort-order").value;
+    state.page=1;state.allFiltered=false;syncSortLabels();return refresh();
+  }
   if(event.target.id==="add-group"){state.group=event.target.value;state.page=1;state.allFiltered=false;refresh()}
   if(event.target.id==="add-stage"){state.stage=event.target.value;state.page=1;state.allFiltered=false;refresh()}
   if(event.target.id==="add-page-size"){state.pageSize=Number(event.target.value)||5;state.page=1;refresh()}
@@ -205,7 +216,7 @@ document.addEventListener("click",async event=>{
   if(event.target.id==="add-next"&&state.page<state.pages){state.page++;return refresh()}
   if(event.target.id==="add-materialize")return materialize();
   if(event.target.id==="add-refresh")return refresh();
-  if(event.target.id==="add-filter-clear"){state.query=state.group=state.stage="";state.page=1;state.allFiltered=false;$("#add-query").value="";$("#add-group").value="";$("#add-stage").value="";return refresh()}
+  if(event.target.id==="add-filter-clear"){state.sortBy="date";state.sortOrder="desc";$("#add-sort-by").value="date";$("#add-sort-order").value="desc";syncSortLabels();state.query=state.group=state.stage="";state.page=1;state.allFiltered=false;$("#add-query").value="";$("#add-group").value="";$("#add-stage").value="";return refresh()}
   if(event.target.id==="add-select-page"){selectPage();return}
   if(event.target.id==="add-select-all"){selectAll();return}
   if(event.target.id==="add-clear-selection"){clearSelection();return}

@@ -159,7 +159,10 @@ def test_failed_woo_preflight_disables_write_and_blocks_new_attempt(tmp_path, mo
     monkeypatch.setattr("app.updates.service.profile_diagnostic", lambda _account: {"configured": True})
     woo = Woo()
     repo = UpdateRepository(tmp_path)
-    executor = UpdateExecutor(repo, woo=woo, installer=Installer(), enabled=True, allowed_product_ids=frozenset())
+    repo.materialize([approval(kind="UltraPackV2")])
+    from app.updates.sources import SourceRegistry
+    executor = UpdateExecutor(repo, sources=SourceRegistry([FakeSource("ultrapackv2")]),
+        woo=woo, installer=Installer(), enabled=True, allowed_product_ids=frozenset())
     service = UpdateService(tmp_path, repository=repo, executor=executor, credits=Credits())
 
     failed = service.verify_environment()
@@ -168,7 +171,8 @@ def test_failed_woo_preflight_disables_write_and_blocks_new_attempt(tmp_path, mo
     assert checks["woocommerce"]["detail"] == "Não foi possível resolver plugintema.com.br."
     assert checks["woo_write"]["value"] == "DESABILITADA"
     with pytest.raises(RuntimeError, match="Pré-requisito WooCommerce indisponível"):
-        service.execute("job-that-must-not-start")
+        service.execute(repo.list()["items"][0]["job_id"])
+    assert repo.list()["items"][0]["attempts"] == 0
 
     woo.recovered = True
     recovered = service.verify_environment()
