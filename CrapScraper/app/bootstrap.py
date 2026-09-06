@@ -24,6 +24,7 @@ def create_application() -> Application:
     from app.additions.chatgpt_product_isolation_runtime import install as install_chatgpt_product_isolation
     from app.additions.product_content_contract_runtime import install as install_product_content_contract
     from app.additions.strict_job_identity_runtime import install as install_strict_job_identity
+    from app.additions.chatgpt_new_job_project_runtime import install as install_chatgpt_new_job_project_runtime
     from app.additions.catalog_taxonomy_runtime import install_catalog_taxonomy_contract
     from app.comparison_live_reconciliation import install_comparison_live_reconciliation
     from app.plugintheme_access_fallback import install_plugintheme_access_fallback
@@ -78,6 +79,12 @@ def create_application() -> Application:
     # exige chat novo e vazio por item e rejeita qualquer resposta cujo nome não
     # seja exatamente o produto da linha atual. Cache antigo é invalidado.
     install_strict_job_identity()
+
+    # Para um produto NOVO, não tente reabrir a conversa concreta antiga antes de
+    # criar o chat. O token g-p-* é a identidade durável: abrimos diretamente a
+    # raiz do projeto e criamos um chat vazio. Assim uma /c/ antiga ou instável não
+    # bloqueia o cadastro seguinte em generating_description.
+    install_chatgpt_new_job_project_runtime()
 
     # Taxonomia fixa do catálogo PluginTema: Plugin #504 ou Tema #525, nunca ambas,
     # e nenhuma tag. Os IDs são enviados diretamente sem criar termos novos.
