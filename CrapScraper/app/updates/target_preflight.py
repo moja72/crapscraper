@@ -108,6 +108,14 @@ def check_target(installer: Any, job: dict[str, Any]) -> dict[str, Any]:
     local_target = getattr(installer, "_target", None)
     if callable(local_target):
         target = Path(local_target(job))
+        # Windows can open a differently cased path successfully. Still preserve
+        # the exact on-disk filename used later by backup/install and diagnostics.
+        if target.is_file():
+            resolved = _local_casefold_match(target)
+            if resolved is not None:
+                target = resolved
+                filename = resolved.name
+                job["target_filename"] = filename
         if not target.is_file():
             resolved = _local_casefold_match(target)
             if resolved is None:

@@ -11,6 +11,7 @@ class UpdateBatchService:
     def __init__(self, executor: UpdateExecutor):
         self.executor=executor;self.lock=threading.RLock();self.condition=threading.Condition(self.lock);self.thread:threading.Thread|None=None
         self.ids:list[str]=[];self.position=0;self.paused=False;self.cancelled=False;self.results:list[dict[str,Any]]=[];self.started_at="";self.finished_at=""
+        self.execute_job = executor.execute
     def start(self, job_ids: list[str]) -> dict[str,Any]:
         with self.lock:
             if self.thread and self.thread.is_alive(): raise ValueError("Já existe um lote em execução")
@@ -22,7 +23,7 @@ class UpdateBatchService:
                 while self.paused and not self.cancelled:self.condition.wait()
                 if self.cancelled or self.position>=len(self.ids):break
                 job_id=self.ids[self.position];self.position+=1
-            try: result=self.executor.execute(job_id)
+            try: result=self.execute_job(job_id)
             except Exception as error: result={"ok":False,"job_id":job_id,"error":{"message":str(error)}}
             with self.lock:self.results.append(result)
         with self.lock:self.finished_at=utc_now()

@@ -4,9 +4,6 @@ import json
 import re
 from typing import Any, Iterator
 
-from app.additions import chatgpt_content_response_runtime as content_runtime
-
-
 _INSTALLED = False
 _ORIGINAL_EXTRACT_JSON = None
 
@@ -15,7 +12,8 @@ def _rendered(value: Any) -> str:
     text = str(value or "").replace("\ufeff", "")
     # O Markdown renderizado do ChatGPT pode escapar caracteres que não são
     # escapes JSON válidos. Preserve escapes JSON reais e normalize só estes.
-    return re.sub(r"\\([_<>])", r"\1", text)
+    return re.sub(r"(\\+)([_<>])", lambda match:
+                  match[1][:-1] + match[2] if len(match[1]) % 2 else match[0], text)
 
 
 def _balanced_objects(text: str) -> Iterator[str]:
@@ -42,7 +40,9 @@ def _balanced_objects(text: str) -> Iterator[str]:
                 in_string = False
             continue
 
-        if char == '"':
+        # Markdown outside an object is not a JSON string (e.g. an unmatched
+        # quotation in the introduction must not hide the response).
+        if char == '"' and depth:
             in_string = True
             continue
         if char == "{":
@@ -153,40 +153,60 @@ def _decode_candidate(candidate: str) -> dict[str, Any] | None:
     return None
 
 
-def extract_json(text: str) -> dict[str, Any] | None:
-    """Extract the last complete JSON object from rendered ChatGPT text.
+def content_object(payload: dict[str, Any]) -> bool:
+    return bool(
+        isinstance(payload.get("product_name"), str)
+        and payload["product_name"].strip()
+        and isinstance(payload.get("short_description"), str)
+        and payload["short_description"].strip()
+        and isinstance(payload.get("content", payload.get("description")), str)
+        and str(payload.get("content", payload.get("description"))).strip()
+    )
 
-    Handles fenced JSON, Markdown/noise before or after the answer, nested
-    objects/braces, rendered line breaks inside quoted values and trailing commas.
-    The newest valid complete object wins, which avoids stale examples earlier in
-    the same rendered block.
+
+def extract_json(text: str, expected_product: str = "") -> dict[str, Any] | None:
+    """Choose a complete response object; never complete a truncated document.
+
+    Schema outranks incidental JSON. With an expected identity, only a content
+    object for that product is eligible. Callers must additionally scope text to
+    the current assistant turn; the parser cannot prove conversation provenance.
     """
     raw = _rendered(text).strip()
     if not raw:
         return None
 
-    marked = content_runtime._extract_last_marked(raw)
-    regions: list[str] = []
-    if marked:
-        regions.append(marked)
+    payloads = [payload for candidate in _balanced_objects(raw)
+                if (payload := _decode_candidate(candidate)) is not None]
+    expected = " ".join(expected_product.split()).casefold()
+    if expected:
+        payloads = [p for p in payloads if content_object(p)
+                    and " ".join(p["product_name"].split()).casefold() == expected]
+    if not payloads:
+        return None
+    # Ties go to the newest complete object in this response only.
+    return max(enumerate(payloads), key=lambda pair: (content_object(pair[1]), pair[0]))[1]
 
-    for match in re.finditer(r"```(?:json)?\s*(.*?)```", raw, re.I | re.S):
-        regions.append(match.group(1))
-    regions.append(raw)
 
-    candidates: list[str] = []
-    for region in regions:
-        candidates.extend(_balanced_objects(region))
-
-    # Last rendered object is normally the assistant's final answer.
-    for candidate in reversed(candidates):
-        payload = _decode_candidate(candidate)
-        if isinstance(payload, dict):
-            return payload
-    return None
+def response_kind(text: str, expected_product: str = "") -> str:
+    payload = extract_json(text, expected_product)
+    if payload is not None and content_object(payload):
+        for candidate in _balanced_objects(text):
+            try:
+                if json.loads(candidate) == payload:
+                    return "content_json_complete"
+            except ValueError:
+                pass
+        return "content_json_dom_repaired"
+    if any(content_object(p) for c in _balanced_objects(text)
+           if (p := _decode_candidate(c)) is not None):
+        return "content_product_mismatch"
+    if list(_balanced_objects(text)):
+        return "content_json_invalid"
+    return "content_response_partial" if str(text).strip() else "content_no_response"
 
 
 def install_chatgpt_json_recovery_runtime() -> None:
+    from app.additions import chatgpt_content_response_runtime as content_runtime
     global _INSTALLED, _ORIGINAL_EXTRACT_JSON
     if _INSTALLED:
         return

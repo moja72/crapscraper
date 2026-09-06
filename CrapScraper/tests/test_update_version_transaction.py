@@ -169,3 +169,11 @@ def test_batch_keeps_running_after_middle_failure():
         time.sleep(.01)
     assert executor.calls==["A","B","C"]
     assert (batch.state()["success"],batch.state()["errors"],batch.state()["processed"])==(2,1,3)
+import pytest
+
+@pytest.fixture(autouse=True)
+def strict_fresh_confirmation(monkeypatch):
+    # This file exercises fresh GET consistency and rollback. The independently
+    # tested authoritative PUT fast path intentionally does not issue those GETs.
+    from app.updates import fast_transaction
+    monkeypatch.setattr(fast_transaction.WooCommerceGateway, "confirm_version", fast_transaction._ORIGINAL_CONFIRM_VERSION)

@@ -1,6 +1,8 @@
+import {isolatedUI} from './isolated_ui.mjs';
+const isolated=await isolatedUI(8786);
 import {chromium} from "playwright";
 
-const base="http://127.0.0.1:8766",original="default",created=`codex-ui-${Date.now()}`,renamed=`${created}-renamed`;
+const base=isolated.base,original="default",created=`codex-ui-${Date.now()}`,renamed=`${created}-renamed`;
 async function api(path,body){const response=await fetch(base+path,{method:body?"POST":"GET",headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});return response.json()}
 const browser=await chromium.launch({headless:true});
 try{
@@ -33,5 +35,5 @@ try{
   await api("/api/collection/slots/select",{name:original}).catch(()=>{});
   await api("/api/collection/slots/delete",{name:renamed}).catch(()=>{});
   await api("/api/collection/slots/delete",{name:created}).catch(()=>{});
-  await browser.close();
+  await browser.close();await isolated.close();
 }

@@ -5,6 +5,8 @@ import importlib.util
 import os
 from pathlib import Path
 
+import pytest
+
 from app.legacy_permission_recovery import _is_legacy_permission_failure
 from app.updates.models import UpdateError
 from app.updates.sources import SourceFailure
@@ -68,6 +70,7 @@ def _load_permission_helper():
     return module
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership syscall integration; runs in Linux CI")
 def test_permission_helper_requires_exact_hash_before_metadata_repair(tmp_path, monkeypatch):
     helper = _load_permission_helper()
     target = tmp_path / "legacy-theme.zip"
@@ -83,6 +86,7 @@ def test_permission_helper_requires_exact_hash_before_metadata_repair(tmp_path, 
     assert hashlib.sha256(target.read_bytes()).hexdigest() == expected
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership syscall integration; runs in Linux CI")
 def test_permission_helper_refuses_changed_file(tmp_path, monkeypatch):
     helper = _load_permission_helper()
     target = tmp_path / "legacy-theme.zip"

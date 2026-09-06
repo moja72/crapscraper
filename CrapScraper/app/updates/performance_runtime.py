@@ -89,6 +89,9 @@ def _refresh_live_target(self: UpdateService, job_id: str) -> dict[str, Any]:
     origem publicou uma versão mais nova depois da coleta/comparação.
     """
     job = self.repository.get(job_id)
+    if job.get("state") == "error":
+        from app.update_retry_live_objective import _refresh_retry_objective
+        return _refresh_retry_objective(self, job_id) or job
     kind = str(job.get("source_kind") or "")
     sources = getattr(getattr(self, "executor", None), "sources", None)
     if not kind or sources is None or not callable(getattr(sources, "get", None)):

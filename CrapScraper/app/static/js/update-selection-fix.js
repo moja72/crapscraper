@@ -9,6 +9,7 @@ let allFiltered = false;
 let stickyOperation = null;
 let restoringOperation = false;
 let activeDetailJobId = "";
+let preparingBatch = false;
 
 function listingTotal() {
   const text = $("#update-showing")?.textContent || "";
@@ -217,7 +218,7 @@ function syncUi() {
   if (output) output.textContent = `${count} selecionado(s)${allFiltered ? " no resultado filtrado" : ""}`;
   const start = $("#update-batch-start");
   if (start) {
-    start.disabled = batchRunning() || count <= 0;
+    start.disabled = preparingBatch || batchRunning() || count <= 0;
     start.title = batchRunning()
       ? "Já existe uma fila em execução."
       : count
@@ -283,11 +284,13 @@ function preserveOperationError(node) {
 
 async function startBatch() {
   const button = $("#update-batch-start");
-  if (!button || batchRunning()) return;
+  if (!button || preparingBatch || batchRunning()) return;
+  preparingBatch = true;
   const original = button.textContent;
   stickyOperation = null;
   button.disabled = true;
-  button.textContent = "Preparando fila…";
+  button.innerHTML = '<span class="button-spinner" aria-hidden="true"></span><span>Preparando fila…</span>';
+  button.setAttribute("aria-busy", "true");
   operation("Validando pré-requisitos e confirmando a versão atual das origens…", "loading");
   try {
     const ids = await selectedJobIds();
@@ -306,6 +309,8 @@ async function startBatch() {
   } catch (error) {
     operation(`Fila bloqueada: ${error.message}`, "error", 15000);
   } finally {
+    preparingBatch = false;
+    button.removeAttribute("aria-busy");
     button.textContent = original;
     queueMicrotask(syncUi);
   }

@@ -1,52 +1,43 @@
-from pathlib import Path
 from types import SimpleNamespace
-
+import pytest
 from app import addition_sort_runtime as runtime
+from app.additions.repository import AdditionRepository
+from tests.addition_fakes import approval
 
 
-class Repo:
-    path = Path("additions.sqlite3")
-
-    def __init__(self):
-        self.items = [
-            {"job_id": "b", "product_name": "Beta", "created_at": "2026-09-04T10:00:00"},
-            {"job_id": "a", "product_name": "Alpha", "created_at": "2026-09-06T10:00:00"},
-            {"job_id": "c", "product_name": "Charlie", "created_at": "2026-09-05T10:00:00"},
-        ]
-
-    def list(self, query="", group="", stage="", page=1, page_size=100):
-        start = (page - 1) * page_size
-        items = self.items[start : start + page_size]
-        return {
-            "items": list(items),
-            "pages": 1,
-            "counts": {"total": 3, "prepared": 3, "running": 0, "success": 0, "error": 0},
-        }
+@pytest.fixture
+def service(tmp_path):
+    repo = AdditionRepository(tmp_path)
+    for index, name in enumerate(("Beta", "Alpha", "Charlie")):
+        repo.materialize([approval(item=name)])
+        repo.patch(repo.job_id(name), product_name=name,
+                   created_at=f"2026-09-0{index + 1}T10:00:00")
+    return SimpleNamespace(repository=repo, batch=SimpleNamespace(state=lambda: {"running": False}))
 
 
-def service():
-    return SimpleNamespace(
-        repository=Repo(),
-        batch=SimpleNamespace(state=lambda: {"running": False}),
-    )
+@pytest.mark.parametrize(("sort_by", "order", "names"), [
+    ("date", "asc", ["Beta", "Alpha", "Charlie"]),
+    ("date", "desc", ["Charlie", "Alpha", "Beta"]),
+    ("name", "asc", ["Alpha", "Beta", "Charlie"]),
+    ("name", "desc", ["Charlie", "Beta", "Alpha"]),
+])
+def test_sort_before_paginating_entire_filtered_result(service, sort_by, order, names):
+    pages = [runtime._list(service, {"sort_by": sort_by, "sort_order": order,
+                                    "page": page, "page_size": 1}) for page in (1, 2, 3)]
+    assert [p["items"][0]["product_name"] for p in pages] == names
+    assert all(p["total"] == 3 for p in pages)
 
 
-def test_default_sort_is_most_recent_first():
-    payload = runtime._list(service(), {"page": 1, "page_size": 5})
-    assert [item["job_id"] for item in payload["items"]] == ["a", "c", "b"]
-    assert payload["sort_by"] == "date"
-    assert payload["sort_order"] == "desc"
+def test_filters_survive_sort(service):
+    result = runtime._list(service, {"query": "Alpha", "group": "prepared",
+        "stage": "prepared", "sources": "plugintheme", "sort_by": "name"})
+    assert [item["product_name"] for item in result["items"]] == ["Alpha"]
+    assert runtime._list(service, {"sources": "ultrapackv2"})["items"] == []
+    assert runtime._list(service, {"sources": "__none__"})["items"] == []
 
 
-def test_name_sort_matches_update_queue_contract():
-    payload = runtime._list(service(), {"sort_by": "name", "sort_order": "asc", "page": 1, "page_size": 5})
-    assert [item["product_name"] for item in payload["items"]] == ["Alpha", "Beta", "Charlie"]
-
-
-def test_invalid_sort_is_rejected():
-    try:
-        runtime._list(service(), {"sort_by": "unknown"})
-    except ValueError as error:
-        assert "ordenação" in str(error).lower()
-    else:
-        raise AssertionError("sort inválido deveria falhar")
+def test_invalid_sort_rejected(service):
+    with pytest.raises(ValueError, match="ordenação"):
+        runtime._list(service, {"sort_by": "unknown"})
+    with pytest.raises(ValueError):
+        runtime._list(service, {"sort_order": "bad"})

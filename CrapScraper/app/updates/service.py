@@ -57,7 +57,9 @@ class UpdateService:
         self.repository = repository or UpdateRepository(data_dir)
         self.executor = executor or UpdateExecutor(self.repository)
         self.batch = UpdateBatchService(self.executor)
+        self.batch.execute_job = self._execute_batch_job
         self.lock = threading.RLock()
+        self.active_requests: set[str] = set()
         self.environment_validation: dict[str, Any] = {}
         self.credits = credits
         if os.getenv("SCRAPER_UPDATE_IMPORT_LEGACY", "1").strip().lower() not in {"0", "false", "no", "off"}:
@@ -459,6 +461,9 @@ class UpdateService:
                 raise RuntimeError(f"Pré-requisito {label} indisponível: {detail}")
 
     def _require_job_execution(self, job_id: str) -> dict[str, Any]:
+        from app.update_queue_state_runtime import _batch_roles
+        if job_id in _batch_roles(self)[1]:
+            raise UpdateExecutionBlocked([{"code": "job_queued", "message": "Produto já está na fila e aguarda sua vez."}])
         job = self.repository.get(job_id)
         execution = self._execution(job)
         if not execution["allowed"]:
@@ -490,6 +495,13 @@ class UpdateService:
         if blocked:
             raise UpdateExecutionBlocked(blocked)
         return {"ok": True, "batch": self.batch.start(ids)}
+
+    def _execute_batch_job(self, job_id: str) -> dict[str, Any]:
+        # Dispatch through the same live objective recovery and preflight as the
+        # individual buttons, at the moment the worker actually starts this job.
+        if self.repository.get(job_id)["state"] == "error":
+            return self.retry(job_id)
+        return self.execute(job_id)
 
     def batch_control(self, action: str) -> dict[str, Any]:
         method = {"pause": self.batch.pause, "resume": self.batch.resume, "cancel": self.batch.cancel}[action]

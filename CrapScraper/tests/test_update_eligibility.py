@@ -33,8 +33,12 @@ class PreflightInstaller(FakeInstaller):
 
 
 class PreflightSource(FakeSource):
+    authenticated = True
+
     def validate_access(self, job):
         self.calls.append("preflight")
+        if not self.authenticated:
+            raise RuntimeError("Sessão PluginTheme expirada.")
         return {"version": job["source_version"]}
 
 
@@ -65,6 +69,8 @@ def build_service(
     monkeypatch.setattr("app.updates.service.decisions.list_approved_updates", lambda: [])
     monkeypatch.setattr("app.updates.service.get_source_account", lambda _site: "account-a")
     monkeypatch.setattr("app.updates.service.profile_diagnostic", lambda _account: {"configured": True, "profile_exists": True, "cookie_count": 3})
+    monkeypatch.setattr("app.plugintheme_profile.profile_diagnostic", lambda _account: {
+        "configured": plugin_authenticated, "profile_exists": plugin_authenticated})
     repository = UpdateRepository(tmp_path)
     repository.materialize(approvals)
     sources = []
@@ -72,7 +78,9 @@ def build_service(
     if "UltraPackV2" in kinds:
         sources.append(PreflightSource("ultrapackv2"))
     if "PluginTheme" in kinds:
-        sources.append(PreflightSource("plugintheme"))
+        plugin_source = PreflightSource("plugintheme")
+        plugin_source.authenticated = plugin_authenticated
+        sources.append(plugin_source)
     woo = PreflightWoo(woo_available)
     installer = PreflightInstaller(storage_available)
     executor = UpdateExecutor(
@@ -136,12 +144,14 @@ def test_invalid_plugintheme_blocks_only_plugintheme_job(tmp_path, monkeypatch):
     assert "PluginTheme" in item["execution"]["blockers"][0]["message"]
 
 
-def test_missing_preflight_blocks_without_creating_attempt(tmp_path, monkeypatch):
-    service, repository, _, _ = build_service(tmp_path, monkeypatch, [approval(kind="UltraPackV2", woo=95422)])
+def test_one_click_runs_missing_preflight_and_failure_creates_no_attempt(tmp_path, monkeypatch):
+    service, repository, _, _ = build_service(tmp_path, monkeypatch, [approval(kind="UltraPackV2", woo=95422)], woo_available=False)
     item = item_for(service, 95422)
 
-    assert {"woocommerce_not_validated", "storage_not_validated", "source_not_validated"} <= blocker_codes(item)
-    with pytest.raises(UpdateExecutionBlocked, match="Verificar pré-requisitos"):
+    assert item["execution"]["allowed"] and item["execution"]["preflight_required"]
+    assert {"woocommerce_not_validated", "storage_not_validated", "source_not_validated"} <= {
+        warning["code"] for warning in item["execution"]["warnings"]}
+    with pytest.raises(RuntimeError, match="WooCommerce"):
         service.execute(item["job_id"])
     assert repository.get(item["job_id"])["attempts"] == 0
     assert repository.history(item["job_id"]) == []
@@ -212,7 +222,7 @@ def test_error_retry_and_running_state_have_distinct_actions(tmp_path, monkeypat
     assert blocker_codes(running) == {"job_running"}
 
 
-def test_batch_accepts_two_eligible_jobs_and_rejects_blocked_selection(tmp_path, monkeypatch):
+def test_batch_accepts_eligible_jobs_and_never_dispatches_blocked_selection(tmp_path, monkeypatch):
     service, _, _, _ = build_service(
         tmp_path / "ok",
         monkeypatch,
@@ -236,6 +246,11 @@ def test_batch_accepts_two_eligible_jobs_and_rejects_blocked_selection(tmp_path,
     )
     mixed.verify_environment()
     selected = mixed.selection({})["items"]
-    mixed.batch.start = lambda _ids: pytest.fail("Lote bloqueado não pode iniciar")
+    dispatched = []
+    mixed.batch.start = lambda ids: dispatched.extend(ids) or {"running": True, "total": len(ids)}
+    result = mixed.batch_start([item["job_id"] for item in selected])
+    assert dispatched == [item["job_id"] for item in selected if item["source_kind"] == "ultrapackv2"]
+    assert result["skipped_count"] == 1
+    assert "PluginTheme" in result["skipped"][0]["blockers"][0]["message"]
     with pytest.raises(UpdateExecutionBlocked, match="PluginTheme"):
-        mixed.batch_start([item["job_id"] for item in selected])
+        mixed.batch_start([item["job_id"] for item in selected if item["source_kind"] == "plugintheme"])

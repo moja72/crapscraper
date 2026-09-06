@@ -158,18 +158,35 @@ def _patch_updates() -> None:
         return _decorate_update_item(self, original_with_execution(self, job))
 
     def patched_execute(self: Any, job_id: str) -> dict[str, Any]:
-        _prepare_job_execution(self, job_id, fresh_source=False)
-        return self.executor.execute(job_id)
+        return dispatch(self, job_id, retry=False)
 
     def patched_retry(self: Any, job_id: str) -> dict[str, Any]:
-        job = self.repository.get(job_id)
-        if str(job.get("state") or "") != "error":
-            _prepare_job_execution(self, job_id, fresh_source=False)
-        else:
-            error = dict(job.get("error") or {})
-            source_failure = str(error.get("stage") or "") in {"authenticating", "downloading", "validating"} or str(error.get("code") or "").startswith(("authentication", "source_"))
-            _prepare_job_execution(self, job_id, fresh_source=source_failure or bool(error.get("recoverable", True)))
-        return self.executor.execute(job_id)
+        return dispatch(self, job_id, retry=True)
+
+    def dispatch(self: Any, job_id: str, *, retry: bool) -> dict[str, Any]:
+        from app.update_queue_state_runtime import _batch_roles
+        from app.updates.service import UpdateExecutionBlocked
+        with self.lock:
+            if job_id in self.active_requests:
+                raise ValueError("Job já está em preparação ou execução")
+            if job_id in _batch_roles(self)[1]:
+                raise UpdateExecutionBlocked([{"code": "job_queued", "message": "Produto já está na fila."}])
+            self.active_requests.add(job_id)
+        try:
+            job = self.repository.get(job_id)
+            blockers = [item for item in self._execution(job).get("blockers", [])
+                        if item["code"].startswith("job_") or item["code"] in {"execution_disabled", "product_not_allowed"}]
+            if blockers:
+                raise UpdateExecutionBlocked(blockers)
+            fresh = retry and job.get("state") == "error"
+            if fresh:
+                from app.update_retry_live_objective import _refresh_retry_objective
+                _refresh_retry_objective(self, job_id)
+            _prepare_job_execution(self, job_id, fresh_source=fresh)
+            return self.executor.execute(job_id)
+        finally:
+            with self.lock:
+                self.active_requests.discard(job_id)
 
     def patched_resolve_manual_request(self: Any, product_id: int) -> dict[str, Any]:
         self.materialize()

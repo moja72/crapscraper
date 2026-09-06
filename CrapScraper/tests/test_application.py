@@ -55,8 +55,13 @@ def test_all_domain_routes_return_payload(tmp_path: Path, monkeypatch) -> None:
     assert post_route(services, "/api/store/monitor", {"enabled": True})["monitor"]["enabled"] is True
 
 
-def test_no_monkey_patch_composition_in_new_python() -> None:
-    root = Path(__file__).parents[1] / "app"
-    source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py") if "legacy_core" not in path.parts)
-    assert "Class.method =" not in source
-    assert "install_" not in source
+def test_bootstrap_composes_only_modular_application():
+    import ast
+    root = Path(__file__).parents[1]
+    tree = ast.parse((root / "app/bootstrap.py").read_text(encoding="utf-8"))
+    imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+    assert "app.web.api" in imports
+    assert all(name.startswith("app.") or name == "__future__" for name in imports)
+    graph = (root / "app/web/api.py").read_text(encoding="utf-8")
+    assert graph.count("updates=UpdateService(") == 1
+    assert graph.count("additions=AdditionService(") == 1

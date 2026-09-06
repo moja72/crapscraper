@@ -11,6 +11,9 @@ def _refresh_retry_objective(service: Any, job_id: str) -> dict[str, Any] | None
     job = service.repository.get(job_id)
     if str(job.get("state") or "") != "error":
         return None
+    from app.update_completion_and_retry_runtime import _recoverable_job
+    if not (_recoverable_job(job).get("error") or {}).get("recoverable", False):
+        return None
     try:
         reader = getattr(service.executor.woo, "get_product_fresh", None) or service.executor.woo.get_product
         product = reader(int(job["woo_product_id"]))
@@ -48,7 +51,10 @@ def install_update_retry_live_objective() -> None:
         _refresh_retry_objective(self, job_id)
         return original_retry(self, job_id)
 
-    UpdateService.retry = retry
+    # The composed application owns reconciliation inside its request guard.
+    # Standalone callers retain the compatibility wrapper.
+    if not getattr(UpdateService, "_current_app_recovery_installed", False):
+        UpdateService.retry = retry
     UpdateService._crapscraper_live_retry_objective = True
     _INSTALLED = True
 

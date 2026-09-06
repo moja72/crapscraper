@@ -92,6 +92,9 @@ class AdditionExecutor:
             from app.additions.chatgpt_playwright import _job_state
 
             state = _job_state(str(job_id))
+            from app.additions.strict_job_identity_runtime import strict_conversation_reusable
+            if not strict_conversation_reusable(state, str(job_id)):
+                return self.repository.get(job_id)
             url = str(state.get("conversation_url") or "").strip()
             if not url.startswith("https://chatgpt.com/"):
                 return self.repository.get(job_id)
@@ -104,6 +107,7 @@ class AdditionExecutor:
                 chatgpt_conversation_url=url,
                 chatgpt_cached_at=now,
                 chatgpt_cache_until=cache_until,
+                chatgpt_provenance=state,
             )
         except Exception:
             return self.repository.get(job_id)
@@ -188,15 +192,18 @@ class AdditionExecutor:
             if not valid_content(job):
                 progress("generating_description", "Gerando descrição, conteúdo, categorias e tags no projeto [CS] Automação do ChatGPT via Playwright.")
                 generated = self.content.generate(job)
+                if " ".join(str(generated.get("product_name") or "").split()).casefold() != " ".join(job["product_name"].split()).casefold():
+                    raise RuntimeError("Descrição de outro produto ou sem identidade; conteúdo descartado antes de persistir.")
                 job = self.repository.patch(
                     job_id,
-                    product_name=generated.get("product_name") or job["product_name"],
                     short_description=generated["short_description"],
                     content=generated["content"],
                     categories=generated["categories"],
                     tags=generated["tags"],
                 )
                 job = self._persist_chatgpt_cache(job_id)
+                proof = job.get("chatgpt_provenance") or {}
+                progress("generating_description", "Descrição parseada e persistida para este job: " + str(proof.get("content_response_kind") or "content_validated") + ".")
             else:
                 progress("generating_description", "Conteúdo do ChatGPT já persistido para este produto e versão; etapa reutilizada.")
 
@@ -331,7 +338,7 @@ class AdditionExecutor:
                 error = AdditionError(
                     message=safe_message(exc),
                     technical_message=repr(exc),
-                    code="addition_execution_failed",
+                    code=getattr(exc, "code", "addition_execution_failed"),
                     stage=stage,
                     source=job.get("source_name", ""),
                     recoverable=not isinstance(exc, (PermissionError, ValueError)),

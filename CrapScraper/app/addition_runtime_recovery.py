@@ -124,60 +124,8 @@ def _patch_content_and_images() -> None:
 
 
 def _patch_repository_listing() -> None:
-    from app.additions.repository import AdditionRepository
-    from app.additions.state import GROUP_STATES
-
-    if getattr(AdditionRepository, "_crapscraper_queue_listing", False):
-        return
-
-    def list_jobs(
-        self: Any,
-        query: str = "",
-        group: str = "",
-        stage: str = "",
-        page: int = 1,
-        page_size: int = 5,
-        sort_by: str = "date",
-        sort_order: str = "desc",
-    ) -> dict[str, Any]:
-        filters: list[str] = []
-        values: list[Any] = []
-        if query:
-            filters.append("(product_name LIKE ? OR source_name LIKE ? OR CAST(woo_product_id AS TEXT) LIKE ?)")
-            values += [f"%{query}%"] * 3
-        if group:
-            if group not in GROUP_STATES:
-                raise ValueError("Grupo operacional inválido")
-            filters.append("public_state=?")
-            values.append(GROUP_STATES[group])
-        if stage:
-            filters.append("stage=?")
-            values.append(stage)
-        where = " WHERE " + " AND ".join(filters) if filters else ""
-        page = max(1, int(page))
-        page_size = max(1, min(100, int(page_size)))
-        order_column = "product_name COLLATE NOCASE" if str(sort_by).lower() == "name" else "created_at"
-        direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
-        with self.connection() as db:
-            total = int(db.execute("SELECT COUNT(*) FROM addition_jobs" + where, values).fetchone()[0])
-            rows = db.execute(
-                "SELECT * FROM addition_jobs" + where + f" ORDER BY {order_column} {direction}, job_id ASC LIMIT ? OFFSET ?",
-                values + [page_size, (page - 1) * page_size],
-            ).fetchall()
-            counts = {"total": int(db.execute("SELECT COUNT(*) FROM addition_jobs").fetchone()[0])}
-            for group_name, public_state in GROUP_STATES.items():
-                counts[group_name] = int(db.execute("SELECT COUNT(*) FROM addition_jobs WHERE public_state=?", (public_state,)).fetchone()[0])
-        return {
-            "items": [self.decode(row) for row in rows],
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "pages": max(1, (total + page_size - 1) // page_size),
-            "counts": counts,
-        }
-
-    AdditionRepository.list = list_jobs
-    AdditionRepository._crapscraper_queue_listing = True
+    # Listing, source filters and sort-before-pagination live in AdditionRepository.
+    return
 
 
 def _patch_addition_service() -> None:
@@ -205,6 +153,7 @@ def _patch_addition_service() -> None:
             int(p.get("page_size") or 5),
             str(p.get("sort_by") or "date"),
             str(p.get("sort_order") or "desc"),
+            sources=p.get("sources"),
         )
         return {
             "ok": True,

@@ -100,3 +100,26 @@ def test_completed_overlay_projects_updated_until_catalog_catches_up(monkeypatch
     assert row["site_version"] == "1.1"
     assert payload["counts"]["updated"] == 1
     assert payload["counts"]["update_available"] == 0
+
+
+def test_drift_completion_consumes_live_target_and_future_version_needs_new_approval(tmp_path, monkeypatch):
+    from app.comparison.fast_view import _overlay_decisions
+    from app.updates.repository import UpdateRepository
+    monkeypatch.setenv("SCRAPER_COMPARISON_DECISIONS_DB_PATH", str(tmp_path / "decisions.sqlite3"))
+    decisions.save_decision("tailor", "approve_update", site_id="101", site_name="Mr. Tailor",
+        source_name="UltraPackV2", source_version="10.0.11", site_version="10.0.10",
+        status="update_available", recommended_action="review_and_approve_update",
+        source_product_url="https://ultrapackv2.com/item/tailor")
+    repo = UpdateRepository(tmp_path)
+    repo.materialize(runtime._list_approved_updates())
+    assert runtime._mark_decision_updated({"comparison_item_id": "tailor", "source_version": "10.0.13"})
+    assert decisions.get_decision("tailor")["source_version"] == "10.0.13"
+    assert repo.materialize(runtime._list_approved_updates())["created"] == 0
+    assert repo.count() == 1
+    row = {"comparison_item_id": "tailor", "source_version": "10.0.13", "status": "update_available"}
+    assert _overlay_decisions([row])[0]["status"] == "updated"
+    future = _overlay_decisions([{**row, "source_version": "10.0.14"}])[0]
+    assert future["status"] == "update_available"
+    assert future["decision"] == "pending"
+    assert future["original_decision"] == "approve_update"
+    assert len(decisions.get_decision_history("tailor")) == 2

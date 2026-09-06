@@ -12,6 +12,8 @@ function query(){
     query:$("#add-query")?.value||"",
     group:$("#add-group")?.value||"",
     stage:$("#add-stage")?.value||"",
+    sort_by:$("#add-sort-by")?.value||"date",
+    sort_order:$("#add-sort-order")?.value||"desc",
     page:String((()=>{const match=($("#add-page")?.textContent||"").match(/Página\s+(\d+)/i);return Number(match?.[1]||1)})()),
     page_size:$("#add-page-size")?.value||"5",
   });

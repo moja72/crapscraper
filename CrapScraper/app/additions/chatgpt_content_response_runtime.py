@@ -21,9 +21,8 @@ def _rendered_text(value: Any) -> str:
     quando o modelo gerou underscores/ângulos normais. Essa normalização serve
     apenas para leitura do DOM, não altera conteúdo antes de enviar.
     """
-    text = str(value or "")
-    text = re.sub(r"\\([_<>])", r"\1", text)
-    return text
+    from app.additions.chatgpt_json_recovery_runtime import _rendered
+    return _rendered(value)
 
 
 def _body_text(page: Any) -> str:
@@ -81,75 +80,51 @@ def _extract_last_marked(text: str) -> str:
     return raw[begin + len(_BEGIN) : end].strip().strip("`").strip()
 
 
-def _conversation_candidates(page: Any) -> list[str]:
-    """Lê respostas sem depender de um único atributo do DOM.
+def _conversation_candidates(page: Any, marker: str = "") -> list[str]:
+    """Read only assistant responses following the exact request turn.
 
-    Adaptado do leitor resiliente da versão legada: tenta assistant-role,
-    conversation-turn, article/prose e blocos de código, rejeitando turnos
-    explicitamente marcados como user.
+    Role, conversation-turn and article layouts are supported. Unproven DOM is
+    diagnostic evidence, never a fallback source of product content.
     """
     try:
         rows = page.evaluate(
             """
-            () => {
-              const out = [];
-              const seen = new Set();
-              const push = (node, source) => {
-                if (!node) return;
-                const text = String(node.innerText || node.textContent || '').trim();
-                if (!text || seen.has(text)) return;
-                seen.add(text);
-                out.push({text, source});
+            marker => {
+              const textOf = n => String(n?.innerText || n?.textContent || '').trim();
+              const selector = '[data-message-author-role], [data-testid^="conversation-turn-"], article';
+              const nodes = [...document.querySelectorAll('main ' + selector.split(', ').join(', main '))];
+              const turns = nodes.filter(n => !nodes.some(parent => parent !== n && parent.contains(n)));
+              const roleOf = n => {
+                const explicit = n.matches('[data-message-author-role]') ? n : n.querySelector('[data-message-author-role]');
+                if (explicit) return explicit.getAttribute('data-message-author-role');
+                const label = String(n.getAttribute('aria-label') || '').toLowerCase();
+                if (/you said|você disse/.test(label)) return 'user';
+                if (/chatgpt said|chatgpt disse/.test(label)) return 'assistant';
+                return '';
               };
-
-              document.querySelectorAll('main pre code').forEach(node => push(node, 'code'));
-              document.querySelectorAll('[data-message-author-role="assistant"]').forEach(
-                node => push(node, 'assistant-role')
-              );
-              document.querySelectorAll('main [data-testid^="conversation-turn-"]').forEach(turn => {
-                const roleNode = turn.matches('[data-message-author-role]')
-                  ? turn : turn.querySelector('[data-message-author-role]');
-                const role = String(roleNode?.getAttribute('data-message-author-role') || '').toLowerCase();
-                if (role === 'user') return;
-                const preferred =
-                  turn.querySelector('pre code') ||
-                  turn.querySelector('[data-message-author-role="assistant"]') ||
-                  turn.querySelector('.markdown') ||
-                  turn.querySelector('[class*="markdown"]') ||
-                  turn.querySelector('[class*="prose"]') ||
-                  turn;
-                push(preferred, 'conversation-turn');
-              });
-              document.querySelectorAll('main article').forEach(article => {
-                const roleNode = article.matches('[data-message-author-role]')
-                  ? article : article.querySelector('[data-message-author-role]');
-                const role = String(roleNode?.getAttribute('data-message-author-role') || '').toLowerCase();
-                if (role === 'user') return;
-                const preferred =
-                  article.querySelector('pre code') ||
-                  article.querySelector('[data-message-author-role="assistant"]') ||
-                  article.querySelector('.markdown') ||
-                  article.querySelector('[class*="markdown"]') ||
-                  article.querySelector('[class*="prose"]') ||
-                  article;
-                push(preferred, 'article');
-              });
+              let anchor = -1;
+              if (marker) {
+                anchor = turns.findLastIndex(n => roleOf(n) === 'user' && textOf(n).includes(marker));
+                if (anchor < 0) return [];
+              }
+              const out = [];
+              for (let i = anchor + 1; i < turns.length; i++) {
+                const role = roleOf(turns[i]);
+                if (marker && (!role || role === 'user')) break;
+                if (role !== 'assistant') continue;
+                // Raw textContent can preserve valid JSON lost by innerText.
+                const code = turns[i].querySelector('pre code');
+                if (code?.textContent) out.push({text: code.textContent, source: 'code'});
+                out.push({text: textOf(turns[i]), source: 'assistant-turn'});
+              }
               return out;
             }
-            """
+            """, marker,
         )
     except Exception:
         return []
-
-    values: list[str] = []
-    for row in rows or []:
-        if isinstance(row, Mapping):
-            text = _rendered_text(row.get("text") or "").strip()
-        else:
-            text = _rendered_text(row).strip()
-        if text:
-            values.append(text)
-    return values
+    return [_rendered_text(row.get("text") if isinstance(row, Mapping) else row).strip()
+            for row in rows or [] if row]
 
 
 def _repair_json_candidate(candidate: str) -> str:
@@ -158,103 +133,87 @@ def _repair_json_candidate(candidate: str) -> str:
     return text
 
 
-def _extract_json(text: str) -> dict[str, Any] | None:
-    raw = _rendered_text(text).strip()
-    marked = _extract_last_marked(raw)
-    if marked:
-        raw = marked
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.I | re.S)
-    candidates = [fenced.group(1)] if fenced else []
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        candidates.append(raw[start : end + 1])
-    for candidate in candidates:
-        try:
-            payload = json.loads(_repair_json_candidate(candidate))
-        except Exception:
-            continue
-        if isinstance(payload, dict):
-            return payload
-    return None
+def _extract_json(text: str, expected_product: str = "") -> dict[str, Any] | None:
+    from app.additions.chatgpt_json_recovery_runtime import extract_json
+    return extract_json(text, expected_product)
 
 
-def _looks_like_content_json(text: str) -> bool:
-    payload = _extract_json(text)
-    if not isinstance(payload, dict):
-        return False
-    keys = {str(key).replace("\\_", "_") for key in payload}
-    return "short_description" in keys and bool(keys & {"content", "description"})
+def _looks_like_content_json(text: str, expected_product: str = "") -> bool:
+    from app.additions.chatgpt_json_recovery_runtime import content_object
+    payload = _extract_json(text, expected_product)
+    return isinstance(payload, dict) and content_object(payload)
 
 
-def _wait_content_response(page: Any, prompt: str, timeout_seconds: int | None = None) -> str:
-    before_candidates = set(_conversation_candidates(page))
+def _wait_content_response(page: Any, prompt: str, timeout_seconds: int | None = None,
+                           job: dict[str, Any] | None = None) -> str:
+    from uuid import uuid4
+    from app.additions.chatgpt_json_recovery_runtime import response_kind
+    expected = str((job or {}).get("product_name") or "")
+    marker = "CSCONTENT-" + uuid4().hex
     before_body = _body_text(page)
-    before_end_count = before_body.count(_END)
-    _submit(page, prompt)
+    _submit(page, prompt + "\n\nIdentificador desta solicitação: " + marker
+            + ". Não inclua o identificador no JSON.")
 
     deadline = time.monotonic() + (timeout_seconds or legacy._timeout_seconds())
     last_candidate = ""
+    last_observed = ""
     stable = 0
-    first_valid_at: float | None = None
-
+    valid_since = None
     while time.monotonic() < deadline:
         if legacy._looks_like_auth_wall(page) and legacy._composer(page, 1000) is None:
-            raise legacy.ChatGPTPlaywrightError(
-                "Sessão ChatGPT expirou durante a geração da descrição. Execute o bootstrap novamente."
-            )
-
-        # Caminho principal: resposta nova detectada pelos turnos/code blocks.
-        current = _conversation_candidates(page)
-        fresh = [text for text in current if text not in before_candidates]
-        candidate = ""
-        for text in reversed(fresh):
-            if _looks_like_content_json(text):
-                candidate = text
-                break
-
-        # Compatibilidade com o envelope usado nas tentativas anteriores.
-        if not candidate:
-            body = _body_text(page)
-            if body.count(_END) >= before_end_count + 2:
-                marked = _extract_last_marked(body)
-                if marked and _looks_like_content_json(marked):
-                    candidate = marked
-
+            raise legacy.ChatGPTPlaywrightError("Sessão ChatGPT expirou durante a geração da descrição.")
+        current = _conversation_candidates(page, marker)
+        if current:
+            last_observed = "\n".join(current)
+        candidate = next((text for text in reversed(current)
+                          if _looks_like_content_json(text, expected)), "")
         if candidate:
-            if first_valid_at is None:
-                first_valid_at = time.monotonic()
             if candidate == last_candidate:
                 stable += 1
             else:
-                last_candidate = candidate
                 stable = 0
-
-            # Não espere minutos por um botão Stop obsoleto: depois que existe
-            # JSON completo e estável, dê no máximo alguns segundos à UI.
-            grace_elapsed = time.monotonic() - first_valid_at
-            if stable >= 2 and (not _assistant_busy(page) or grace_elapsed >= 8):
+                valid_since = time.monotonic()
+            last_candidate = candidate
+            if stable >= 2 and (not _assistant_busy(page) or time.monotonic() - valid_since >= 8):
+                if job:
+                    legacy._update_job_state(str(job["job_id"]),
+                        content_response_kind=response_kind(candidate, expected),
+                        content_prompt_marker=marker)
                 return candidate
-
+        else:
+            # A temporarily valid prefix must not survive a subsequently truncated
+            # or replaced response, even if the timeout is about to expire.
+            last_candidate = ""
+            valid_since = None
+            stable = 0
         time.sleep(0.7)
 
-    # Se havia JSON válido completo perto do timeout, prefira utilizá-lo a
-    # transformar uma resposta pronta em erro de tempo limite.
-    if last_candidate and _looks_like_content_json(last_candidate):
-        return last_candidate
-
+    kind = response_kind(last_observed, expected)
+    if kind == "content_no_response":
+        body = _body_text(page)
+        # Full-page text is useful for diagnosing selector failures but cannot
+        # establish identity/turn provenance, so it is never returned as content.
+        if body != before_body and _looks_like_content_json(body, expected):
+            kind = "content_selector_unproven"
+    messages = {
+        "content_no_response": "ChatGPT não apresentou resposta para a solicitação atual.",
+        "content_response_partial": "ChatGPT respondeu parcialmente; o JSON está incompleto.",
+        "content_json_invalid": "ChatGPT respondeu, mas o JSON permanece inválido após reparar a formatação do DOM.",
+        "content_product_mismatch": "ChatGPT respondeu para outro produto; conteúdo descartado.",
+        "content_selector_unproven": "Há JSON na página, mas o seletor não comprovou o turno da resposta atual.",
+        "content_json_complete": "ChatGPT respondeu JSON completo, mas a resposta ainda não estabilizou.",
+        "content_json_dom_repaired": "O JSON foi reparado após formatação do DOM, mas a resposta ainda não estabilizou.",
+    }
     diagnostic = ""
     try:
         from app.additions import chatgpt_playwright_compat as compat
-
-        diagnostic = compat._diagnostic(page, "content_response_timeout")
+        diagnostic = compat._diagnostic(page, kind)
     except Exception:
         pass
-    suffix = f" Diagnóstico salvo em {diagnostic}." if diagnostic else ""
-    raise legacy.ChatGPTPlaywrightError(
-        "O ChatGPT exibiu a descrição, mas o CrapScraper não conseguiu localizar um JSON completo na resposta."
-        + suffix
-    )
+    error = legacy.ChatGPTPlaywrightError(
+        messages[kind] + (f" Diagnóstico salvo em {diagnostic}." if diagnostic else ""))
+    error.code = kind
+    raise error
 
 
 def _plain_url(value: Any) -> str:
@@ -296,8 +255,11 @@ def _legacy_parse(text: str, job: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
-    payload = _extract_json(text)
+    expected = str(job.get("product_name") or "")
+    payload = _extract_json(text, expected)
     if not isinstance(payload, dict):
+        if "{" in text:
+            raise legacy.ChatGPTPlaywrightError("JSON incompleto ou identidade de outro produto/ausente; conteúdo descartado.")
         return _legacy_parse(text, job)
 
     # developer/official_url já foram confirmados pelo research service. Não
@@ -308,7 +270,7 @@ def parse_content_response(text: str, job: dict[str, Any]) -> dict[str, Any]:
     model_official = clean_official_url(payload.get("official_url"))
 
     result = {
-        "product_name": str(payload.get("product_name") or payload.get("title") or job.get("product_name") or "").strip(),
+        "product_name": str(payload.get("product_name") or payload.get("title") or "").strip(),
         "short_description": " ".join(str(payload.get("short_description") or "").split()),
         "content": _htmlize(str(payload.get("content") or payload.get("description") or "")),
         "categories": normalize_list(payload.get("categories") or payload.get("category") or []),
@@ -375,7 +337,7 @@ def generate_content(job: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
         result: dict[str, Any] | None = None
         for attempt in range(2):
-            text = _wait_content_response(page, _strict_prompt(job, correction=attempt > 0))
+            text = _wait_content_response(page, _strict_prompt(job, correction=attempt > 0), job=job)
             try:
                 result = parse_content_response(text, job)
                 if _quality_ok(result):
@@ -397,6 +359,7 @@ def generate_content(job: dict[str, Any]) -> dict[str, Any]:
             conversation_url=page.url,
             content_ready=True,
             content_fingerprint=legacy._content_fingerprint({**job, **result}),
+            content_sha256=legacy.content_digest({**job, **result}),
             content_generated_at=int(time.time()),
         )
         return result

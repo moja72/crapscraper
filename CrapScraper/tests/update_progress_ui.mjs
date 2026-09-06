@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {chromium} from "playwright";
 
 const port="8782",fixture=mkdtempSync(join(tmpdir(),"crapscraper-update-progress-e2e-")),cwd=new URL("..",import.meta.url).pathname.replace(/^\/(.:)/,"$1");
-const server=spawn(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3.11"),["main.py"],{cwd,env:{...process.env,SCRAPER_PORT:port,SCRAPER_DATA_DIR:fixture,SCRAPER_UPDATE_IMPORT_LEGACY:"0",SCRAPER_ADDITION_IMPORT_LEGACY:"0"},stdio:"ignore"});
+const server=spawn(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3.11"),["tests/e2e_server.py"],{cwd,env:{...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("SCRAPER_"))),SCRAPER_WORDPRESS_MANUAL_POLLING_ENABLED:"0",SCRAPER_PORT:port,SCRAPER_DATA_DIR:fixture,SCRAPER_UPDATE_IMPORT_LEGACY:"0",SCRAPER_ADDITION_IMPORT_LEGACY:"0"},stdio:"ignore"});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function ready(){for(let index=0;index<60;index++){try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok)return}catch{}await sleep(250)}throw new Error("Servidor não iniciou")}
 
@@ -52,8 +52,8 @@ try{
   await page.waitForFunction(()=>document.querySelector('.update-status-time')?.textContent.includes('Concluído em:'));
   const progress=await terminal.locator('progress').evaluate(element=>({value:element.value,max:element.max}));if(progress.value!==progress.max)throw new Error(`Barra não finalizou: ${JSON.stringify(progress)}`);
   const copy=terminal.locator('[data-update-copy-log]');if(await copy.getAttribute('aria-label')!=="Copiar log")throw new Error("Botão de copiar sem aria-label correto");
-  await copy.click();await page.waitForFunction(()=>document.querySelector('[data-update-copy-log]')?.dataset.copied==="1");
-  const copied=await page.evaluate(()=>navigator.clipboard.readText());if(copied!==successFullLogs.join("\n"))throw new Error(`Cópia não usou log completo: ${copied}`);
+  await page.bringToFront();await copy.click();await page.waitForFunction(async expected=>(await navigator.clipboard.readText()).replace(/\r+\n/g,"\n")===expected,successFullLogs.join("\n"));
+  const copied=await page.evaluate(()=>navigator.clipboard.readText());if(copied.replace(/\r+\n/g,"\n")!==successFullLogs.join("\n"))throw new Error(`Cópia não usou log completo: ${copied}`);
   if(await terminal.getAttribute('open')!==null)throw new Error("Copiar log alternou a sanfona");
 
   stageIndex=5;await page.click('#update-refresh');await page.waitForFunction(()=>document.querySelector('details.update-job-progress-terminal[data-progress-state="error"]'));
